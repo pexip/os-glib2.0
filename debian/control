@@ -1,9 +1,10 @@
 Source: glib2.0
 Section: libs
 Priority: optional
-Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Maintainer: Pexip AS <packaging@pexip.com>
+XSBC-Pexip-Original-Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
 XSBC-Original-Maintainer: Debian GNOME Maintainers <pkg-gnome-maintainers@lists.alioth.debian.org>
-Uploaders: Debian GNOME Maintainers <pkg-gnome-maintainers@lists.alioth.debian.org>, Michael Biebl <biebl@debian.org>
+XSBC-Pexip-Original-Uploaders: Debian GNOME Maintainers <pkg-gnome-maintainers@lists.alioth.debian.org>, Michael Biebl <biebl@debian.org>
 Build-Depends: debhelper (>= 8.1.3),
                cdbs (>= 0.4.93),
                dh-autoreconf,
@@ -31,6 +32,7 @@ Build-Depends: debhelper (>= 8.1.3),
 Standards-Version: 3.9.2
 Homepage: http://www.gtk.org/
 Vcs-Bzr: https://code.launchpad.net/~ubuntu-desktop/glib/precise
+XS-Pexip-Upstream: http://archive.ubuntu.com/ubuntu/ precise
 
 Package: libglib2.0-0
 Architecture: any
