@@ -14,9 +14,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General
- * Public License along with this library; if not, write to the
- * Free Software Foundation, Inc., 59 Temple Place, Suite 330,
- * Boston, MA 02111-1307, USA.
+ * Public License along with this library; if not, see <http://www.gnu.org/licenses/>.
  *
  * Authors: Ryan Lortie <desrt@desrt.ca>
  *          Alexander Larsson <alexl@redhat.com>
@@ -27,11 +25,8 @@
 #include "glibintl.h"
 
 #include "giostream.h"
-#include <gio/gsimpleasyncresult.h>
-#include <gio/gasyncresult.h>
-
-
-G_DEFINE_ABSTRACT_TYPE (GIOStream, g_io_stream, G_TYPE_OBJECT);
+#include "gasyncresult.h"
+#include "gtask.h"
 
 /**
  * SECTION:giostream
@@ -60,9 +55,9 @@ G_DEFINE_ABSTRACT_TYPE (GIOStream, g_io_stream, G_TYPE_OBJECT);
  * To close a stream use g_io_stream_close() which will close the common
  * stream object and also the individual substreams. You can also close
  * the substreams themselves. In most cases this only marks the
- * substream as closed, so further I/O on it fails. However, some streams
- * may support "half-closed" states where one direction of the stream
- * is actually shut down.
+ * substream as closed, so further I/O on it fails but common state in the
+ * #GIOStream may still be open. However, some streams may support
+ * "half-closed" states where one direction of the stream is actually shut down.
  *
  * Since: 2.22
  */
@@ -78,7 +73,6 @@ enum
 struct _GIOStreamPrivate {
   guint closed : 1;
   guint pending : 1;
-  GAsyncReadyCallback outstanding_callback;
 };
 
 static gboolean g_io_stream_real_close        (GIOStream            *stream,
@@ -93,11 +87,7 @@ static gboolean g_io_stream_real_close_finish (GIOStream            *stream,
 					       GAsyncResult         *result,
 					       GError              **error);
 
-static void
-g_io_stream_finalize (GObject *object)
-{
-  G_OBJECT_CLASS (g_io_stream_parent_class)->finalize (object);
-}
+G_DEFINE_ABSTRACT_TYPE_WITH_PRIVATE (GIOStream, g_io_stream, G_TYPE_OBJECT)
 
 static void
 g_io_stream_dispose (GObject *object)
@@ -115,9 +105,7 @@ g_io_stream_dispose (GObject *object)
 static void
 g_io_stream_init (GIOStream *stream)
 {
-  stream->priv = G_TYPE_INSTANCE_GET_PRIVATE (stream,
-					      G_TYPE_IO_STREAM,
-					      GIOStreamPrivate);
+  stream->priv = g_io_stream_get_instance_private (stream);
 }
 
 static void
@@ -152,9 +140,6 @@ g_io_stream_class_init (GIOStreamClass *klass)
 {
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
 
-  g_type_class_add_private (klass, sizeof (GIOStreamPrivate));
-
-  gobject_class->finalize = g_io_stream_finalize;
   gobject_class->dispose = g_io_stream_dispose;
   gobject_class->get_property = g_io_stream_get_property;
 
@@ -276,7 +261,7 @@ g_io_stream_has_pending (GIOStream *stream)
  * already set or @stream is closed, it will return %FALSE and set
  * @error.
  *
- * Return value: %TRUE if pending was previously unset and is now set.
+ * Returns: %TRUE if pending was previously unset and is now set.
  *
  * Since: 2.22
  */
@@ -384,7 +369,7 @@ g_io_stream_real_close (GIOStream     *stream,
  * The default implementation of this method just calls close on the
  * individual input/output streams.
  *
- * Return value: %TRUE on success, %FALSE on failure
+ * Returns: %TRUE on success, %FALSE on failure
  *
  * Since: 2.22
  */
@@ -428,12 +413,25 @@ async_ready_close_callback_wrapper (GObject      *source_object,
                                     gpointer      user_data)
 {
   GIOStream *stream = G_IO_STREAM (source_object);
+  GIOStreamClass *klass = G_IO_STREAM_GET_CLASS (stream);
+  GTask *task = user_data;
+  GError *error = NULL;
+  gboolean success;
 
   stream->priv->closed = TRUE;
   g_io_stream_clear_pending (stream);
-  if (stream->priv->outstanding_callback)
-    (*stream->priv->outstanding_callback) (source_object, res, user_data);
-  g_object_unref (stream);
+
+  if (g_async_result_legacy_propagate_error (res, &error))
+    success = FALSE;
+  else
+    success = klass->close_finish (stream, res, &error);
+
+  if (error)
+    g_task_return_error (task, error);
+  else
+    g_task_return_boolean (task, success);
+
+  g_object_unref (task);
 }
 
 /**
@@ -465,36 +463,31 @@ g_io_stream_close_async (GIOStream           *stream,
 			 gpointer             user_data)
 {
   GIOStreamClass *class;
-  GSimpleAsyncResult *simple;
   GError *error = NULL;
+  GTask *task;
 
   g_return_if_fail (G_IS_IO_STREAM (stream));
 
+  task = g_task_new (stream, cancellable, callback, user_data);
+
   if (stream->priv->closed)
     {
-      simple = g_simple_async_result_new (G_OBJECT (stream),
-					  callback,
-					  user_data,
-					  g_io_stream_close_async);
-      g_simple_async_result_complete_in_idle (simple);
-      g_object_unref (simple);
+      g_task_return_boolean (task, TRUE);
+      g_object_unref (task);
       return;
     }
 
   if (!g_io_stream_set_pending (stream, &error))
     {
-      g_simple_async_report_take_gerror_in_idle (G_OBJECT (stream),
-					    callback,
-					    user_data,
-					    error);
+      g_task_return_error (task, error);
+      g_object_unref (task);
       return;
     }
 
   class = G_IO_STREAM_GET_CLASS (stream);
-  stream->priv->outstanding_callback = callback;
-  g_object_ref (stream);
+
   class->close_async (stream, io_priority, cancellable,
-		      async_ready_close_callback_wrapper, user_data);
+		      async_ready_close_callback_wrapper, task);
 }
 
 /**
@@ -515,48 +508,38 @@ g_io_stream_close_finish (GIOStream     *stream,
 			  GAsyncResult  *result,
 			  GError       **error)
 {
-  GSimpleAsyncResult *simple;
-  GIOStreamClass *class;
-
   g_return_val_if_fail (G_IS_IO_STREAM (stream), FALSE);
-  g_return_val_if_fail (G_IS_ASYNC_RESULT (result), FALSE);
+  g_return_val_if_fail (g_task_is_valid (result, stream), FALSE);
 
-  if (G_IS_SIMPLE_ASYNC_RESULT (result))
-    {
-      simple = G_SIMPLE_ASYNC_RESULT (result);
-      if (g_simple_async_result_propagate_error (simple, error))
-	return FALSE;
-
-      /* Special case already closed */
-      if (g_simple_async_result_get_source_tag (simple) == g_io_stream_close_async)
-	return TRUE;
-    }
-
-  class = G_IO_STREAM_GET_CLASS (stream);
-  return class->close_finish (stream, result, error);
+  return g_task_propagate_boolean (G_TASK (result), error);
 }
 
 
 static void
-close_async_thread (GSimpleAsyncResult *res,
-		    GObject            *object,
-		    GCancellable       *cancellable)
+close_async_thread (GTask        *task,
+                    gpointer      source_object,
+                    gpointer      task_data,
+                    GCancellable *cancellable)
 {
+  GIOStream *stream = source_object;
   GIOStreamClass *class;
   GError *error = NULL;
   gboolean result;
 
-  /* Auto handling of cancelation disabled, and ignore cancellation,
-   * since we want to close things anyway, although possibly in a
-   * quick-n-dirty way. At least we never want to leak open handles
-   */
-  class = G_IO_STREAM_GET_CLASS (object);
+  class = G_IO_STREAM_GET_CLASS (stream);
   if (class->close_fn)
     {
-      result = class->close_fn (G_IO_STREAM (object), cancellable, &error);
+      result = class->close_fn (stream,
+                                g_task_get_cancellable (task),
+                                &error);
       if (!result)
-        g_simple_async_result_take_error (res, error);
+        {
+          g_task_return_error (task, error);
+          return;
+        }
     }
+
+  g_task_return_boolean (task, TRUE);
 }
 
 static void
@@ -566,20 +549,14 @@ g_io_stream_real_close_async (GIOStream           *stream,
 			      GAsyncReadyCallback  callback,
 			      gpointer             user_data)
 {
-  GSimpleAsyncResult *res;
+  GTask *task;
 
-  res = g_simple_async_result_new (G_OBJECT (stream),
-				   callback,
-				   user_data,
-				   g_io_stream_real_close_async);
-
-  g_simple_async_result_set_handle_cancellation (res, FALSE);
-
-  g_simple_async_result_run_in_thread (res,
-				       close_async_thread,
-				       io_priority,
-				       cancellable);
-  g_object_unref (res);
+  task = g_task_new (stream, cancellable, callback, user_data);
+  g_task_set_check_cancellable (task, FALSE);
+  g_task_set_priority (task, io_priority);
+  
+  g_task_run_in_thread (task, close_async_thread);
+  g_object_unref (task);
 }
 
 static gboolean
@@ -587,10 +564,9 @@ g_io_stream_real_close_finish (GIOStream     *stream,
 			       GAsyncResult  *result,
 			       GError       **error)
 {
-  GSimpleAsyncResult *simple = G_SIMPLE_ASYNC_RESULT (result);
-  g_warn_if_fail (g_simple_async_result_get_source_tag (simple) ==
-		  g_io_stream_real_close_async);
-  return TRUE;
+  g_return_val_if_fail (g_task_is_valid (result, stream), FALSE);
+
+  return g_task_propagate_boolean (G_TASK (result), error);
 }
 
 typedef struct
@@ -621,16 +597,20 @@ splice_context_free (SpliceContext *ctx)
 }
 
 static void
-splice_complete (GSimpleAsyncResult *simple,
-                 SpliceContext      *ctx)
+splice_complete (GTask         *task,
+                 SpliceContext *ctx)
 {
   if (ctx->cancelled_id != 0)
     g_cancellable_disconnect (ctx->cancellable, ctx->cancelled_id);
   ctx->cancelled_id = 0;
 
   if (ctx->error != NULL)
-    g_simple_async_result_set_from_error (simple, ctx->error);
-  g_simple_async_result_complete (simple);
+    {
+      g_task_return_error (task, ctx->error);
+      ctx->error = NULL;
+    }
+  else
+    g_task_return_boolean (task, TRUE);
 }
 
 static void
@@ -638,13 +618,12 @@ splice_close_cb (GObject      *iostream,
                  GAsyncResult *res,
                  gpointer      user_data)
 {
-  GSimpleAsyncResult *simple = user_data;
-  SpliceContext *ctx;
+  GTask *task = user_data;
+  SpliceContext *ctx = g_task_get_task_data (task);
   GError *error = NULL;
 
   g_io_stream_close_finish (G_IO_STREAM (iostream), res, &error);
 
-  ctx = g_simple_async_result_get_op_res_gpointer (simple);
   ctx->completed++;
 
   /* Keep the first error that occurred */
@@ -655,9 +634,9 @@ splice_close_cb (GObject      *iostream,
 
   /* If all operations are done, complete now */
   if (ctx->completed == 4)
-    splice_complete (simple, ctx);
+    splice_complete (task, ctx);
 
-  g_object_unref (simple);
+  g_object_unref (task);
 }
 
 static void
@@ -665,13 +644,12 @@ splice_cb (GObject      *ostream,
            GAsyncResult *res,
            gpointer      user_data)
 {
-  GSimpleAsyncResult *simple = user_data;
-  SpliceContext *ctx;
+  GTask *task = user_data;
+  SpliceContext *ctx = g_task_get_task_data (task);
   GError *error = NULL;
 
   g_output_stream_splice_finish (G_OUTPUT_STREAM (ostream), res, &error);
 
-  ctx = g_simple_async_result_get_op_res_gpointer (simple);
   ctx->completed++;
 
   /* ignore cancellation error if it was not requested by the user */
@@ -705,32 +683,40 @@ splice_cb (GObject      *ostream,
 
       /* Close the IO streams if needed */
       if ((ctx->flags & G_IO_STREAM_SPLICE_CLOSE_STREAM1) != 0)
-        g_io_stream_close_async (ctx->stream1, ctx->io_priority,
-            ctx->op1_cancellable, splice_close_cb, g_object_ref (simple));
+	{
+	  g_io_stream_close_async (ctx->stream1,
+                                   g_task_get_priority (task),
+                                   ctx->op1_cancellable,
+                                   splice_close_cb, g_object_ref (task));
+	}
       else
         ctx->completed++;
 
       if ((ctx->flags & G_IO_STREAM_SPLICE_CLOSE_STREAM2) != 0)
-        g_io_stream_close_async (ctx->stream2, ctx->io_priority,
-            ctx->op2_cancellable, splice_close_cb, g_object_ref (simple));
+	{
+	  g_io_stream_close_async (ctx->stream2,
+                                   g_task_get_priority (task),
+                                   ctx->op2_cancellable,
+                                   splice_close_cb, g_object_ref (task));
+	}
       else
         ctx->completed++;
 
       /* If all operations are done, complete now */
       if (ctx->completed == 4)
-        splice_complete (simple, ctx);
+        splice_complete (task, ctx);
     }
 
-  g_object_unref (simple);
+  g_object_unref (task);
 }
 
 static void
-splice_cancelled_cb (GCancellable       *cancellable,
-                     GSimpleAsyncResult *simple)
+splice_cancelled_cb (GCancellable *cancellable,
+                     GTask        *task)
 {
   SpliceContext *ctx;
 
-  ctx = g_simple_async_result_get_op_res_gpointer (simple);
+  ctx = g_task_get_task_data (task);
   g_cancellable_cancel (ctx->op1_cancellable);
   g_cancellable_cancel (ctx->op2_cancellable);
 }
@@ -764,16 +750,17 @@ g_io_stream_splice_async (GIOStream            *stream1,
                           GAsyncReadyCallback   callback,
                           gpointer              user_data)
 {
-  GSimpleAsyncResult *simple;
+  GTask *task;
   SpliceContext *ctx;
   GInputStream *istream;
   GOutputStream *ostream;
 
   if (cancellable != NULL && g_cancellable_is_cancelled (cancellable))
     {
-      g_simple_async_report_error_in_idle (NULL, callback,
-          user_data, G_IO_ERROR, G_IO_ERROR_CANCELLED,
-          "Operation has been cancelled");
+      g_task_report_new_error (NULL, callback, user_data,
+                               g_io_stream_splice_async,
+                               G_IO_ERROR, G_IO_ERROR_CANCELLED,
+                               "Operation has been cancelled");
       return;
     }
 
@@ -781,21 +768,18 @@ g_io_stream_splice_async (GIOStream            *stream1,
   ctx->stream1 = g_object_ref (stream1);
   ctx->stream2 = g_object_ref (stream2);
   ctx->flags = flags;
-  ctx->io_priority = io_priority;
   ctx->op1_cancellable = g_cancellable_new ();
   ctx->op2_cancellable = g_cancellable_new ();
   ctx->completed = 0;
 
-  simple = g_simple_async_result_new (NULL, callback, user_data,
-      g_io_stream_splice_finish);
-  g_simple_async_result_set_op_res_gpointer (simple, ctx,
-      (GDestroyNotify) splice_context_free);
+  task = g_task_new (NULL, cancellable, callback, user_data);
+  g_task_set_task_data (task, ctx, (GDestroyNotify) splice_context_free);
 
   if (cancellable != NULL)
     {
       ctx->cancellable = g_object_ref (cancellable);
       ctx->cancelled_id = g_cancellable_connect (cancellable,
-          G_CALLBACK (splice_cancelled_cb), g_object_ref (simple),
+          G_CALLBACK (splice_cancelled_cb), g_object_ref (task),
           g_object_unref);
     }
 
@@ -803,15 +787,15 @@ g_io_stream_splice_async (GIOStream            *stream1,
   ostream = g_io_stream_get_output_stream (stream2);
   g_output_stream_splice_async (ostream, istream, G_OUTPUT_STREAM_SPLICE_NONE,
       io_priority, ctx->op1_cancellable, splice_cb,
-      g_object_ref (simple));
+      g_object_ref (task));
 
   istream = g_io_stream_get_input_stream (stream2);
   ostream = g_io_stream_get_output_stream (stream1);
   g_output_stream_splice_async (ostream, istream, G_OUTPUT_STREAM_SPLICE_NONE,
       io_priority, ctx->op2_cancellable, splice_cb,
-      g_object_ref (simple));
+      g_object_ref (task));
 
-  g_object_unref (simple);
+  g_object_unref (task);
 }
 
 /**
@@ -830,17 +814,7 @@ gboolean
 g_io_stream_splice_finish (GAsyncResult  *result,
                            GError       **error)
 {
-  GSimpleAsyncResult *simple;
+  g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
 
-  g_return_val_if_fail (G_IS_SIMPLE_ASYNC_RESULT (result), FALSE);
-
-  simple = G_SIMPLE_ASYNC_RESULT (result);
-
-  if (g_simple_async_result_propagate_error (simple, error))
-    return FALSE;
-
-  g_return_val_if_fail (g_simple_async_result_is_valid (result, NULL,
-      g_io_stream_splice_finish), FALSE);
-
-  return TRUE;
+  return g_task_propagate_boolean (G_TASK (result), error);
 }

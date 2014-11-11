@@ -12,9 +12,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General
- * Public License along with this library; if not, write to the
- * Free Software Foundation, Inc., 59 Temple Place, Suite 330,
- * Boston, MA 02111-1307, USA.
+ * Public License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 /*
@@ -49,9 +47,8 @@
  * GLib type system, it can be used as value type for object
  * properties, using g_param_spec_enum() or g_param_spec_flags().
  *
- * GObject ships with a utility called <link
- * linkend="glib-mkenums">glib-mkenums</link> that can construct
- * suitable type registration functions from C enumeration
+ * GObject ships with a utility called [glib-mkenums][glib-mkenums],
+ * that can construct suitable type registration functions from C enumeration
  * definitions.
  */
 
@@ -156,7 +153,7 @@ value_flags_enum_lcopy_value (const GValue *value,
   gint *int_p = collect_values[0].v_pointer;
   
   if (!int_p)
-    return g_strdup_printf ("value location for `%s' passed as NULL", G_VALUE_TYPE_NAME (value));
+    return g_strdup_printf ("value location for '%s' passed as NULL", G_VALUE_TYPE_NAME (value));
   
   *int_p = value->data[0].v_long;
   
@@ -173,10 +170,9 @@ value_flags_enum_lcopy_value (const GValue *value,
  *
  * Registers a new static enumeration type with the name @name.
  *
- * It is normally more convenient to let <link
- * linkend="glib-mkenums">glib-mkenums</link> generate a
- * my_enum_get_type() function from a usual C enumeration definition
- * than to write one yourself using g_enum_register_static().
+ * It is normally more convenient to let [glib-mkenums][glib-mkenums],
+ * generate a my_enum_get_type() function from a usual C enumeration
+ * definition  than to write one yourself using g_enum_register_static().
  *
  * Returns: The new type identifier.
  */
@@ -217,10 +213,9 @@ g_enum_register_static (const gchar	 *name,
  *
  * Registers a new static flags type with the name @name.
  *
- * It is normally more convenient to let <link
- * linkend="glib-mkenums">glib-mkenums</link> generate a
- * my_flags_get_type() function from a usual C enumeration definition
- * than to write one yourself using g_flags_register_static().
+ * It is normally more convenient to let [glib-mkenums][glib-mkenums]
+ * generate a my_flags_get_type() function from a usual C enumeration
+ * definition than to write one yourself using g_flags_register_static().
  *
  * Returns: The new type identifier.
  */
@@ -255,16 +250,16 @@ g_flags_register_static (const gchar	   *name,
 /**
  * g_enum_complete_type_info:
  * @g_enum_type: the type identifier of the type being completed
- * @info: the #GTypeInfo struct to be filled in
+ * @info: (out callee-allocates): the #GTypeInfo struct to be filled in
  * @const_values: An array of #GEnumValue structs for the possible
  *  enumeration values. The array is terminated by a struct with all
  *  members being 0.
  *
- * This function is meant to be called from the <literal>complete_type_info</literal>
+ * This function is meant to be called from the `complete_type_info`
  * function of a #GTypePlugin implementation, as in the following
  * example:
  *
- * |[
+ * |[<!-- language="C" --> 
  * static void
  * my_enum_complete_type_info (GTypePlugin     *plugin,
  *                             GType            g_type,
@@ -301,7 +296,7 @@ g_enum_complete_type_info (GType	     g_enum_type,
 /**
  * g_flags_complete_type_info:
  * @g_flags_type: the type identifier of the type being completed
- * @info: the #GTypeInfo struct to be filled in
+ * @info: (out callee-allocates): the #GTypeInfo struct to be filled in
  * @const_values: An array of #GFlagsValue structs for the possible
  *  enumeration values. The array is terminated by a struct with all
  *  members being 0.
@@ -382,8 +377,9 @@ g_flags_class_init (GFlagsClass *class,
  *
  * Looks up a #GEnumValue by name.
  *
- * Returns: the #GEnumValue with name @name, or %NULL if the
- *          enumeration doesn't have a member with that name
+ * Returns: (transfer none): the #GEnumValue with name @name,
+ *          or %NULL if the enumeration doesn't have a member
+ *          with that name
  */
 GEnumValue*
 g_enum_get_value_by_name (GEnumClass  *enum_class,
@@ -411,8 +407,8 @@ g_enum_get_value_by_name (GEnumClass  *enum_class,
  *
  * Looks up a #GFlagsValue by name.
  *
- * Returns: the #GFlagsValue with name @name, or %NULL if there is no
- *          flag with that name
+ * Returns: (transfer none): the #GFlagsValue with name @name,
+ *          or %NULL if there is no flag with that name
  */
 GFlagsValue*
 g_flags_get_value_by_name (GFlagsClass *flags_class,
@@ -440,8 +436,9 @@ g_flags_get_value_by_name (GFlagsClass *flags_class,
  *
  * Looks up a #GEnumValue by nickname.
  *
- * Returns: the #GEnumValue with nickname @nick, or %NULL if the
- *          enumeration doesn't have a member with that nickname
+ * Returns: (transfer none): the #GEnumValue with nickname @nick,
+ *          or %NULL if the enumeration doesn't have a member
+ *          with that nickname
  */
 GEnumValue*
 g_enum_get_value_by_nick (GEnumClass  *enum_class,
@@ -469,8 +466,8 @@ g_enum_get_value_by_nick (GEnumClass  *enum_class,
  *
  * Looks up a #GFlagsValue by nickname.
  *
- * Returns: the #GFlagsValue with nickname @nick, or %NULL if there is
- *          no flag with that nickname
+ * Returns: (transfer none): the #GFlagsValue with nickname @nick,
+ *          or %NULL if there is no flag with that nickname
  */
 GFlagsValue*
 g_flags_get_value_by_nick (GFlagsClass *flags_class,
@@ -498,8 +495,8 @@ g_flags_get_value_by_nick (GFlagsClass *flags_class,
  *
  * Returns the #GEnumValue for a value.
  *
- * Returns: the #GEnumValue for @value, or %NULL if @value is not a
- *          member of the enumeration
+ * Returns: (transfer none): the #GEnumValue for @value, or %NULL
+ *          if @value is not a member of the enumeration
  */
 GEnumValue*
 g_enum_get_value (GEnumClass *enum_class,
@@ -526,8 +523,8 @@ g_enum_get_value (GEnumClass *enum_class,
  *
  * Returns the first #GFlagsValue which is set in @value.
  *
- * Returns: the first #GFlagsValue which is set in @value, or %NULL if
- *          none is set
+ * Returns: (transfer none): the first #GFlagsValue which is set in
+ *          @value, or %NULL if none is set
  */
 GFlagsValue*
 g_flags_get_first_value (GFlagsClass *flags_class,
