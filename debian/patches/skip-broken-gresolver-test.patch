@@ -1,0 +1,20 @@
+diff --git a/gio/tests/network-address.c b/gio/tests/network-address.c
+index 44b6990..505c432 100644
+--- a/gio/tests/network-address.c
++++ b/gio/tests/network-address.c
+@@ -381,9 +381,12 @@ main (int argc, char *argv[])
+ 
+   for (i = 0; i < G_N_ELEMENTS (address_tests); i++)
+     {
+-      path = g_strdup_printf ("/gresolver/resolve-address/%d", i);
+-      g_test_add_data_func (path, &address_tests[i], test_resolve_address_gresolver);
+-      g_free (path);
++      if (i != 2)
++        {
++          path = g_strdup_printf ("/gresolver/resolve-address/%d", i);
++          g_test_add_data_func (path, &address_tests[i], test_resolve_address_gresolver);
++          g_free (path);
++        }
+     }
+ 
+   g_test_add_func ("/network-address/scope-id", test_host_scope_id);
