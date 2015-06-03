@@ -13,9 +13,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General
- * Public License along with this library; if not, write to the
- * Free Software Foundation, Inc., 59 Temple Place, Suite 330,
- * Boston, MA 02111-1307, USA.
+ * Public License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "config.h"
@@ -32,12 +30,13 @@
  * SECTION:gtlscertificate
  * @title: GTlsCertificate
  * @short_description: TLS certificate
+ * @include: gio/gio.h
  * @see_also: #GTlsConnection
  *
  * A certificate used for TLS authentication and encryption.
- * This can represent either a public key only (eg, the certificate
+ * This can represent either a certificate only (eg, the certificate
  * received by a client from a server), or the combination of
- * a public key and a private key (which is needed when acting as a
+ * a certificate and a private key (which is needed when acting as a
  * #GTlsServerConnection).
  *
  * Since: 2.28
@@ -98,10 +97,9 @@ g_tls_certificate_class_init (GTlsCertificateClass *class)
   /**
    * GTlsCertificate:certificate:
    *
-   * The DER (binary) encoded representation of the certificate's
-   * public key. This property and the
-   * #GTlsCertificate:certificate-pem property represent the same
-   * data, just in different forms.
+   * The DER (binary) encoded representation of the certificate.
+   * This property and the #GTlsCertificate:certificate-pem property
+   * represent the same data, just in different forms.
    *
    * Since: 2.28
    */
@@ -116,8 +114,8 @@ g_tls_certificate_class_init (GTlsCertificateClass *class)
   /**
    * GTlsCertificate:certificate-pem:
    *
-   * The PEM (ASCII) encoded representation of the certificate's
-   * public key. This property and the #GTlsCertificate:certificate
+   * The PEM (ASCII) encoded representation of the certificate.
+   * This property and the #GTlsCertificate:certificate
    * property represent the same data, just in different forms.
    *
    * Since: 2.28
@@ -140,7 +138,7 @@ g_tls_certificate_class_init (GTlsCertificateClass *class)
    * but cannot be read.
    *
    * PKCS#8 format is supported since 2.32; earlier releases only
-   * support PKCS#1. You can use the <literal>openssl rsa</literal>
+   * support PKCS#1. You can use the `openssl rsa`
    * tool to convert PKCS#8 keys to PKCS#1.
    *
    * Since: 2.28
@@ -157,14 +155,14 @@ g_tls_certificate_class_init (GTlsCertificateClass *class)
    * GTlsCertificate:private-key-pem:
    *
    * The PEM (ASCII) encoded representation of the certificate's
-   * private key in either PKCS#1 format ("<literal>BEGIN RSA PRIVATE
-   * KEY</literal>") or unencrypted PKCS#8 format ("<literal>BEGIN
-   * PRIVATE KEY</literal>"). This property (or the
+   * private key in either PKCS#1 format ("`BEGIN RSA PRIVATE
+   * KEY`") or unencrypted PKCS#8 format ("`BEGIN
+   * PRIVATE KEY`"). This property (or the
    * #GTlsCertificate:private-key property) can be set when
    * constructing a key (eg, from a file), but cannot be read.
    *
    * PKCS#8 format is supported since 2.32; earlier releases only
-   * support PKCS#1. You can use the <literal>openssl rsa</literal>
+   * support PKCS#1. You can use the `openssl rsa`
    * tool to convert PKCS#8 keys to PKCS#1.
    *
    * Since: 2.28
@@ -322,7 +320,7 @@ parse_next_pem_certificate (const gchar **data,
  * If @data includes multiple certificates, only the first one will be
  * parsed.
  *
- * Return value: the new certificate, or %NULL if @data is invalid
+ * Returns: the new certificate, or %NULL if @data is invalid
  *
  * Since: 2.28
  */
@@ -370,7 +368,7 @@ g_tls_certificate_new_from_pem  (const gchar  *data,
  * set @error. Otherwise, this behaves like
  * g_tls_certificate_new_from_pem().
  *
- * Return value: the new certificate, or %NULL on error
+ * Returns: the new certificate, or %NULL on error
  *
  * Since: 2.28
  */
@@ -401,7 +399,7 @@ g_tls_certificate_new_from_file (const gchar  *file,
  * function will return %NULL and set @error. Otherwise, this behaves
  * like g_tls_certificate_new_from_pem().
  *
- * Return value: the new certificate, or %NULL on error
+ * Returns: the new certificate, or %NULL on error
  *
  * Since: 2.28
  */
@@ -448,13 +446,13 @@ g_tls_certificate_new_from_files (const gchar  *cert_file,
  * @file: file containing PEM-encoded certificates to import
  * @error: #GError for error reporting, or %NULL to ignore.
  *
- * Creates one or more #GTlsCertificate<!-- -->s from the PEM-encoded
+ * Creates one or more #GTlsCertificates from the PEM-encoded
  * data in @file. If @file cannot be read or parsed, the function will
  * return %NULL and set @error. If @file does not contain any
  * PEM-encoded certificates, this will return an empty list and not
  * set @error.
  *
- * Return value: (element-type Gio.TlsCertificate) (transfer full): a
+ * Returns: (element-type Gio.TlsCertificate) (transfer full): a
  * #GList containing #GTlsCertificate objects. You must free the list
  * and its contents when you are done with it.
  *
@@ -478,19 +476,24 @@ g_tls_certificate_list_new_from_file (const gchar  *file,
     {
       gchar *cert_pem;
       GTlsCertificate *cert = NULL;
+      GError *parse_error = NULL;
 
-      cert_pem = parse_next_pem_certificate (&p, end, FALSE, error);
+      cert_pem = parse_next_pem_certificate (&p, end, FALSE, &parse_error);
       if (cert_pem)
-	{
-	  cert = g_tls_certificate_new_internal (cert_pem, NULL, error);
-	  g_free (cert_pem);
-	}
+        {
+          cert = g_tls_certificate_new_internal (cert_pem, NULL, &parse_error);
+          g_free (cert_pem);
+        }
       if (!cert)
-	{
-	  g_list_free_full (queue.head, g_object_unref);
-	  queue.head = NULL;
-	  break;
-	}
+        {
+          if (parse_error)
+            {
+              g_propagate_error (error, parse_error);
+              g_list_free_full (queue.head, g_object_unref);
+              queue.head = NULL;
+            }
+          break;
+        }
       g_queue_push_tail (&queue, cert);
     }
 
@@ -505,7 +508,7 @@ g_tls_certificate_list_new_from_file (const gchar  *file,
  *
  * Gets the #GTlsCertificate representing @cert's issuer, if known
  *
- * Return value: (transfer none): The certificate of @cert's issuer,
+ * Returns: (transfer none): The certificate of @cert's issuer,
  * or %NULL if @cert is self-signed or signed with an unknown
  * certificate.
  *
@@ -549,7 +552,7 @@ g_tls_certificate_get_issuer (GTlsCertificate  *cert)
  * (All other #GTlsCertificateFlags values will always be set or unset
  * as appropriate.)
  *
- * Return value: the appropriate #GTlsCertificateFlags
+ * Returns: the appropriate #GTlsCertificateFlags
  *
  * Since: 2.28
  */
@@ -559,4 +562,41 @@ g_tls_certificate_verify (GTlsCertificate     *cert,
 			  GTlsCertificate     *trusted_ca)
 {
   return G_TLS_CERTIFICATE_GET_CLASS (cert)->verify (cert, identity, trusted_ca);
+}
+
+/**
+ * g_tls_certificate_is_same:
+ * @cert_one: first certificate to compare
+ * @cert_two: second certificate to compare
+ *
+ * Check if two #GTlsCertificate objects represent the same certificate.
+ * The raw DER byte data of the two certificates are checked for equality.
+ * This has the effect that two certificates may compare equal even if
+ * their #GTlsCertificate:issuer, #GTlsCertificate:private-key, or
+ * #GTlsCertificate:private-key-pem properties differ.
+ *
+ * Returns: whether the same or not
+ *
+ * Since: 2.34
+ */
+gboolean
+g_tls_certificate_is_same (GTlsCertificate     *cert_one,
+                           GTlsCertificate     *cert_two)
+{
+  GByteArray *b1, *b2;
+  gboolean equal;
+
+  g_return_val_if_fail (G_IS_TLS_CERTIFICATE (cert_one), FALSE);
+  g_return_val_if_fail (G_IS_TLS_CERTIFICATE (cert_two), FALSE);
+
+  g_object_get (cert_one, "certificate", &b1, NULL);
+  g_object_get (cert_two, "certificate", &b2, NULL);
+
+  equal = (b1->len == b2->len &&
+           memcmp (b1->data, b2->data, b1->len) == 0);
+
+  g_byte_array_unref (b1);
+  g_byte_array_unref (b2);
+
+  return equal;
 }

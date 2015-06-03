@@ -12,9 +12,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General
- * Public License along with this library; if not, write to the
- * Free Software Foundation, Inc., 59 Temple Place, Suite 330,
- * Boston, MA 02111-1307, USA.
+ * Public License along with this library; if not, see <http://www.gnu.org/licenses/>.
  *
  * gvaluecollector.h: GValue varargs stubs
  */
@@ -246,7 +244,7 @@ G_STMT_START {										\
 /**
  * G_VALUE_COLLECT_FORMAT_MAX_LENGTH:
  * 
- * The maximal number of #GTypeCValue<!-- -->s which can be collected for a 
+ * The maximal number of #GTypeCValues which can be collected for a 
  * single #GValue.
  */
 #define	G_VALUE_COLLECT_FORMAT_MAX_LENGTH	(8)

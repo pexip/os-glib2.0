@@ -125,6 +125,8 @@ test_dataset_foreach (void)
   g_dataset_set_data_full (location, "test3", "test3", notify);
   g_dataset_foreach (location, foreach, &my_count);
   g_assert (my_count == 3);
+
+  g_dataset_destroy (location);
 }
 
 static void
@@ -183,15 +185,18 @@ free_one (gpointer data)
 static void
 test_datalist_clear (void)
 {
-  if (g_test_trap_fork (500000, 0))
+  /* Need to use a subprocess because it will deadlock if it fails */
+  if (g_test_subprocess ())
     {
       g_datalist_init (&list);
       g_datalist_set_data_full (&list, "one", GINT_TO_POINTER (1), free_one);
       g_datalist_set_data_full (&list, "two", GINT_TO_POINTER (2), NULL);
       g_datalist_clear (&list);
       g_assert (list == NULL);
-      exit (0);
+      return;
     }
+
+  g_test_trap_subprocess (NULL, 500000, 0);
   g_test_trap_assert_passed ();
 }
 

@@ -13,9 +13,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General
- * Public License along with this library; if not, write to the
- * Free Software Foundation, Inc., 59 Temple Place, Suite 330,
- * Boston, MA 02111-1307, USA.
+ * Public License along with this library; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Christian Kellner <gicmo@gnome.org>
  */
@@ -52,8 +50,10 @@ struct _GFileDescriptorBasedIface
   int (*get_fd) (GFileDescriptorBased *fd_based);
 };
 
+GLIB_AVAILABLE_IN_ALL
 GType    g_file_descriptor_based_get_type     (void) G_GNUC_CONST;
 
+GLIB_AVAILABLE_IN_ALL
 int      g_file_descriptor_based_get_fd       (GFileDescriptorBased *fd_based);
 
 G_END_DECLS

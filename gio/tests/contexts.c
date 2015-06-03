@@ -2,7 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define TEST_FILE (SRCDIR "/Makefile.am")
+static gchar *test_file;
+
 char *test_file_buffer;
 gsize test_file_size;
 static char async_read_buffer[8192];
@@ -105,7 +106,7 @@ test1_thread (gpointer user_data)
   g_main_context_push_thread_default (context);
   g_assert (g_main_context_get_thread_default () == context);
 
-  file = g_file_new_for_path (TEST_FILE);
+  file = g_file_new_for_path (test_file);
   g_assert (g_file_supports_thread_contexts (file));
 
   loop = g_main_loop_new (context, FALSE);
@@ -118,6 +119,9 @@ test1_thread (gpointer user_data)
   test1_done = TRUE;
   g_cond_signal (&test1_cond);
   g_mutex_unlock (&test1_mutex);
+
+  g_main_context_pop_thread_default (context);
+  g_main_context_unref (context);
 
   return NULL;
 }
@@ -143,7 +147,7 @@ test_context_independence (void)
   g_main_context_push_thread_default (context);
   g_assert (g_main_context_get_thread_default () == context);
 
-  file = g_file_new_for_path (TEST_FILE);
+  file = g_file_new_for_path (test_file);
   g_assert (g_file_supports_thread_contexts (file));
 
   /* Add a timeout to the main loop, to fail immediately if it gets run */
@@ -164,6 +168,9 @@ test_context_independence (void)
   g_source_remove (default_timeout);
   g_source_destroy (thread_default_timeout);
   g_source_unref (thread_default_timeout);
+
+  g_main_context_pop_thread_default (context);
+  g_main_context_unref (context);
 }
 
 static gboolean
@@ -177,16 +184,22 @@ int
 main (int argc, char **argv)
 {
   GError *error = NULL;
+  int ret;
 
-  g_type_init ();
   g_test_init (&argc, &argv, NULL);
 
-  g_file_get_contents (TEST_FILE, &test_file_buffer,
+  test_file = g_test_build_filename (G_TEST_DIST, "contexts.c", NULL);
+  g_file_get_contents (test_file, &test_file_buffer,
 		       &test_file_size, &error);
   g_assert_no_error (error);
 
   g_test_add_func ("/gio/contexts/thread-independence", test_thread_independence);
   g_test_add_func ("/gio/contexts/context-independence", test_context_independence);
 
-  return g_test_run();
+  ret = g_test_run();
+
+  g_free (test_file_buffer);
+  g_free (test_file);
+
+  return ret;
 }
