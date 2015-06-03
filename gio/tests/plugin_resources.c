@@ -32,7 +32,7 @@ static const SECTION union { const guint8 data[180]; const double alignment; voi
   0x00, 0x00, 0x00, 0x00
 } };
 
-static GStaticResource static_resource = { _g_plugin_resource_data.data, sizeof (_g_plugin_resource_data.data) };
+static GStaticResource static_resource = { _g_plugin_resource_data.data, sizeof (_g_plugin_resource_data.data), NULL, NULL, NULL };
 extern GResource *_g_plugin_get_resource (void);
 GResource *_g_plugin_get_resource (void)
 {

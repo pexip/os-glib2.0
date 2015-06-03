@@ -13,9 +13,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General
- * Public License along with this library; if not, write to the
- * Free Software Foundation, Inc., 59 Temple Place, Suite 330,
- * Boston, MA 02111-1307, USA.
+ * Public License along with this library; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: David Zeuthen <davidz@redhat.com>
  */
@@ -24,9 +22,6 @@
 
 #include <stdlib.h>
 #include <string.h>
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
 
 #include "giotypes.h"
 #include "gsocket.h"
@@ -39,6 +34,7 @@
 #include "ginputstream.h"
 #include "gmemoryinputstream.h"
 #include "giostream.h"
+#include "glib/gstdio.h"
 #include "gsocketcontrolmessage.h"
 #include "gsocketconnection.h"
 #include "gsocketoutputstream.h"
@@ -558,6 +554,7 @@ _g_dbus_worker_unfreeze (GDBusWorker *worker)
                          unfreeze_in_idle_cb,
                          _g_dbus_worker_ref (worker),
                          (GDestroyNotify) _g_dbus_worker_unref);
+  g_source_set_name (idle_source, "[gio] unfreeze_in_idle_cb");
   g_source_attach (idle_source, worker->shared_thread_data->context);
   g_source_unref (idle_source);
 }
@@ -621,7 +618,7 @@ _g_dbus_worker_do_read_cb (GInputStream  *input_stream,
                     {
                       /* TODO: really want a append_steal() */
                       g_unix_fd_list_append (worker->read_fd_list, fds[n], NULL);
-                      close (fds[n]);
+                      (void) g_close (fds[n], NULL);
                     }
                 }
               g_free (fds);
@@ -734,7 +731,7 @@ _g_dbus_worker_do_read_cb (GInputStream  *input_stream,
                                                      &error);
           if (message_len == -1)
             {
-              g_warning ("_g_dbus_worker_do_read_cb: error determing bytes needed: %s", error->message);
+              g_warning ("_g_dbus_worker_do_read_cb: error determining bytes needed: %s", error->message);
               _g_dbus_worker_emit_disconnected (worker, FALSE, error);
               g_error_free (error);
               goto out;
@@ -963,6 +960,7 @@ write_message_async_cb (GObject      *source_object,
  * write-lock is not held on entry
  * output_pending is PENDING_WRITE on entry
  */
+#ifdef G_OS_UNIX
 static gboolean
 on_socket_ready (GSocket      *socket,
                  GIOCondition  condition,
@@ -972,6 +970,7 @@ on_socket_ready (GSocket      *socket,
   write_message_continue_writing (data);
   return FALSE; /* remove source */
 }
+#endif
 
 /* called in private thread shared by all GDBusConnection instances
  *
@@ -982,15 +981,17 @@ static void
 write_message_continue_writing (MessageToWriteData *data)
 {
   GOutputStream *ostream;
-  GSimpleAsyncResult *simple;
 #ifdef G_OS_UNIX
+  GSimpleAsyncResult *simple;
   GUnixFDList *fd_list;
 #endif
 
+#ifdef G_OS_UNIX
   /* Note: we can't access data->simple after calling g_async_result_complete () because the
    * callback can free @data and we're not completing in idle. So use a copy of the pointer.
    */
   simple = data->simple;
+#endif
 
   ostream = g_io_stream_get_output_stream (data->worker->stream);
 #ifdef G_OS_UNIX
@@ -1106,7 +1107,9 @@ write_message_continue_writing (MessageToWriteData *data)
                                    write_message_async_cb,
                                    data);
     }
+#ifdef G_OS_UNIX
  out:
+#endif
   ;
 }
 
@@ -1552,7 +1555,7 @@ continue_writing_in_idle_cb (gpointer user_data)
   return FALSE;
 }
 
-/*
+/**
  * @write_data: (transfer full) (allow-none):
  * @flush_data: (transfer full) (allow-none):
  * @close_data: (transfer full) (allow-none):
@@ -1594,6 +1597,7 @@ schedule_writing_unlocked (GDBusWorker        *worker,
                              continue_writing_in_idle_cb,
                              _g_dbus_worker_ref (worker),
                              (GDestroyNotify) _g_dbus_worker_unref);
+      g_source_set_name (idle_source, "[gio] continue_writing_in_idle_cb");
       g_source_attach (idle_source, worker->shared_thread_data->context);
       g_source_unref (idle_source);
     }
@@ -1679,6 +1683,7 @@ _g_dbus_worker_new (GIOStream                              *stream,
                          _g_dbus_worker_do_initial_read,
                          _g_dbus_worker_ref (worker),
                          (GDestroyNotify) _g_dbus_worker_unref);
+  g_source_set_name (idle_source, "[gio] _g_dbus_worker_do_initial_read");
   g_source_attach (idle_source, worker->shared_thread_data->context);
   g_source_unref (idle_source);
 
@@ -1731,7 +1736,7 @@ _g_dbus_worker_stop (GDBusWorker *worker)
    */
   _g_dbus_worker_close (worker, NULL, NULL);
 
-  /* _g_dbus_worker_close holds a ref until after an idle in the the worker
+  /* _g_dbus_worker_close holds a ref until after an idle in the worker
    * thread has run, so we no longer need to unref in an idle like in
    * commit 322e25b535
    */
@@ -1903,7 +1908,7 @@ _g_dbus_debug_print_unlock (void)
   G_UNLOCK (print_lock);
 }
 
-/*
+/**
  * _g_dbus_initialize:
  *
  * Does various one-time init things such as
@@ -2148,7 +2153,7 @@ write_message_print_transport_debug (gssize bytes_written,
   _g_dbus_debug_print_lock ();
   g_print ("========================================================================\n"
            "GDBus-debug:Transport:\n"
-           "  >>>> WROTE %" G_GSIZE_FORMAT " bytes of message with serial %d and\n"
+           "  >>>> WROTE %" G_GSSIZE_FORMAT " bytes of message with serial %d and\n"
            "       size %" G_GSIZE_FORMAT " from offset %" G_GSIZE_FORMAT " on a %s\n",
            bytes_written,
            g_dbus_message_get_serial (data->message),
@@ -2199,7 +2204,7 @@ read_message_print_transport_debug (gssize bytes_read,
     _g_dbus_debug_print_lock ();
   g_print ("========================================================================\n"
            "GDBus-debug:Transport:\n"
-           "  <<<< READ %" G_GSIZE_FORMAT " bytes of message with serial %d and\n"
+           "  <<<< READ %" G_GSSIZE_FORMAT " bytes of message with serial %d and\n"
            "       size %d to offset %" G_GSIZE_FORMAT " from a %s\n",
            bytes_read,
            serial,

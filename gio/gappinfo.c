@@ -1,5 +1,5 @@
 /* GIO - GLib Input, Output and Streaming Library
- * 
+ *
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
  * This library is free software; you can redistribute it and/or
@@ -13,15 +13,16 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General
- * Public License along with this library; if not, write to the
- * Free Software Foundation, Inc., 59 Temple Place, Suite 330,
- * Boston, MA 02111-1307, USA.
+ * Public License along with this library; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Alexander Larsson <alexl@redhat.com>
  */
 
 #include "config.h"
+
 #include "gappinfo.h"
+#include "gappinfoprivate.h"
+
 #include "glibintl.h"
 #include <gioerror.h>
 #include <gfile.h>
@@ -31,6 +32,7 @@
  * SECTION:gappinfo
  * @short_description: Application information and launch contexts
  * @include: gio/gio.h
+ * @see_also: #GAppInfoMonitor
  * 
  * #GAppInfo and #GAppLaunchContext are used for describing and launching
  * applications installed on the system.
@@ -38,15 +40,13 @@
  * As of GLib 2.20, URIs will always be converted to POSIX paths
  * (using g_file_get_path()) when using g_app_info_launch() even if
  * the application requested an URI and not a POSIX path. For example
- * for an desktop-file based application with Exec key <literal>totem
- * &percnt;U</literal> and a single URI,
- * <literal>sftp://foo/file.avi</literal>, then
- * <literal>/home/user/.gvfs/sftp on foo/file.avi</literal> will be
- * passed. This will only work if a set of suitable GIO extensions
- * (such as gvfs 2.26 compiled with FUSE support), is available and
- * operational; if this is not the case, the URI will be passed
- * unmodified to the application. Some URIs, such as
- * <literal>mailto:</literal>, of course cannot be mapped to a POSIX
+ * for an desktop-file based application with Exec key `totem
+ * %U` and a single URI, `sftp://foo/file.avi`, then
+ * `/home/user/.gvfs/sftp on foo/file.avi` will be passed. This will
+ * only work if a set of suitable GIO extensions (such as gvfs 2.26
+ * compiled with FUSE support), is available and operational; if this
+ * is not the case, the URI will be passed unmodified to the application.
+ * Some URIs, such as `mailto:`, of course cannot be mapped to a POSIX
  * path (in gvfs there's no FUSE mount for it); such URIs will be
  * passed unmodified to the application.
  *
@@ -59,14 +59,14 @@
  * equal to the result of g_file_get_uri(). The following snippet
  * illustrates this:
  *
- * <programlisting>
+ * |[ 
  * GFile *f;
  * char *uri;
  *
  * file = g_file_new_for_commandline_arg (uri_from_commandline);
  *
  * uri = g_file_get_uri (file);
- * strcmp (uri, uri_from_commandline) == 0; // FALSE
+ * strcmp (uri, uri_from_commandline) == 0;
  * g_free (uri);
  *
  * if (g_file_has_uri_scheme (file, "cdda"))
@@ -74,16 +74,15 @@
  *     // do something special with uri
  *   }
  * g_object_unref (file);
- * </programlisting>
+ * ]|
  *
- * This code will work when both <literal>cdda://sr0/Track
- * 1.wav</literal> and <literal>/home/user/.gvfs/cdda on sr0/Track
- * 1.wav</literal> is passed to the application. It should be noted
- * that it's generally not safe for applications to rely on the format
- * of a particular URIs. Different launcher applications (e.g. file
- * managers) may have different ideas of what a given URI means.
- *
- **/
+ * This code will work when both `cdda://sr0/Track 1.wav` and
+ * `/home/user/.gvfs/cdda on sr0/Track 1.wav` is passed to the
+ * application. It should be noted that it's generally not safe
+ * for applications to rely on the format of a particular URIs.
+ * Different launcher applications (e.g. file managers) may have
+ * different ideas of what a given URI means.
+ */
 
 typedef GAppInfoIface GAppInfoInterface;
 G_DEFINE_INTERFACE (GAppInfo, g_app_info, G_TYPE_OBJECT)
@@ -119,7 +118,7 @@ g_app_info_dup (GAppInfo *appinfo)
  * @appinfo1: the first #GAppInfo.
  * @appinfo2: the second #GAppInfo.
  *
- * Checks if two #GAppInfo<!-- -->s are equal.
+ * Checks if two #GAppInfos are equal.
  *
  * Returns: %TRUE if @appinfo1 is equal to @appinfo2. %FALSE otherwise.
  **/
@@ -458,6 +457,37 @@ g_app_info_remove_supports_type (GAppInfo    *appinfo,
   return FALSE;
 }
 
+/**
+ * g_app_info_get_supported_types:
+ * @appinfo: a #GAppInfo that can handle files
+ *
+ * Retrieves the list of content types that @app_info claims to support.
+ * If this information is not provided by the environment, this function
+ * will return %NULL.
+ * This function does not take in consideration associations added with
+ * g_app_info_add_supports_type(), but only those exported directly by
+ * the application.
+ *
+ * Returns: (transfer none) (array zero-terminated=1) (element-type utf8):
+ *    a list of content types.
+ *
+ * Since: 2.34
+ */
+const char **
+g_app_info_get_supported_types (GAppInfo *appinfo)
+{
+  GAppInfoIface *iface;
+
+  g_return_val_if_fail (G_IS_APP_INFO (appinfo), NULL);
+
+  iface = G_APP_INFO_GET_IFACE (appinfo);
+
+  if (iface->get_supported_types)
+    return iface->get_supported_types (appinfo);
+  else
+    return NULL;
+}
+
 
 /**
  * g_app_info_get_icon:
@@ -484,7 +514,7 @@ g_app_info_get_icon (GAppInfo *appinfo)
 /**
  * g_app_info_launch:
  * @appinfo: a #GAppInfo
- * @files: (element-type GFile): a #GList of #GFile objects
+ * @files: (allow-none) (element-type GFile): a #GList of #GFile objects
  * @launch_context: (allow-none): a #GAppLaunchContext or %NULL
  * @error: a #GError
  * 
@@ -505,17 +535,16 @@ g_app_info_get_icon (GAppInfo *appinfo)
  * g_app_info_launch_uris() instead.
  *
  * The launched application inherits the environment of the launching
- * process, but it can be modified with g_app_launch_context_setenv() and
- * g_app_launch_context_unsetenv().
+ * process, but it can be modified with g_app_launch_context_setenv()
+ * and g_app_launch_context_unsetenv().
  *
- * On UNIX, this function sets the <envar>GIO_LAUNCHED_DESKTOP_FILE</envar>
+ * On UNIX, this function sets the `GIO_LAUNCHED_DESKTOP_FILE`
  * environment variable with the path of the launched desktop file and
- * <envar>GIO_LAUNCHED_DESKTOP_FILE_PID</envar> to the process
- * id of the launched process. This can be used to ignore
- * <envar>GIO_LAUNCHED_DESKTOP_FILE</envar>, should it be inherited
- * by further processes. The <envar>DISPLAY</envar> and
- * <envar>DESKTOP_STARTUP_ID</envar> environment variables are also
- * set, based on information provided in @launch_context.
+ * `GIO_LAUNCHED_DESKTOP_FILE_PID` to the process id of the launched
+ * process. This can be used to ignore `GIO_LAUNCHED_DESKTOP_FILE`,
+ * should it be inherited by further processes. The `DISPLAY` and
+ * `DESKTOP_STARTUP_ID` environment variables are also set, based
+ * on information provided in @launch_context.
  *
  * Returns: %TRUE on successful launch, %FALSE otherwise.
  **/
@@ -580,7 +609,7 @@ g_app_info_supports_files (GAppInfo *appinfo)
 /**
  * g_app_info_launch_uris:
  * @appinfo: a #GAppInfo
- * @uris: (element-type utf8): a #GList containing URIs to launch.
+ * @uris: (allow-none) (element-type utf8): a #GList containing URIs to launch.
  * @launch_context: (allow-none): a #GAppLaunchContext or %NULL
  * @error: a #GError
  * 
@@ -727,8 +756,8 @@ g_app_info_can_delete (GAppInfo *appinfo)
  * Tries to delete a #GAppInfo.
  *
  * On some platforms, there may be a difference between user-defined
- * #GAppInfo<!-- -->s which can be deleted, and system-wide ones which
- * cannot. See g_app_info_can_delete().
+ * #GAppInfos which can be deleted, and system-wide ones which cannot.
+ * See g_app_info_can_delete().
  *
  * Virtual: do_delete
  * Returns: %TRUE if @appinfo has been deleted
@@ -751,11 +780,19 @@ g_app_info_delete (GAppInfo *appinfo)
 }
 
 
-G_DEFINE_TYPE (GAppLaunchContext, g_app_launch_context, G_TYPE_OBJECT);
+enum {
+  LAUNCH_FAILED,
+  LAUNCHED,
+  LAST_SIGNAL
+};
 
 struct _GAppLaunchContextPrivate {
   char **envp;
 };
+
+static guint signals[LAST_SIGNAL] = { 0 };
+
+G_DEFINE_TYPE_WITH_PRIVATE (GAppLaunchContext, g_app_launch_context, G_TYPE_OBJECT)
 
 /**
  * g_app_launch_context_new:
@@ -786,15 +823,53 @@ g_app_launch_context_class_init (GAppLaunchContextClass *klass)
 {
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
 
-  g_type_class_add_private (klass, sizeof (GAppLaunchContextPrivate));
-
   object_class->finalize = g_app_launch_context_finalize;
+
+  /*
+   * GAppLaunchContext::launch-failed:
+   * @context: the object emitting the signal
+   * @startup_notify_id: the startup notification id for the failed launch
+   *
+   * The ::launch-failed signal is emitted when a #GAppInfo launch
+   * fails. The startup notification id is provided, so that the launcher
+   * can cancel the startup notification.
+   *
+   * Since: 2.36
+   */
+  signals[LAUNCH_FAILED] = g_signal_new ("launch-failed",
+                                         G_OBJECT_CLASS_TYPE (object_class),
+                                         G_SIGNAL_RUN_LAST,
+                                         G_STRUCT_OFFSET (GAppLaunchContextClass, launch_failed),
+                                         NULL, NULL, NULL,
+                                         G_TYPE_NONE, 1, G_TYPE_STRING);
+
+  /*
+   * GAppLaunchContext::launched:
+   * @context: the object emitting the signal
+   * @info: the #GAppInfo that was just launched
+   * @platform_data: additional platform-specific data for this launch
+   *
+   * The ::launched signal is emitted when a #GAppInfo is successfully
+   * launched. The @platform_data is an GVariant dictionary mapping
+   * strings to variants (ie a{sv}), which contains additional,
+   * platform-specific data about this launch. On UNIX, at least the
+   * "pid" and "startup-notification-id" keys will be present.
+   *
+   * Since: 2.36
+   */
+  signals[LAUNCHED] = g_signal_new ("launched",
+                                    G_OBJECT_CLASS_TYPE (object_class),
+                                    G_SIGNAL_RUN_LAST,
+                                    G_STRUCT_OFFSET (GAppLaunchContextClass, launched),
+                                    NULL, NULL, NULL,
+                                    G_TYPE_NONE, 2,
+                                    G_TYPE_APP_INFO, G_TYPE_VARIANT);
 }
 
 static void
 g_app_launch_context_init (GAppLaunchContext *context)
 {
-  context->priv = G_TYPE_INSTANCE_GET_PRIVATE (context, G_TYPE_APP_LAUNCH_CONTEXT, GAppLaunchContextPrivate);
+  context->priv = g_app_launch_context_get_instance_private (context);
 }
 
 /**
@@ -848,9 +923,9 @@ g_app_launch_context_unsetenv (GAppLaunchContext *context,
  * Gets the complete environment variable list to be passed to
  * the child process when @context is used to launch an application.
  * This is a %NULL-terminated array of strings, where each string has
- * the form <literal>KEY=VALUE</literal>.
+ * the form `KEY=VALUE`.
  *
- * Return value: (array zero-terminated=1) (transfer full): the
+ * Returns: (array zero-terminated=1) (transfer full): the
  *     child's environment
  *
  * Since: 2.32
@@ -872,7 +947,7 @@ g_app_launch_context_get_environment (GAppLaunchContext *context)
  *
  * Gets the display string for the @context. This is used to ensure new
  * applications are started on the same display as the launching
- * application, by setting the <envar>DISPLAY</envar> environment variable.
+ * application, by setting the `DISPLAY` environment variable.
  *
  * Returns: a display string for the display.
  */
@@ -901,12 +976,10 @@ g_app_launch_context_get_display (GAppLaunchContext *context,
  * @files: (element-type GFile): a #GList of of #GFile objects
  * 
  * Initiates startup notification for the application and returns the
- * <envar>DESKTOP_STARTUP_ID</envar> for the launched operation,
- * if supported.
+ * `DESKTOP_STARTUP_ID` for the launched operation, if supported.
  *
- * Startup notification IDs are defined in the <ulink
- * url="http://standards.freedesktop.org/startup-notification-spec/startup-notification-latest.txt">
- * FreeDesktop.Org Startup Notifications standard</ulink>.
+ * Startup notification IDs are defined in the 
+ * [FreeDesktop.Org Startup Notifications standard](http://standards.freedesktop.org/startup-notification-spec/startup-notification-latest.txt").
  *
  * Returns: a startup notification ID for the application, or %NULL if
  *     not supported.
@@ -943,13 +1016,233 @@ void
 g_app_launch_context_launch_failed (GAppLaunchContext *context,
 				    const char        *startup_notify_id)
 {
-  GAppLaunchContextClass *class;
-
   g_return_if_fail (G_IS_APP_LAUNCH_CONTEXT (context));
   g_return_if_fail (startup_notify_id != NULL);
 
-  class = G_APP_LAUNCH_CONTEXT_GET_CLASS (context);
+  g_signal_emit (context, signals[LAUNCH_FAILED], 0, startup_notify_id);
+}
 
-  if (class->launch_failed != NULL)
-    class->launch_failed (context, startup_notify_id);
+
+/**
+ * SECTION:gappinfomonitor
+ * @short_description: Monitor application information for changes
+ *
+ * #GAppInfoMonitor is a very simple object used for monitoring the app
+ * info database for changes (ie: newly installed or removed
+ * applications).
+ *
+ * Call g_app_info_monitor_get() to get a #GAppInfoMonitor and connect
+ * to the "changed" signal.
+ *
+ * In the usual case, applications should try to make note of the change
+ * (doing things like invalidating caches) but not act on it.  In
+ * particular, applications should avoid making calls to #GAppInfo APIs
+ * in response to the change signal, deferring these until the time that
+ * the data is actually required.  The exception to this case is when
+ * application information is actually being displayed on the screen
+ * (eg: during a search or when the list of all applications is shown).
+ * The reason for this is that changes to the list of installed
+ * applications often come in groups (like during system updates) and
+ * rescanning the list on every change is pointless and expensive.
+ *
+ * Since: 2.40
+ **/
+
+/**
+ * GAppInfoMonitor:
+ *
+ * The only thing you can do with this is to get it via
+ * g_app_info_monitor_get() and connect to the "changed" signal.
+ *
+ * Since: 2.40
+ **/
+
+/* We have one of each of these per main context and hand them out
+ * according to the thread default main context at the time of the call
+ * to g_app_info_monitor_get().
+ *
+ * g_object_unref() is only ever called from the same context, so we
+ * effectively have a single-threaded scenario for each GAppInfoMonitor.
+ *
+ * We use a hashtable to cache the per-context monitor (but we do not
+ * hold a ref).  During finalize, we remove it.  This is possible
+ * because we don't have to worry about the usual races due to the
+ * single-threaded nature of each object.
+ *
+ * We keep a global list of all contexts that have a monitor for them,
+ * which we have to access under a lock.  When we dispatch the events to
+ * be handled in each context, we don't pass the monitor, but the
+ * context itself.
+ *
+ * We dispatch from the GLib worker context, so if we passed the
+ * monitor, we would need to take a ref on it (in case it was destroyed
+ * in its own thread meanwhile).  The monitor holds a ref on a context
+ * and the dispatch would mean that the context would hold a ref on the
+ * monitor.  If someone stopped iterating the context at just this
+ * moment both the context and monitor would leak.
+ *
+ * Instead, we dispatch the context to itself.  We don't hold a ref.
+ * There is the danger that the context will be destroyed during the
+ * dispatch, but if that is the case then we just won't receive our
+ * callback.
+ *
+ * When the dispatch occurs we just lookup the monitor in the hashtable,
+ * by context.  We can now add and remove refs, since the context will
+ * have been acquired.
+ */
+
+typedef struct _GAppInfoMonitorClass GAppInfoMonitorClass;
+
+struct _GAppInfoMonitor
+{
+  GObject parent_instance;
+  GMainContext *context;
+};
+
+struct _GAppInfoMonitorClass
+{
+  GObjectClass parent_class;
+};
+
+static GHashTable *g_app_info_monitors;
+static GMutex      g_app_info_monitor_lock;
+static guint       g_app_info_monitor_changed_signal;
+
+G_DEFINE_TYPE (GAppInfoMonitor, g_app_info_monitor, G_TYPE_OBJECT)
+
+static void
+g_app_info_monitor_finalize (GObject *object)
+{
+  GAppInfoMonitor *monitor = G_APP_INFO_MONITOR (object);
+
+  g_mutex_lock (&g_app_info_monitor_lock);
+  g_hash_table_remove (g_app_info_monitors, monitor->context);
+  g_mutex_unlock (&g_app_info_monitor_lock);
+
+  G_OBJECT_CLASS (g_app_info_monitor_parent_class)->finalize (object);
+}
+
+static void
+g_app_info_monitor_init (GAppInfoMonitor *monitor)
+{
+}
+
+static void
+g_app_info_monitor_class_init (GAppInfoMonitorClass *class)
+{
+  GObjectClass *object_class = G_OBJECT_CLASS (class);
+
+  g_app_info_monitor_changed_signal = g_signal_new ("changed", G_TYPE_APP_INFO_MONITOR, G_SIGNAL_RUN_FIRST,
+                                                    0, NULL, NULL, g_cclosure_marshal_VOID__VOID, G_TYPE_NONE, 0);
+
+  object_class->finalize = g_app_info_monitor_finalize;
+}
+
+/**
+ * g_app_info_monitor_get:
+ *
+ * Gets the #GAppInfoMonitor for the current thread-default main
+ * context.
+ *
+ * The #GAppInfoMonitor will emit a "changed" signal in the
+ * thread-default main context whenever the list of installed
+ * applications (as reported by g_app_info_get_all()) may have changed.
+ *
+ * You must only call g_object_unref() on the return value from under
+ * the same main context as you created it.
+ *
+ * Returns: (transfer full): a reference to a #GAppInfoMonitor
+ *
+ * Since: 2.40
+ **/
+GAppInfoMonitor *
+g_app_info_monitor_get (void)
+{
+  GAppInfoMonitor *monitor;
+  GMainContext *context;
+
+  context = g_main_context_get_thread_default ();
+  if (!context)
+    context = g_main_context_default ();
+
+  g_return_val_if_fail (g_main_context_acquire (context), NULL);
+
+  g_mutex_lock (&g_app_info_monitor_lock);
+  if (!g_app_info_monitors)
+    g_app_info_monitors = g_hash_table_new (NULL, NULL);
+
+  monitor = g_hash_table_lookup (g_app_info_monitors, context);
+  g_mutex_unlock (&g_app_info_monitor_lock);
+
+  if (!monitor)
+    {
+      monitor = g_object_new (G_TYPE_APP_INFO_MONITOR, NULL);
+      monitor->context = g_main_context_ref (context);
+
+      g_mutex_lock (&g_app_info_monitor_lock);
+      g_hash_table_insert (g_app_info_monitors, context, monitor);
+      g_mutex_unlock (&g_app_info_monitor_lock);
+    }
+  else
+    g_object_ref (monitor);
+
+  g_main_context_release (context);
+
+  return monitor;
+}
+
+static gboolean
+g_app_info_monitor_emit (gpointer user_data)
+{
+  GMainContext *context = user_data;
+  GAppInfoMonitor *monitor;
+
+  g_mutex_lock (&g_app_info_monitor_lock);
+  monitor = g_hash_table_lookup (g_app_info_monitors, context);
+  g_mutex_unlock (&g_app_info_monitor_lock);
+
+  /* It is possible that the monitor was already destroyed by the time
+   * we get here, so make sure it's not NULL.
+   */
+  if (monitor != NULL)
+    {
+      /* We don't have to worry about another thread disposing the
+       * monitor but we do have to worry about the possibility that one
+       * of the attached handlers may do so.
+       *
+       * Take a ref so that the monitor doesn't disappear in the middle
+       * of the emission.
+       */
+      g_object_ref (monitor);
+      g_signal_emit (monitor, g_app_info_monitor_changed_signal, 0);
+      g_object_unref (monitor);
+    }
+
+  return FALSE;
+}
+
+void
+g_app_info_monitor_fire (void)
+{
+  GHashTableIter iter;
+  gpointer context;
+
+  g_mutex_lock (&g_app_info_monitor_lock);
+
+  if (g_app_info_monitors)
+    {
+      g_hash_table_iter_init (&iter, g_app_info_monitors);
+      while (g_hash_table_iter_next (&iter, &context, NULL))
+        {
+          GSource *idle;
+
+          idle = g_idle_source_new ();
+          g_source_set_callback (idle, g_app_info_monitor_emit, context, NULL);
+          g_source_set_name (idle, "[gio] g_app_info_monitor_emit");
+          g_source_attach (idle, context);
+          g_source_unref (idle);
+        }
+    }
+
+  g_mutex_unlock (&g_app_info_monitor_lock);
 }

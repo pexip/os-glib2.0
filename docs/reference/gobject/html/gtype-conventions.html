@@ -2,22 +2,22 @@
 <html>
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-<title>Conventions</title>
-<meta name="generator" content="DocBook XSL Stylesheets V1.77.1">
+<title>GObject Reference Manual: Conventions</title>
+<meta name="generator" content="DocBook XSL Stylesheets V1.78.1">
 <link rel="home" href="index.html" title="GObject Reference Manual">
 <link rel="up" href="chapter-gtype.html" title="The GLib Dynamic Type System">
 <link rel="prev" href="chapter-gtype.html" title="The GLib Dynamic Type System">
 <link rel="next" href="gtype-non-instantiable.html" title="Non-instantiable non-classed fundamental types">
-<meta name="generator" content="GTK-Doc V1.18 (XML mode)">
+<meta name="generator" content="GTK-Doc V1.21.1 (XML mode)">
 <link rel="stylesheet" href="style.css" type="text/css">
 </head>
 <body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
-<table class="navigation" id="top" width="100%" summary="Navigation header" cellpadding="2" cellspacing="2"><tr valign="middle">
-<td><a accesskey="p" href="chapter-gtype.html"><img src="left.png" width="24" height="24" border="0" alt="Prev"></a></td>
-<td><a accesskey="u" href="chapter-gtype.html"><img src="up.png" width="24" height="24" border="0" alt="Up"></a></td>
-<td><a accesskey="h" href="index.html"><img src="home.png" width="24" height="24" border="0" alt="Home"></a></td>
-<th width="100%" align="center">GObject Reference Manual</th>
-<td><a accesskey="n" href="gtype-non-instantiable.html"><img src="right.png" width="24" height="24" border="0" alt="Next"></a></td>
+<table class="navigation" id="top" width="100%" summary="Navigation header" cellpadding="2" cellspacing="5"><tr valign="middle">
+<td width="100%" align="left" class="shortcuts"></td>
+<td><a accesskey="h" href="index.html"><img src="home.png" width="16" height="16" border="0" alt="Home"></a></td>
+<td><a accesskey="u" href="chapter-gtype.html"><img src="up.png" width="16" height="16" border="0" alt="Up"></a></td>
+<td><a accesskey="p" href="chapter-gtype.html"><img src="left.png" width="16" height="16" border="0" alt="Prev"></a></td>
+<td><a accesskey="n" href="gtype-non-instantiable.html"><img src="right.png" width="16" height="16" border="0" alt="Next"></a></td>
 </tr></table>
 <div class="sect1">
 <div class="titlepage"><div><div><h2 class="title" style="clear: both">
@@ -34,7 +34,7 @@
           </p></li>
 <li class="listitem"><p>Use prefixing to avoid namespace conflicts with other projects.
             If your library (or application) is named <span class="emphasis"><em>Maman</em></span>,
-            <a href="#ftn.id538037" class="footnote"><sup class="footnote"><a name="id538037"></a>[3]</sup></a>
+            <a href="#ftn.id-1.3.3.7.2.1.2.1.2" class="footnote" name="id-1.3.3.7.2.1.2.1.2"><sup class="footnote">[3]</sup></a>
             
             prefix all your function names with <span class="emphasis"><em>maman_</em></span>.
             For example: <code class="function">maman_object_method</code>.
@@ -51,7 +51,7 @@
             returns a pointer of type <span class="type">PrefixObject</span>. This macro is used to enforce
             static type safety by doing explicit casts wherever needed. It also enforces
             dynamic type safety by doing runtime checks. It is possible to disable the dynamic
-            type checks in production builds (see <a href="./../glib/glib/glib-building.html">building glib</a>).
+            type checks in production builds (see <a href="https://developer.gnome.org/glib/unstable/glib-building.html">building glib</a>).
             For example, we would create 
             <code class="function">MAMAN_BAR (obj)</code> to keep the previous example.
           </p></li>
@@ -92,10 +92,7 @@
 </pre>
 <p>
         </p>
-<div class="note" style="margin-left: 0.5in; margin-right: 0.5in;">
-<h3 class="title">Note</h3>
-<p>Stick to the naming <code class="varname">klass</code> as <code class="varname">class</code> is a registered c++ keyword.</p>
-</div>
+<div class="note"><p>Stick to the naming <code class="varname">klass</code> as <code class="varname">class</code> is a registered c++ keyword.</p></div>
 <p>
       </p>
 <p>
@@ -120,8 +117,9 @@ GType maman_bar_get_type (void)
 <p>
       </p>
 <p>
-        When having no special requirements you also can use the <code class="function">G_DEFINE_TYPE</code>
-	macro:
+        If you have no special requirements you can use the
+        <code class="function"><a class="link" href="gobject-Type-Information.html#G-DEFINE-TYPE:CAPS" title="G_DEFINE_TYPE()">G_DEFINE_TYPE</a></code>
+	macro to define a class:
 </p>
 <pre class="programlisting">
 G_DEFINE_TYPE (MamanBar, maman_bar, G_TYPE_OBJECT)
@@ -129,8 +127,8 @@ G_DEFINE_TYPE (MamanBar, maman_bar, G_TYPE_OBJECT)
 <p>
       </p>
 <div class="footnotes">
-<br><hr style="width:100; align:left;">
-<div id="ftn.id538037" class="footnote"><p><a href="#id538037" class="para"><sup class="para">[3] </sup></a>
+<br><hr style="width:100; text-align:left;margin-left: 0">
+<div id="ftn.id-1.3.3.7.2.1.2.1.2" class="footnote"><p><a href="#id-1.3.3.7.2.1.2.1.2" class="para"><sup class="para">[3] </sup></a>
                 <span class="emphasis"><em>Maman</em></span> is the French word for <span class="emphasis"><em>mum</em></span>
                 or <span class="emphasis"><em>mother</em></span> - nothing more and nothing less.
               </p></div>
@@ -138,6 +136,6 @@ G_DEFINE_TYPE (MamanBar, maman_bar, G_TYPE_OBJECT)
 </div>
 <div class="footer">
 <hr>
-          Generated by GTK-Doc V1.18</div>
+          Generated by GTK-Doc V1.21.1</div>
 </body>
 </html>

@@ -12,9 +12,7 @@
    Library General Public License for more details.
 
    You should have received a copy of the GNU Library General Public
-   License along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307,
-   USA.  */
+   License along with this program; if not, see <http://www.gnu.org/licenses/>.  */
 
 #ifndef _WIN32
 /* Tell glibc's <stdio.h> to provide a prototype for snprintf().
@@ -729,13 +727,16 @@ vasnprintf (char *resultbuf, size_t *lengthp, const char *format, va_list args)
 		  {
 		    size_t maxlen;
 		    int count;
+#if HAVE_SNPRINTF
 		    int retcount;
+#endif
 
 		    maxlen = allocated - length;
 		    count = -1;
-		    retcount = 0;
 
 #if HAVE_SNPRINTF
+		    retcount = 0;
+
 #define SNPRINTF_BUF(arg) \
 		    switch (prefix_count)				    \
 		      {							    \

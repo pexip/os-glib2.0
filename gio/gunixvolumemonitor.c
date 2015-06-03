@@ -15,9 +15,7 @@
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General
- * Public License along with this library; if not, write to the
- * Free Software Foundation, Inc., 59 Temple Place, Suite 330,
- * Boston, MA 02111-1307, USA.
+ * Public License along with this library; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Alexander Larsson <alexl@redhat.com>
  *         David Zeuthen <davidz@redhat.com>
@@ -105,28 +103,20 @@ static GList *
 get_mounts (GVolumeMonitor *volume_monitor)
 {
   GUnixVolumeMonitor *monitor;
-  GList *l;
   
   monitor = G_UNIX_VOLUME_MONITOR (volume_monitor);
 
-  l = g_list_copy (monitor->mounts);
-  g_list_foreach (l, (GFunc)g_object_ref, NULL);
-
-  return l;
+  return g_list_copy_deep (monitor->mounts, (GCopyFunc) g_object_ref, NULL);
 }
 
 static GList *
 get_volumes (GVolumeMonitor *volume_monitor)
 {
   GUnixVolumeMonitor *monitor;
-  GList *l;
   
   monitor = G_UNIX_VOLUME_MONITOR (volume_monitor);
 
-  l = g_list_copy (monitor->volumes);
-  g_list_foreach (l, (GFunc)g_object_ref, NULL);
-
-  return l;
+  return g_list_copy_deep (monitor->volumes, (GCopyFunc) g_object_ref, NULL);
 }
 
 static GList *
