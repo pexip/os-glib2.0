@@ -49,6 +49,23 @@
 #  include <io.h>
 #endif /* _MSC_VER || __DMC__ */
 
+#define MODERN_API_FAMILY 2
+
+#if WINAPI_FAMILY == MODERN_API_FAMILY
+/* This is for modern UI Builds, where we can't use LoadLibraryW()/GetProcAddress() */
+/* ntddk.h is found in the WDK, and MinGW */
+#include <ntddk.h>
+
+#ifdef _MSC_VER
+#pragma comment (lib, "ntoskrnl.lib")
+#endif
+#elif defined (__MINGW32__)
+/* mingw-w64, not MinGW, has winternl.h */
+#include <ntdef.h>
+#else
+#include <winternl.h>
+#endif
+
 #include "glib.h"
 #include "gthreadprivate.h"
 
@@ -175,7 +192,7 @@ g_win32_error_message (gint error)
 {
   gchar *retval;
   wchar_t *msg = NULL;
-  int nchars;
+  size_t nchars;
 
   FormatMessageW (FORMAT_MESSAGE_ALLOCATE_BUFFER
 		  |FORMAT_MESSAGE_IGNORE_INSERTS
@@ -185,12 +202,12 @@ g_win32_error_message (gint error)
   if (msg != NULL)
     {
       nchars = wcslen (msg);
-      
-      if (nchars > 2 && msg[nchars-1] == '\n' && msg[nchars-2] == '\r')
-	msg[nchars-2] = '\0';
-      
+
+      if (nchars >= 2 && msg[nchars-1] == L'\n' && msg[nchars-2] == L'\r')
+        msg[nchars-2] = L'\0';
+
       retval = g_utf16_to_utf8 (msg, -1, NULL, NULL, NULL);
-      
+
       LocalFree (msg);
     }
   else
@@ -517,7 +534,114 @@ g_win32_get_package_installation_subdirectory (const gchar *package,
 #endif
 
 /**
+ * g_win32_check_windows_version:
+ * @major: major version of Windows
+ * @minor: minor version of Windows
+ * @spver: Windows Service Pack Level, 0 if none
+ * @os_type: Type of Windows OS
+ *
+ * Returns whether the version of the Windows operating system the
+ * code is running on is at least the specified major, minor and
+ * service pack versions.  See MSDN documentation for the Operating
+ * System Version.  Software that needs even more detailed version and
+ * feature information should use the Win32 API VerifyVersionInfo()
+ * directly.
+ *
+ * Successive calls of this function can be used for enabling or
+ * disabling features at run-time for a range of Windows versions,
+ * as per the VerifyVersionInfo() API documentation.
+ *
+ * Returns: %TRUE if the Windows Version is the same or greater than
+ *          the specified major, minor and service pack versions, and
+ *          whether the running Windows is a workstation or server edition
+ *          of Windows, if specifically specified.
+ *
+ * Since: 2.44
+ **/
+gboolean
+g_win32_check_windows_version (const gint major,
+                               const gint minor,
+                               const gint spver,
+                               const GWin32OSType os_type)
+{
+  OSVERSIONINFOEXW osverinfo;
+  gboolean is_ver_checked = FALSE;
+  gboolean is_type_checked = FALSE;
+
+#if WINAPI_FAMILY != MODERN_API_FAMILY
+  /* For non-modern UI Apps, use the LoadLibraryW()/GetProcAddress() thing */
+  typedef NTSTATUS (WINAPI fRtlGetVersion) (PRTL_OSVERSIONINFOEXW);
+
+  fRtlGetVersion *RtlGetVersion;
+  HMODULE hmodule;
+#endif
+  /* We Only Support Checking for XP or later */
+  g_return_val_if_fail (major >= 5 && (major <=6 || major == 10), FALSE);
+  g_return_val_if_fail ((major >= 5 && minor >= 1) || major >= 6, FALSE);
+
+  /* Check for Service Pack Version >= 0 */
+  g_return_val_if_fail (spver >= 0, FALSE);
+
+#if WINAPI_FAMILY != MODERN_API_FAMILY
+  hmodule = LoadLibraryW (L"ntdll.dll");
+  g_return_val_if_fail (hmodule != NULL, FALSE);
+
+  RtlGetVersion = (fRtlGetVersion *) GetProcAddress (hmodule, "RtlGetVersion");
+  g_return_val_if_fail (RtlGetVersion != NULL, FALSE);
+#endif
+
+  memset (&osverinfo, 0, sizeof (OSVERSIONINFOEXW));
+  osverinfo.dwOSVersionInfoSize = sizeof (OSVERSIONINFOEXW);
+  RtlGetVersion (&osverinfo);
+
+  /* check the OS and Service Pack Versions */
+  if (osverinfo.dwMajorVersion > major)
+    is_ver_checked = TRUE;
+  else if (osverinfo.dwMajorVersion == major)
+    {
+      if (osverinfo.dwMinorVersion > minor)
+        is_ver_checked = TRUE;
+      else if (osverinfo.dwMinorVersion == minor)
+        if (osverinfo.wServicePackMajor >= spver)
+          is_ver_checked = TRUE;
+    }
+
+  /* Check OS Type */
+  if (is_ver_checked)
+    {
+      switch (os_type)
+        {
+          case G_WIN32_OS_ANY:
+            is_type_checked = TRUE;
+            break;
+          case G_WIN32_OS_WORKSTATION:
+            if (osverinfo.wProductType == VER_NT_WORKSTATION)
+              is_type_checked = TRUE;
+            break;
+          case G_WIN32_OS_SERVER:
+            if (osverinfo.wProductType == VER_NT_SERVER ||
+                osverinfo.wProductType == VER_NT_DOMAIN_CONTROLLER)
+              is_type_checked = TRUE;
+            break;
+          default:
+            /* shouldn't get here normally */
+            g_warning ("Invalid os_type specified");
+            break;
+        }
+    }
+
+#if WINAPI_FAMILY != MODERN_API_FAMILY
+  FreeLibrary (hmodule);
+#endif
+
+  return is_ver_checked && is_type_checked;
+}
+
+/**
  * g_win32_get_windows_version:
+ *
+ * This function is deprecated. Use
+ * g_win32_check_windows_version() instead.
  *
  * Returns version information for the Windows operating system the
  * code is running on. See MSDN documentation for the GetVersion()
@@ -530,8 +654,12 @@ g_win32_get_package_installation_subdirectory (const gchar *package,
  * GetVersionEx() and VerifyVersionInfo().
  *
  * Returns: The version information.
- * 
- * Since: 2.6
+ *
+ * Deprecated: 2.44: Be aware that for Windows 8.1 and Windows Server
+ * 2012 R2 and later, this will return 62 unless the application is
+ * manifested for Windows 8.1/Windows Server 2012 R2, for example.
+ * MSDN stated that GetVersion(), which is used here, is subject to
+ * further change or removal after Windows 8.1.
  **/
 guint
 g_win32_get_windows_version (void)
@@ -651,5 +779,6 @@ g_win32_get_command_line (void)
     result[i] = g_utf16_to_utf8 (args[i], -1, NULL, NULL, NULL);
   result[i] = NULL;
 
+  LocalFree (args);
   return result;
 }

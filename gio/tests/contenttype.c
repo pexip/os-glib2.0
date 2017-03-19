@@ -18,6 +18,7 @@ test_guess (void)
 {
   gchar *res;
   gchar *expected;
+  gchar *existing_directory;
   gboolean uncertain;
   guchar data[] =
     "[Desktop Entry]\n"
@@ -25,7 +26,17 @@ test_guess (void)
     "Name=appinfo-test\n"
     "Exec=./appinfo-test --option\n";
 
-  res = g_content_type_guess ("/etc/", NULL, 0, &uncertain);
+#ifdef G_OS_WIN32
+  existing_directory = (gchar *) g_getenv ("SYSTEMROOT");
+
+  if (existing_directory)
+    existing_directory = g_strdup_printf ("%s/", existing_directory);
+#else
+  existing_directory = g_strdup ("/etc/");
+#endif
+
+  res = g_content_type_guess (existing_directory, NULL, 0, &uncertain);
+  g_free (existing_directory);
   expected = g_content_type_from_mime_type ("inode/directory");
   g_assert_content_type_equals (expected, res);
   g_assert (uncertain);
@@ -199,21 +210,6 @@ test_description (void)
   g_free (type);
 }
 
-static gboolean
-strv_contains (const gchar * const *strv,
-               const gchar  *s)
-{
-  gint i;
-
-  for (i = 0; strv[i]; i++)
-    {
-      if (g_strcmp0 (strv[i], s) == 0)
-        return TRUE;
-    }
-
-  return FALSE;
-}
-
 static void
 test_icon (void)
 {
@@ -228,8 +224,8 @@ test_icon (void)
       const gchar *const *names;
 
       names = g_themed_icon_get_names (G_THEMED_ICON (icon));
-      g_assert (strv_contains (names, "text-plain"));
-      g_assert (strv_contains (names, "text-x-generic"));
+      g_assert (g_strv_contains (names, "text-plain"));
+      g_assert (g_strv_contains (names, "text-x-generic"));
     }
   g_object_unref (icon);
   g_free (type);
@@ -242,8 +238,8 @@ test_icon (void)
       const gchar *const *names;
 
       names = g_themed_icon_get_names (G_THEMED_ICON (icon));
-      g_assert (strv_contains (names, "application-rtf"));
-      g_assert (strv_contains (names, "x-office-document"));
+      g_assert (g_strv_contains (names, "application-rtf"));
+      g_assert (g_strv_contains (names, "x-office-document"));
     }
   g_object_unref (icon);
   g_free (type);
@@ -252,6 +248,7 @@ test_icon (void)
 static void
 test_symbolic_icon (void)
 {
+#ifndef G_OS_WIN32
   gchar *type;
   GIcon *icon;
 
@@ -263,10 +260,10 @@ test_symbolic_icon (void)
       const gchar *const *names;
 
       names = g_themed_icon_get_names (G_THEMED_ICON (icon));
-      g_assert (strv_contains (names, "text-plain-symbolic"));
-      g_assert (strv_contains (names, "text-x-generic-symbolic"));
-      g_assert (strv_contains (names, "text-plain"));
-      g_assert (strv_contains (names, "text-x-generic"));
+      g_assert (g_strv_contains (names, "text-plain-symbolic"));
+      g_assert (g_strv_contains (names, "text-x-generic-symbolic"));
+      g_assert (g_strv_contains (names, "text-plain"));
+      g_assert (g_strv_contains (names, "text-x-generic"));
     }
   g_object_unref (icon);
   g_free (type);
@@ -279,13 +276,14 @@ test_symbolic_icon (void)
       const gchar *const *names;
 
       names = g_themed_icon_get_names (G_THEMED_ICON (icon));
-      g_assert (strv_contains (names, "application-rtf-symbolic"));
-      g_assert (strv_contains (names, "x-office-document-symbolic"));
-      g_assert (strv_contains (names, "application-rtf"));
-      g_assert (strv_contains (names, "x-office-document"));
+      g_assert (g_strv_contains (names, "application-rtf-symbolic"));
+      g_assert (g_strv_contains (names, "x-office-document-symbolic"));
+      g_assert (g_strv_contains (names, "application-rtf"));
+      g_assert (g_strv_contains (names, "x-office-document"));
     }
   g_object_unref (icon);
   g_free (type);
+#endif
 }
 
 static void

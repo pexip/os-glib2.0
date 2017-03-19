@@ -318,7 +318,7 @@ g_dataset_destroy_internal (GDataset *dataset)
 
 /**
  * g_dataset_destroy:
- * @dataset_location: the location identifying the dataset.
+ * @dataset_location: (not nullable): the location identifying the dataset.
  *
  * Destroys the dataset, freeing all memory allocated, and calling any
  * destroy functions set for data elements.
@@ -487,7 +487,7 @@ g_data_set_internal (GData	  **datalist,
 
 /**
  * g_dataset_id_set_data_full:
- * @dataset_location: the location identifying the dataset.
+ * @dataset_location: (not nullable): the location identifying the dataset.
  * @key_id: the #GQuark id to identify the data element.
  * @data: the data element.
  * @destroy_func: the function to call when the data element is
@@ -672,7 +672,7 @@ g_datalist_id_set_data_full (GData	  **datalist,
 
 /**
  * g_dataset_id_remove_no_notify:
- * @dataset_location: the location identifying the dataset.
+ * @dataset_location: (not nullable): the location identifying the dataset.
  * @key_id: the #GQuark ID identifying the data element.
  *
  * Removes an element, without calling its destroy notification
@@ -742,7 +742,7 @@ g_datalist_id_remove_no_notify (GData	**datalist,
 
 /**
  * g_dataset_id_get_data:
- * @dataset_location: the location identifying the dataset.
+ * @dataset_location: (not nullable): the location identifying the dataset.
  * @key_id: the #GQuark id to identify the data element.
  *
  * Gets the data element corresponding to a #GQuark.
@@ -849,17 +849,14 @@ g_datalist_id_dup_data (GData          **datalist,
   GData *d;
   GDataElt *data, *data_end;
 
-  g_return_val_if_fail (datalist != NULL, NULL);
-  g_return_val_if_fail (key_id != 0, NULL);
-
   g_datalist_lock (datalist);
 
   d = G_DATALIST_GET_POINTER (datalist);
   if (d)
     {
       data = d->data;
-      data_end = data + d->len - 1;
-      while (data <= data_end)
+      data_end = data + d->len;
+      do
         {
           if (data->key == key_id)
             {
@@ -868,6 +865,7 @@ g_datalist_id_dup_data (GData          **datalist,
             }
           data++;
         }
+      while (data < data_end);
     }
 
   if (dup_func)
@@ -1029,7 +1027,7 @@ g_datalist_get_data (GData	 **datalist,
       data_end = data + d->len;
       while (data < data_end)
 	{
-	  if (strcmp (g_quark_to_string (data->key), key) == 0)
+	  if (g_strcmp0 (g_quark_to_string (data->key), key) == 0)
 	    {
 	      res = data->data;
 	      break;
@@ -1056,7 +1054,7 @@ g_datalist_get_data (GData	 **datalist,
 
 /**
  * g_dataset_foreach:
- * @dataset_location: the location identifying the dataset.
+ * @dataset_location: (not nullable): the location identifying the dataset.
  * @func: the function to call for each data element.
  * @user_data: user data to pass to the function.
  *

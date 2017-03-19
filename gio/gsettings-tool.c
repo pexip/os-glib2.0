@@ -155,7 +155,7 @@ gsettings_list_keys (void)
 {
   gchar **keys;
 
-  keys = g_settings_list_keys (global_settings);
+  keys = g_settings_schema_list_keys (global_schema);
   output_list (keys);
   g_strfreev (keys);
 }
@@ -201,12 +201,12 @@ static void
 enumerate (GSettings *settings)
 {
   gchar **keys;
-  gchar *schema;
+  GSettingsSchema *schema;
   gint i;
 
-  g_object_get (settings, "schema-id", &schema, NULL);
+  g_object_get (settings, "settings-schema", &schema, NULL);
 
-  keys = g_settings_list_keys (settings);
+  keys = g_settings_schema_list_keys (schema);
   for (i = 0; keys[i]; i++)
     {
       GVariant *value;
@@ -214,12 +214,12 @@ enumerate (GSettings *settings)
 
       value = g_settings_get_value (settings, keys[i]);
       printed = g_variant_print (value, TRUE);
-      g_print ("%s %s %s\n", schema, keys[i], printed);
+      g_print ("%s %s %s\n", g_settings_schema_get_id (schema), keys[i], printed);
       g_variant_unref (value);
       g_free (printed);
     }
 
-  g_free (schema);
+  g_settings_schema_unref (schema);
   g_strfreev (keys);
 }
 
@@ -268,6 +268,14 @@ gsettings_list_recursively (void)
 
       g_strfreev (schemas);
     }
+}
+
+static void
+gsettings_description (void)
+{
+  const gchar *description;
+  description = g_settings_schema_key_get_description (global_schema_key);
+  g_print ("%s\n", description);
 }
 
 static void
@@ -344,15 +352,19 @@ gsettings_reset (void)
 static void
 reset_all_keys (GSettings *settings)
 {
+  GSettingsSchema *schema;
   gchar **keys;
   gint i;
 
-  keys = g_settings_list_keys (settings);
+  g_object_get (settings, "settings-schema", &schema, NULL);
+
+  keys = g_settings_schema_list_keys (schema);
   for (i = 0; keys[i]; i++)
     {
       g_settings_reset (settings, keys[i]);
     }
 
+  g_settings_schema_unref (schema);
   g_strfreev (keys);
 }
 
@@ -558,6 +570,12 @@ gsettings_help (gboolean     requested,
       synopsis = N_("SCHEMA[:PATH] KEY");
     }
 
+  else if (strcmp (command, "describe") == 0)
+    {
+      description = _("Query the description for KEY");
+      synopsis = N_("SCHEMA[:PATH] KEY");
+    }
+
   else if (strcmp (command, "set") == 0)
     {
       description = _("Set the value of KEY to VALUE");
@@ -611,6 +629,7 @@ gsettings_help (gboolean     requested,
         "  list-children             List children of a schema\n"
         "  list-recursively          List keys and values, recursively\n"
         "  range                     Queries the range of a key\n"
+        "  describe                  Queries the description of a key\n"
         "  get                       Get the value of a key\n"
         "  set                       Set the value of a key\n"
         "  reset                     Reset the value of a key\n"
@@ -669,6 +688,7 @@ int
 main (int argc, char **argv)
 {
   void (* function) (void);
+  gboolean need_settings;
 
 #ifdef G_OS_WIN32
   gchar *tmp;
@@ -692,7 +712,7 @@ main (int argc, char **argv)
   if (argc < 2)
     return gsettings_help (FALSE, NULL);
 
-  global_schema_source = g_settings_schema_source_ref (g_settings_schema_source_get_default ());
+  global_schema_source = g_settings_schema_source_get_default ();
 
   if (argc > 3 && g_str_equal (argv[1], "--schemadir"))
     {
@@ -700,7 +720,6 @@ main (int argc, char **argv)
       GError *error = NULL;
 
       global_schema_source = g_settings_schema_source_new_from_directory (argv[2], parent, FALSE, &error);
-      g_settings_schema_source_unref (parent);
 
       if (global_schema_source == NULL)
         {
@@ -714,6 +733,15 @@ main (int argc, char **argv)
       argv = argv + 2;
       argc -= 2;
     }
+  else if (global_schema_source == NULL)
+    {
+      g_printerr (_("No schemas installed\n"));
+      return 1;
+    }
+  else
+    g_settings_schema_source_ref (global_schema_source);
+
+  need_settings = TRUE;
 
   if (strcmp (argv[1], "help") == 0)
     return gsettings_help (TRUE, argv[2]);
@@ -728,7 +756,10 @@ main (int argc, char **argv)
     function = gsettings_list_relocatable_schemas;
 
   else if (argc == 3 && strcmp (argv[1], "list-keys") == 0)
-    function = gsettings_list_keys;
+    {
+      need_settings = FALSE;
+      function = gsettings_list_keys;
+    }
 
   else if (argc == 3 && strcmp (argv[1], "list-children") == 0)
     function = gsettings_list_children;
@@ -736,8 +767,17 @@ main (int argc, char **argv)
   else if ((argc == 2 || argc == 3) && strcmp (argv[1], "list-recursively") == 0)
     function = gsettings_list_recursively;
 
+  else if (argc == 4 && strcmp (argv[1], "describe") == 0)
+    {
+      need_settings = FALSE;
+      function = gsettings_description;
+    }
+
   else if (argc == 4 && strcmp (argv[1], "range") == 0)
-    function = gsettings_range;
+    {
+      need_settings = FALSE;
+      function = gsettings_range;
+    }
 
   else if (argc == 4 && strcmp (argv[1], "get") == 0)
     function = gsettings_get;
@@ -773,19 +813,45 @@ main (int argc, char **argv)
       parts = g_strsplit (argv[2], ":", 2);
 
       global_schema = g_settings_schema_source_lookup (global_schema_source, parts[0], TRUE);
-      if (parts[1])
-        {
-          if (!check_relocatable_schema (global_schema, parts[0]) || !check_path (parts[1]))
-            return 1;
 
-          global_settings = g_settings_new_full (global_schema, NULL, parts[1]);
+      if (need_settings)
+        {
+          if (parts[1])
+            {
+              if (!check_relocatable_schema (global_schema, parts[0]) || !check_path (parts[1]))
+                return 1;
+
+              global_settings = g_settings_new_full (global_schema, NULL, parts[1]);
+            }
+          else
+            {
+              if (!check_schema (global_schema, parts[0]))
+                return 1;
+
+              global_settings = g_settings_new_full (global_schema, NULL, NULL);
+            }
         }
       else
         {
-          if (!check_schema (global_schema, parts[0]))
-            return 1;
-
-          global_settings = g_settings_new_full (global_schema, NULL, NULL);
+          /* If the user has given a path then we enforce that we have a
+           * relocatable schema, but if they didn't give a path then it
+           * doesn't matter what type of schema we have (since it's
+           * reasonable to ask for introspection information on a
+           * relocatable schema without having to give the path).
+           */
+          if (parts[1])
+            {
+              if (!check_relocatable_schema (global_schema, parts[0]) || !check_path (parts[1]))
+                return 1;
+            }
+          else
+            {
+              if (global_schema == NULL)
+                {
+                  g_printerr (_("No such schema '%s'\n"), parts[0]);
+                  return 1;
+                }
+            }
         }
 
       g_strfreev (parts);

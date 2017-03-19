@@ -234,7 +234,7 @@ dupfd_cloexec (int parent_fd)
   return fd;
 }
 
-/**
+/*
  * Based on code derived from
  * gnome-terminal:src/terminal-screen.c:terminal_screen_child_setup(),
  * used under the LGPLv2+ with permission from author.
@@ -696,7 +696,7 @@ g_subprocess_new (GSubprocessFlags   flags,
 }
 
 /**
- * g_subprocess_newv:
+ * g_subprocess_newv: (rename-to g_subprocess_new)
  * @argv: (array zero-terminated=1) (element-type utf8): commandline arguments for the subprocess
  * @flags: flags that define the behaviour of the subprocess
  * @error: (allow-none): return location for an error, or %NULL
@@ -709,7 +709,6 @@ g_subprocess_new (GSubprocessFlags   flags,
  *   will be set)
  *
  * Since: 2.40
- * Rename to: g_subprocess_new
  */
 GSubprocess *
 g_subprocess_newv (const gchar * const  *argv,
@@ -850,6 +849,7 @@ g_subprocess_wait_async (GSubprocess         *subprocess,
   GTask *task;
 
   task = g_task_new (subprocess, cancellable, callback, user_data);
+  g_task_set_source_tag (task, g_subprocess_wait_async);
 
   g_mutex_lock (&subprocess->pending_waits_lock);
   if (subprocess->pid)
@@ -1519,6 +1519,8 @@ g_subprocess_communicate_internal (GSubprocess         *subprocess,
   GTask *task;
 
   task = g_task_new (subprocess, cancellable, callback, user_data);
+  g_task_set_source_tag (task, g_subprocess_communicate_internal);
+
   state = g_slice_new0 (CommunicateState);
   g_task_set_task_data (task, state, g_subprocess_communicate_state_free);
 

@@ -2,13 +2,13 @@
 <html>
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-<title>GIO Reference Manual: Part II. API Reference</title>
-<meta name="generator" content="DocBook XSL Stylesheets V1.78.1">
+<title>Part II. API Reference: GIO Reference Manual</title>
+<meta name="generator" content="DocBook XSL Stylesheets V1.79.1">
 <link rel="home" href="index.html" title="GIO Reference Manual">
 <link rel="up" href="index.html" title="GIO Reference Manual">
 <link rel="prev" href="extending-gio.html" title="Extending GIO">
 <link rel="next" href="file_ops.html" title="File Operations">
-<meta name="generator" content="GTK-Doc V1.21.1 (XML mode)">
+<meta name="generator" content="GTK-Doc V1.25.1 (XML mode)">
 <link rel="stylesheet" href="style.css" type="text/css">
 </head>
 <body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
@@ -101,6 +101,9 @@
 </dt>
 <dt>
 <span class="refentrytitle"><a href="GIOStream.html">GIOStream</a></span><span class="refpurpose"> — Base class for implementing read/write streams</span>
+</dt>
+<dt>
+<span class="refentrytitle"><a href="GSimpleIOStream.html">GSimpleIOStream</a></span><span class="refpurpose"> — A wrapper around an input and an output stream.</span>
 </dt>
 <dt>
 <span class="refentrytitle"><a href="GFileInputStream.html">GFileInputStream</a></span><span class="refpurpose"> — File input streaming operations</span>
@@ -208,7 +211,7 @@
 <span class="refentrytitle"><a href="GFileIcon.html">GFileIcon</a></span><span class="refpurpose"> — Icons pointing to an image file</span>
 </dt>
 <dt>
-<span class="refentrytitle"><a href="gio-GBytesIcon.html">GBytesIcon</a></span><span class="refpurpose"> — An icon stored in memory as a GBytes</span>
+<span class="refentrytitle"><a href="GBytesIcon.html">GBytesIcon</a></span><span class="refpurpose"> — An icon stored in memory as a GBytes</span>
 </dt>
 <dt>
 <span class="refentrytitle"><a href="GLoadableIcon.html">GLoadableIcon</a></span><span class="refpurpose"> — Loadable Icons</span>
@@ -238,7 +241,7 @@
 <span class="refentrytitle"><a href="GSubprocess.html">GSubprocess</a></span><span class="refpurpose"> — Child processes</span>
 </dt>
 <dt>
-<span class="refentrytitle"><a href="gio-GSubprocessLauncher.html">GSubprocess Launcher</a></span><span class="refpurpose"> — Environment options for launching a child process</span>
+<span class="refentrytitle"><a href="GSubprocessLauncher.html">GSubprocess Launcher</a></span><span class="refpurpose"> — Environment options for launching a child process</span>
 </dt>
 </dl></dd>
 <dt><span class="chapter"><a href="networking.html">Low-level network support</a></span></dt>
@@ -247,10 +250,13 @@
 <span class="refentrytitle"><a href="GSocket.html">GSocket</a></span><span class="refpurpose"> — Low-level socket object</span>
 </dt>
 <dt>
+<span class="refentrytitle"><a href="GDatagramBased.html">GDatagramBased</a></span><span class="refpurpose"> — Low-level datagram communications interface</span>
+</dt>
+<dt>
 <span class="refentrytitle"><a href="GInetAddress.html">GInetAddress</a></span><span class="refpurpose"> — An IPv4/IPv6 address</span>
 </dt>
 <dt>
-<span class="refentrytitle"><a href="gio-GInetAddressMask.html">GInetAddressMask</a></span><span class="refpurpose"> — An IPv4/IPv6 address mask</span>
+<span class="refentrytitle"><a href="GInetAddressMask.html">GInetAddressMask</a></span><span class="refpurpose"> — An IPv4/IPv6 address mask</span>
 </dt>
 <dt>
 <span class="refentrytitle"><a href="GSocketAddress.html">GSocketAddress</a></span><span class="refpurpose"> — Abstract base class representing endpoints
@@ -334,6 +340,15 @@
 </dt>
 <dt>
 <span class="refentrytitle"><a href="GTlsServerConnection.html">GTlsServerConnection</a></span><span class="refpurpose"> — TLS server-side connection</span>
+</dt>
+<dt>
+<span class="refentrytitle"><a href="GDtlsConnection.html">GDtlsConnection</a></span><span class="refpurpose"> — DTLS connection type</span>
+</dt>
+<dt>
+<span class="refentrytitle"><a href="GDtlsClientConnection.html">GDtlsClientConnection</a></span><span class="refpurpose"> — DTLS client-side connection</span>
+</dt>
+<dt>
+<span class="refentrytitle"><a href="GDtlsServerConnection.html">GDtlsServerConnection</a></span><span class="refpurpose"> — DTLS server-side connection</span>
 </dt>
 <dt>
 <span class="refentrytitle"><a href="GTlsBackend.html">GTlsBackend</a></span><span class="refpurpose"> — TLS backend implementation</span>
@@ -456,7 +471,7 @@
 </dl></dd>
 <dt><span class="chapter"><a href="resources.html">Resources</a></span></dt>
 <dd><dl><dt>
-<span class="refentrytitle"><a href="gio-GResource.html">GResource</a></span><span class="refpurpose"> — Resource framework</span>
+<span class="refentrytitle"><a href="GResource.html">GResource</a></span><span class="refpurpose"> — Resource framework</span>
 </dt></dl></dd>
 <dt><span class="chapter"><a href="permissions.html">Permissions</a></span></dt>
 <dd><dl>
@@ -468,6 +483,19 @@
 <span class="refentrytitle"><a href="GSimplePermission.html">GSimplePermission</a></span><span class="refpurpose"> — A GPermission that doesn't change value</span>
 </dt>
 </dl></dd>
+<dt><span class="chapter"><a href="data-models.html">Data Models</a></span></dt>
+<dd><dl>
+<dt>
+<span class="refentrytitle"><a href="GListModel.html">GListModel</a></span><span class="refpurpose"> — An interface describing a dynamic list of objects</span>
+</dt>
+<dt>
+<span class="refentrytitle"><a href="GListStore.html">GListStore</a></span><span class="refpurpose"> — A simple implementation of <span class="type">GListModel</span></span>
+</dt>
+</dl></dd>
+<dt><span class="chapter"><a href="registry.html">Win32 registry support</a></span></dt>
+<dd><dl><dt>
+<span class="refentrytitle"><a href="gio-GWin32RegistryKey.html">GWin32RegistryKey</a></span><span class="refpurpose"> — W32 registry access helper</span>
+</dt></dl></dd>
 <dt><span class="chapter"><a href="application.html">Application support</a></span></dt>
 <dd><dl>
 <dt>
@@ -492,7 +520,7 @@
 <span class="refentrytitle"><a href="GSimpleAction.html">GSimpleAction</a></span><span class="refpurpose"> — A simple GAction implementation</span>
 </dt>
 <dt>
-<span class="refentrytitle"><a href="gio-GPropertyAction.html">GPropertyAction</a></span><span class="refpurpose"> — A GAction reflecting a GObject property</span>
+<span class="refentrytitle"><a href="GPropertyAction.html">GPropertyAction</a></span><span class="refpurpose"> — A GAction reflecting a GObject property</span>
 </dt>
 <dt>
 <span class="refentrytitle"><a href="GRemoteActionGroup.html">GRemoteActionGroup</a></span><span class="refpurpose"> — A GActionGroup that interacts with other processes</span>
@@ -516,7 +544,7 @@
 <span class="refentrytitle"><a href="GDBusMenuModel.html">GDBusMenuModel</a></span><span class="refpurpose"> — A D-Bus GMenuModel implementation</span>
 </dt>
 <dt>
-<span class="refentrytitle"><a href="gio-GNotification.html">GNotification</a></span><span class="refpurpose"> — User Notifications (pop up messages)</span>
+<span class="refentrytitle"><a href="GNotification.html">GNotification</a></span><span class="refpurpose"> — User Notifications (pop up messages)</span>
 </dt>
 </dl></dd>
 <dt><span class="chapter"><a href="extending.html">Extending GIO</a></span></dt>
@@ -557,6 +585,9 @@
 <dt>
 <span class="refentrytitle"><a href="gapplication-tool.html">gapplication</a></span><span class="refpurpose"> — D-Bus application launcher</span>
 </dt>
+<dt>
+<span class="refentrytitle"><a href="gio.html">gio</a></span><span class="refpurpose"> — GIO commandline tool</span>
+</dt>
 </dl></dd>
 <dt><span class="chapter"><a href="testing.html">GIO Testing</a></span></dt>
 <dd><dl><dt>
@@ -566,7 +597,6 @@
 </div>
 </div>
 <div class="footer">
-<hr>
-          Generated by GTK-Doc V1.21.1</div>
+<hr>Generated by GTK-Doc V1.25.1</div>
 </body>
 </html>

@@ -31,6 +31,7 @@
 
 #include "config.h"
 #include "glibconfig.h"
+#include "glib_trace.h"
 
 /* Uncomment the next line (and the corresponding line in gpoll.c) to
  * enable debugging printouts if the environment variable
@@ -182,6 +183,35 @@
  * On UNIX, the GLib mainloop is incompatible with fork(). Any program
  * using the mainloop must either exec() or exit() from the child
  * without returning to the mainloop.
+ *
+ * ## Memory management of sources # {#mainloop-memory-management}
+ *
+ * There are two options for memory management of the user data passed to a
+ * #GSource to be passed to its callback on invocation. This data is provided
+ * in calls to g_timeout_add(), g_timeout_add_full(), g_idle_add(), etc. and
+ * more generally, using g_source_set_callback(). This data is typically an
+ * object which ‘owns’ the timeout or idle callback, such as a widget or a
+ * network protocol implementation. In many cases, it is an error for the
+ * callback to be invoked after this owning object has been destroyed, as that
+ * results in use of freed memory.
+ *
+ * The first, and preferred, option is to store the source ID returned by
+ * functions such as g_timeout_add() or g_source_attach(), and explicitly
+ * remove that source from the main context using g_source_remove() when the
+ * owning object is finalized. This ensures that the callback can only be
+ * invoked while the object is still alive.
+ *
+ * The second option is to hold a strong reference to the object in the
+ * callback, and to release it in the callback’s #GDestroyNotify. This ensures
+ * that the object is kept alive until after the source is finalized, which is
+ * guaranteed to be after it is invoked for the final time. The #GDestroyNotify
+ * is another callback passed to the ‘full’ variants of #GSource functions (for
+ * example, g_timeout_add_full()). It is called when the source is finalized,
+ * and is designed for releasing references like this.
+ *
+ * One important caveat of this second approach is that it will keep the object
+ * alive indefinitely if the main loop is stopped before the #GSource is
+ * invoked, which may be undesirable.
  */
 
 /* Types */
@@ -249,7 +279,7 @@ struct _GMainContext
   GList *source_lists;
   gint in_check_or_prepare;
 
-  GPollRec *poll_records, *poll_records_tail;
+  GPollRec *poll_records;
   guint n_poll_records;
   GPollFD *cached_poll_array;
   guint cached_poll_array_size;
@@ -514,7 +544,7 @@ g_main_context_unref (GMainContext *context)
   GSource *source;
   GList *sl_iter;
   GSourceList *list;
-  gint i;
+  guint i;
 
   g_return_if_fail (context != NULL);
   g_return_if_fail (g_atomic_int_get (&context->ref_count) > 0); 
@@ -599,6 +629,8 @@ g_main_context_new (void)
 
   context = g_new0 (GMainContext, 1);
 
+  TRACE (GLIB_MAIN_CONTEXT_NEW (context));
+
   g_mutex_init (&context->mutex);
   g_cond_init (&context->cond);
 
@@ -658,6 +690,9 @@ g_main_context_default (void)
   if (!default_main_context)
     {
       default_main_context = g_main_context_new ();
+
+      TRACE (GLIB_MAIN_CONTEXT_DEFAULT (default_main_context));
+
 #ifdef G_MAIN_POLL_DEBUG
       if (_g_main_poll_debug)
 	g_print ("default context=%p\n", default_main_context);
@@ -673,6 +708,8 @@ static void
 free_context (gpointer data)
 {
   GMainContext *context = data;
+
+  TRACE (GLIB_MAIN_CONTEXT_FREE (context));
 
   g_main_context_release (context);
   if (context)
@@ -704,9 +741,20 @@ static GPrivate thread_context_stack = G_PRIVATE_INIT (free_context_stack);
  * Normally you would call this function shortly after creating a new
  * thread, passing it a #GMainContext which will be run by a
  * #GMainLoop in that thread, to set a new default context for all
- * async operations in that thread. (In this case, you don't need to
- * ever call g_main_context_pop_thread_default().) In some cases
- * however, you may want to schedule a single operation in a
+ * async operations in that thread. In this case you may not need to
+ * ever call g_main_context_pop_thread_default(), assuming you want the
+ * new #GMainContext to be the default for the whole lifecycle of the
+ * thread.
+ *
+ * If you don't have control over how the new thread was created (e.g.
+ * in the new thread isn't newly created, or if the thread life
+ * cycle is managed by a #GThreadPool), it is always suggested to wrap
+ * the logic that needs to use the new #GMainContext inside a
+ * g_main_context_push_thread_default() / g_main_context_pop_thread_default()
+ * pair, otherwise threads that are re-used will end up never explicitly
+ * releasing the #GMainContext reference they hold.
+
+ * In some cases you may want to schedule a single operation in a
  * non-default context, or temporarily use a non-default context in
  * the main thread. In that case, you can wrap the call to the
  * asynchronous operation inside a
@@ -743,6 +791,8 @@ g_main_context_push_thread_default (GMainContext *context)
     }
 
   g_queue_push_head (stack, context);
+
+  TRACE (GLIB_MAIN_CONTEXT_PUSH_THREAD_DEFAULT (context));
 }
 
 /**
@@ -766,6 +816,8 @@ g_main_context_pop_thread_default (GMainContext *context)
 
   g_return_if_fail (stack != NULL);
   g_return_if_fail (g_queue_peek_head (stack) == context);
+
+  TRACE (GLIB_MAIN_CONTEXT_POP_THREAD_DEFAULT (context));
 
   g_queue_pop_head (stack);
 
@@ -872,7 +924,11 @@ g_source_new (GSourceFuncs *source_funcs,
   source->priv->ready_time = -1;
 
   /* NULL/0 initialization for all other fields */
-  
+
+  TRACE (GLIB_SOURCE_NEW (source, source_funcs->prepare, source_funcs->check,
+                          source_funcs->dispatch, source_funcs->finalize,
+                          struct_size));
+
   return source;
 }
 
@@ -1134,14 +1190,15 @@ g_source_attach (GSource      *source,
   g_return_val_if_fail (source->context == NULL, 0);
   g_return_val_if_fail (!SOURCE_DESTROYED (source), 0);
   
-  TRACE (GLIB_MAIN_SOURCE_ATTACH (g_source_get_name (source)));
-
   if (!context)
     context = g_main_context_default ();
 
   LOCK_CONTEXT (context);
 
   result = g_source_attach_unlocked (source, context, TRUE);
+
+  TRACE (GLIB_MAIN_SOURCE_ATTACH (g_source_get_name (source), source, context,
+                                  result));
 
   UNLOCK_CONTEXT (context);
 
@@ -1153,7 +1210,8 @@ g_source_destroy_internal (GSource      *source,
 			   GMainContext *context,
 			   gboolean      have_lock)
 {
-  TRACE (GLIB_MAIN_SOURCE_DESTROY (g_source_get_name (source)));
+  TRACE (GLIB_MAIN_SOURCE_DESTROY (g_source_get_name (source), source,
+                                   context));
 
   if (!have_lock)
     LOCK_CONTEXT (context);
@@ -1403,6 +1461,8 @@ g_source_add_child_source (GSource *source,
   if (context)
     LOCK_CONTEXT (context);
 
+  TRACE (GLIB_SOURCE_ADD_CHILD_SOURCE (source, child_source));
+
   source->priv->child_sources = g_slist_prepend (source->priv->child_sources,
 						 g_source_ref (child_source));
   child_source->priv->parent_source = source;
@@ -1467,6 +1527,46 @@ g_source_remove_child_source (GSource *source,
     UNLOCK_CONTEXT (context);
 }
 
+static void
+g_source_callback_ref (gpointer cb_data)
+{
+  GSourceCallback *callback = cb_data;
+
+  callback->ref_count++;
+}
+
+static void
+g_source_callback_unref (gpointer cb_data)
+{
+  GSourceCallback *callback = cb_data;
+
+  callback->ref_count--;
+  if (callback->ref_count == 0)
+    {
+      if (callback->notify)
+        callback->notify (callback->data);
+      g_free (callback);
+    }
+}
+
+static void
+g_source_callback_get (gpointer     cb_data,
+		       GSource     *source, 
+		       GSourceFunc *func,
+		       gpointer    *data)
+{
+  GSourceCallback *callback = cb_data;
+
+  *func = callback->func;
+  *data = callback->data;
+}
+
+static GSourceCallbackFuncs g_source_callback_funcs = {
+  g_source_callback_ref,
+  g_source_callback_unref,
+  g_source_callback_get,
+};
+
 /**
  * g_source_set_callback_indirect:
  * @source: the source
@@ -1498,6 +1598,12 @@ g_source_set_callback_indirect (GSource              *source,
   if (context)
     LOCK_CONTEXT (context);
 
+  if (callback_funcs != &g_source_callback_funcs)
+    TRACE (GLIB_SOURCE_SET_CALLBACK_INDIRECT (source, callback_data,
+                                              callback_funcs->ref,
+                                              callback_funcs->unref,
+                                              callback_funcs->get));
+
   old_cb_data = source->callback_data;
   old_cb_funcs = source->callback_funcs;
 
@@ -1510,47 +1616,6 @@ g_source_set_callback_indirect (GSource              *source,
   if (old_cb_funcs)
     old_cb_funcs->unref (old_cb_data);
 }
-
-static void
-g_source_callback_ref (gpointer cb_data)
-{
-  GSourceCallback *callback = cb_data;
-
-  callback->ref_count++;
-}
-
-
-static void
-g_source_callback_unref (gpointer cb_data)
-{
-  GSourceCallback *callback = cb_data;
-
-  callback->ref_count--;
-  if (callback->ref_count == 0)
-    {
-      if (callback->notify)
-	callback->notify (callback->data);
-      g_free (callback);
-    }
-}
-
-static void
-g_source_callback_get (gpointer     cb_data,
-		       GSource     *source, 
-		       GSourceFunc *func,
-		       gpointer    *data)
-{
-  GSourceCallback *callback = cb_data;
-
-  *func = callback->func;
-  *data = callback->data;
-}
-
-static GSourceCallbackFuncs g_source_callback_funcs = {
-  g_source_callback_ref,
-  g_source_callback_unref,
-  g_source_callback_get,
-};
 
 /**
  * g_source_set_callback:
@@ -1565,6 +1630,9 @@ static GSourceCallbackFuncs g_source_callback_funcs = {
  * The exact type of @func depends on the type of source; ie. you
  * should not count on @func being called with @data as its first
  * parameter.
+ *
+ * See [memory management of sources][mainloop-memory-management] for details
+ * on how to handle memory management of @data.
  * 
  * Typically, you won't use this function. Instead use functions specific
  * to the type of source you are using.
@@ -1578,6 +1646,8 @@ g_source_set_callback (GSource        *source,
   GSourceCallback *new_callback;
 
   g_return_if_fail (source != NULL);
+
+  TRACE (GLIB_SOURCE_SET_CALLBACK (source, func, data, notify));
 
   new_callback = g_new (GSourceCallback, 1);
 
@@ -1621,6 +1691,8 @@ g_source_set_priority_unlocked (GSource      *source,
   
   g_return_if_fail (source->priv->parent_source == NULL ||
 		    source->priv->parent_source->priority == priority);
+
+  TRACE (GLIB_SOURCE_SET_PRIORITY (source, context, priority));
 
   if (context)
     {
@@ -1761,11 +1833,14 @@ g_source_set_ready_time (GSource *source,
 
   source->priv->ready_time = ready_time;
 
+  TRACE (GLIB_SOURCE_SET_READY_TIME (source, ready_time));
+
   if (context)
     {
       /* Quite likely that we need to change the timeout on the poll */
       if (!SOURCE_BLOCKED (source))
-        g_wakeup_signal (context->wakeup);
+        if (context->owner && context->owner != G_THREAD_SELF)
+          g_wakeup_signal (context->wakeup);
       UNLOCK_CONTEXT (context);
     }
 }
@@ -1876,6 +1951,8 @@ g_source_set_name (GSource    *source,
 
   if (context)
     LOCK_CONTEXT (context);
+
+  TRACE (GLIB_SOURCE_SET_NAME (source, name));
 
   /* setting back to NULL is allowed, just because it's
    * weird if get_name can return NULL but you can't
@@ -1994,6 +2071,9 @@ g_source_unref_internal (GSource      *source,
   source->ref_count--;
   if (source->ref_count == 0)
     {
+      TRACE (GLIB_SOURCE_BEFORE_FREE (source, context,
+                                      source->source_funcs->finalize));
+
       old_cb_data = source->callback_data;
       old_cb_funcs = source->callback_funcs;
 
@@ -2025,6 +2105,17 @@ g_source_unref_internal (GSource      *source,
       source->poll_fds = NULL;
 
       g_slist_free_full (source->priv->fds, g_free);
+
+      while (source->priv->child_sources)
+        {
+          GSource *child_source = source->priv->child_sources->data;
+
+          source->priv->child_sources =
+            g_slist_remove (source->priv->child_sources, child_source);
+          child_source->priv->parent_source = NULL;
+
+          g_source_unref_internal (child_source, context, have_lock);
+        }
 
       g_slice_free (GSourcePrivate, source->priv);
       source->priv = NULL;
@@ -2318,7 +2409,7 @@ g_source_remove_by_funcs_user_data (GSourceFuncs *funcs,
  *
  * As the name suggests, this function is not available on Windows.
  *
- * Returns: an opaque tag
+ * Returns: (not nullable): an opaque tag
  *
  * Since: 2.36
  **/
@@ -2358,7 +2449,7 @@ g_source_add_unix_fd (GSource      *source,
 /**
  * g_source_modify_unix_fd:
  * @source: a #GSource
- * @tag: the tag from g_source_add_unix_fd()
+ * @tag: (not nullable): the tag from g_source_add_unix_fd()
  * @new_events: the new event mask to watch
  *
  * Updates the event mask to watch for the fd identified by @tag.
@@ -2398,7 +2489,7 @@ g_source_modify_unix_fd (GSource      *source,
 /**
  * g_source_remove_unix_fd:
  * @source: a #GSource
- * @tag: the tag from g_source_add_unix_fd()
+ * @tag: (not nullable): the tag from g_source_add_unix_fd()
  *
  * Reverses the effect of a previous call to g_source_add_unix_fd().
  *
@@ -2445,7 +2536,7 @@ g_source_remove_unix_fd (GSource  *source,
 /**
  * g_source_query_unix_fd:
  * @source: a #GSource
- * @tag: the tag from g_source_add_unix_fd()
+ * @tag: (not nullable): the tag from g_source_add_unix_fd()
  *
  * Queries the events reported for the fd corresponding to @tag on
  * @source during the last poll.
@@ -3107,9 +3198,11 @@ g_main_dispatch (GMainContext *context)
           current->source = source;
           current->depth++;
 
-	  TRACE( GLIB_MAIN_BEFORE_DISPATCH (g_source_get_name (source)));
+          TRACE (GLIB_MAIN_BEFORE_DISPATCH (g_source_get_name (source), source,
+                                            dispatch, callback, user_data));
           need_destroy = !(* dispatch) (source, callback, user_data);
-	  TRACE( GLIB_MAIN_AFTER_DISPATCH (g_source_get_name (source)));
+          TRACE (GLIB_MAIN_AFTER_DISPATCH (g_source_get_name (source), source,
+                                           dispatch, need_destroy));
 
           current->source = prev_source;
           current->depth--;
@@ -3174,6 +3267,7 @@ g_main_context_acquire (GMainContext *context)
     {
       context->owner = self;
       g_assert (context->owner_count == 0);
+      TRACE (GLIB_MAIN_CONTEXT_ACQUIRE (context, TRUE  /* success */));
     }
 
   if (context->owner == self)
@@ -3181,9 +3275,13 @@ g_main_context_acquire (GMainContext *context)
       context->owner_count++;
       result = TRUE;
     }
+  else
+    {
+      TRACE (GLIB_MAIN_CONTEXT_ACQUIRE (context, FALSE  /* failure */));
+    }
 
   UNLOCK_CONTEXT (context); 
-  
+
   return result;
 }
 
@@ -3207,6 +3305,8 @@ g_main_context_release (GMainContext *context)
   context->owner_count--;
   if (context->owner_count == 0)
     {
+      TRACE (GLIB_MAIN_CONTEXT_RELEASE (context));
+
       context->owner = NULL;
 
       if (context->waiters)
@@ -3327,7 +3427,7 @@ gboolean
 g_main_context_prepare (GMainContext *context,
 			gint         *priority)
 {
-  gint i;
+  guint i;
   gint n_ready = 0;
   gint current_priority = G_MAXINT;
   GSource *source;
@@ -3347,6 +3447,8 @@ g_main_context_prepare (GMainContext *context,
       UNLOCK_CONTEXT (context);
       return FALSE;
     }
+
+  TRACE (GLIB_MAIN_CONTEXT_BEFORE_PREPARE (context));
 
 #if 0
   /* If recursing, finish up current dispatch, before starting over */
@@ -3397,6 +3499,7 @@ g_main_context_prepare (GMainContext *context,
               UNLOCK_CONTEXT (context);
 
               result = (* prepare) (source, &source_timeout);
+              TRACE (GLIB_MAIN_AFTER_PREPARE (source, prepare, source_timeout));
 
               LOCK_CONTEXT (context);
               context->in_check_or_prepare--;
@@ -3461,6 +3564,8 @@ g_main_context_prepare (GMainContext *context,
     }
   g_source_iter_clear (&iter);
 
+  TRACE (GLIB_MAIN_CONTEXT_AFTER_PREPARE (context, current_priority, n_ready));
+
   UNLOCK_CONTEXT (context);
   
   if (priority)
@@ -3476,7 +3581,7 @@ g_main_context_prepare (GMainContext *context,
  * @timeout_: (out): location to store timeout to be used in polling
  * @fds: (out caller-allocates) (array length=n_fds): location to
  *       store #GPollFD records that need to be polled.
- * @n_fds: length of @fds.
+ * @n_fds: (in): length of @fds.
  *
  * Determines information necessary to poll this main loop.
  *
@@ -3495,33 +3600,45 @@ g_main_context_query (GMainContext *context,
 		      gint          n_fds)
 {
   gint n_poll;
-  GPollRec *pollrec;
+  GPollRec *pollrec, *lastpollrec;
+  gushort events;
   
   LOCK_CONTEXT (context);
 
-  pollrec = context->poll_records;
-  n_poll = 0;
-  while (pollrec && max_priority >= pollrec->priority)
-    {
-      /* We need to include entries with fd->events == 0 in the array because
-       * otherwise if the application changes fd->events behind our back and 
-       * makes it non-zero, we'll be out of sync when we check the fds[] array.
-       * (Changing fd->events after adding an FD wasn't an anticipated use of 
-       * this API, but it occurs in practice.) */
-      if (n_poll < n_fds)
-	{
-	  fds[n_poll].fd = pollrec->fd->fd;
-	  /* In direct contradiction to the Unix98 spec, IRIX runs into
-	   * difficulty if you pass in POLLERR, POLLHUP or POLLNVAL
-	   * flags in the events field of the pollfd while it should
-	   * just ignoring them. So we mask them out here.
-	   */
-	  fds[n_poll].events = pollrec->fd->events & ~(G_IO_ERR|G_IO_HUP|G_IO_NVAL);
-	  fds[n_poll].revents = 0;
-	}
+  TRACE (GLIB_MAIN_CONTEXT_BEFORE_QUERY (context, max_priority));
 
-      pollrec = pollrec->next;
-      n_poll++;
+  n_poll = 0;
+  lastpollrec = NULL;
+  for (pollrec = context->poll_records; pollrec; pollrec = pollrec->next)
+    {
+      if (pollrec->priority > max_priority)
+        continue;
+
+      /* In direct contradiction to the Unix98 spec, IRIX runs into
+       * difficulty if you pass in POLLERR, POLLHUP or POLLNVAL
+       * flags in the events field of the pollfd while it should
+       * just ignoring them. So we mask them out here.
+       */
+      events = pollrec->fd->events & ~(G_IO_ERR|G_IO_HUP|G_IO_NVAL);
+
+      if (lastpollrec && pollrec->fd->fd == lastpollrec->fd->fd)
+        {
+          if (n_poll - 1 < n_fds)
+            fds[n_poll - 1].events |= events;
+        }
+      else
+        {
+          if (n_poll < n_fds)
+            {
+              fds[n_poll].fd = pollrec->fd->fd;
+              fds[n_poll].events = events;
+              fds[n_poll].revents = 0;
+            }
+
+          n_poll++;
+        }
+
+      lastpollrec = pollrec;
     }
 
   context->poll_changed = FALSE;
@@ -3532,7 +3649,10 @@ g_main_context_query (GMainContext *context,
       if (*timeout != 0)
         context->time_is_fresh = FALSE;
     }
-  
+
+  TRACE (GLIB_MAIN_CONTEXT_AFTER_QUERY (context, context->timeout,
+                                        fds, n_poll));
+
   UNLOCK_CONTEXT (context);
 
   return n_poll;
@@ -3575,26 +3695,46 @@ g_main_context_check (GMainContext *context,
       return FALSE;
     }
 
-  if (context->wake_up_rec.revents)
-    g_wakeup_acknowledge (context->wakeup);
+  TRACE (GLIB_MAIN_CONTEXT_BEFORE_CHECK (context, max_priority, fds, n_fds));
+
+  for (i = 0; i < n_fds; i++)
+    {
+      if (fds[i].fd == context->wake_up_rec.fd)
+        {
+          if (fds[i].revents)
+            {
+              TRACE (GLIB_MAIN_CONTEXT_WAKEUP_ACKNOWLEDGE (context));
+              g_wakeup_acknowledge (context->wakeup);
+            }
+          break;
+        }
+    }
 
   /* If the set of poll file descriptors changed, bail out
    * and let the main loop rerun
    */
   if (context->poll_changed)
     {
+      TRACE (GLIB_MAIN_CONTEXT_AFTER_CHECK (context, 0));
+
       UNLOCK_CONTEXT (context);
       return FALSE;
     }
-  
+
   pollrec = context->poll_records;
   i = 0;
-  while (i < n_fds)
+  while (pollrec && i < n_fds)
     {
-      if (pollrec->fd->events)
-	pollrec->fd->revents = fds[i].revents;
+      while (pollrec && pollrec->fd->fd == fds[i].fd)
+        {
+          if (pollrec->priority <= max_priority)
+            {
+              pollrec->fd->revents =
+                fds[i].revents & (pollrec->fd->events | G_IO_ERR | G_IO_HUP | G_IO_NVAL);
+            }
+          pollrec = pollrec->next;
+        }
 
-      pollrec = pollrec->next;
       i++;
     }
 
@@ -3620,6 +3760,8 @@ g_main_context_check (GMainContext *context,
               UNLOCK_CONTEXT (context);
 
               result = (* check) (source);
+
+              TRACE (GLIB_MAIN_AFTER_CHECK (source, check, result));
 
               LOCK_CONTEXT (context);
               context->in_check_or_prepare--;
@@ -3686,6 +3828,8 @@ g_main_context_check (GMainContext *context,
     }
   g_source_iter_clear (&iter);
 
+  TRACE (GLIB_MAIN_CONTEXT_AFTER_CHECK (context, n_ready));
+
   UNLOCK_CONTEXT (context);
 
   return n_ready > 0;
@@ -3705,10 +3849,14 @@ g_main_context_dispatch (GMainContext *context)
 {
   LOCK_CONTEXT (context);
 
+  TRACE (GLIB_MAIN_CONTEXT_BEFORE_DISPATCH (context));
+
   if (context->pending_dispatches->len > 0)
     {
       g_main_dispatch (context);
     }
+
+  TRACE (GLIB_MAIN_CONTEXT_AFTER_DISPATCH (context));
 
   UNLOCK_CONTEXT (context);
 }
@@ -3871,7 +4019,9 @@ g_main_loop_new (GMainContext *context,
   loop->context = context;
   loop->is_running = is_running != FALSE;
   loop->ref_count = 1;
-  
+
+  TRACE (GLIB_MAIN_LOOP_NEW (loop, context));
+
   return loop;
 }
 
@@ -4004,6 +4154,8 @@ g_main_loop_quit (GMainLoop *loop)
   g_cond_broadcast (&loop->context->cond);
 
   UNLOCK_CONTEXT (loop->context);
+
+  TRACE (GLIB_MAIN_LOOP_QUIT (loop));
 }
 
 /**
@@ -4174,12 +4326,14 @@ g_main_context_add_poll_unlocked (GMainContext *context,
   newrec->fd = fd;
   newrec->priority = priority;
 
-  prevrec = context->poll_records_tail;
-  nextrec = NULL;
-  while (prevrec && priority < prevrec->priority)
+  prevrec = NULL;
+  nextrec = context->poll_records;
+  while (nextrec)
     {
-      nextrec = prevrec;
-      prevrec = prevrec->prev;
+      if (nextrec->fd->fd > fd->fd)
+        break;
+      prevrec = nextrec;
+      nextrec = nextrec->next;
     }
 
   if (prevrec)
@@ -4192,15 +4346,14 @@ g_main_context_add_poll_unlocked (GMainContext *context,
 
   if (nextrec)
     nextrec->prev = newrec;
-  else 
-    context->poll_records_tail = newrec;
 
   context->n_poll_records++;
 
   context->poll_changed = TRUE;
 
   /* Now wake up the main loop if it is waiting in the poll() */
-  g_wakeup_signal (context->wakeup);
+  if (context->owner && context->owner != G_THREAD_SELF)
+    g_wakeup_signal (context->wakeup);
 }
 
 /**
@@ -4247,8 +4400,6 @@ g_main_context_remove_poll_unlocked (GMainContext *context,
 
 	  if (nextrec != NULL)
 	    nextrec->prev = prevrec;
-	  else
-	    context->poll_records_tail = prevrec;
 
 	  g_slice_free (GPollRec, pollrec);
 
@@ -4262,7 +4413,8 @@ g_main_context_remove_poll_unlocked (GMainContext *context,
   context->poll_changed = TRUE;
   
   /* Now wake up the main loop if it is waiting in the poll() */
-  g_wakeup_signal (context->wakeup);
+  if (context->owner && context->owner != G_THREAD_SELF)
+    g_wakeup_signal (context->wakeup);
 }
 
 /**
@@ -4421,6 +4573,8 @@ g_main_context_wakeup (GMainContext *context)
 
   g_return_if_fail (g_atomic_int_get (&context->ref_count) > 0);
 
+  TRACE (GLIB_MAIN_CONTEXT_WAKEUP (context));
+
   g_wakeup_signal (context->wakeup);
 }
 
@@ -4519,6 +4673,8 @@ g_timeout_dispatch (GSource     *source,
 
   again = callback (user_data);
 
+  TRACE (GLIB_TIMEOUT_DISPATCH (source, source->context, callback, user_data, again));
+
   if (again)
     g_timeout_set_expiration (timeout_source, g_source_get_time (source));
 
@@ -4588,7 +4744,7 @@ g_timeout_source_new_seconds (guint interval)
 
 
 /**
- * g_timeout_add_full:
+ * g_timeout_add_full: (rename-to g_timeout_add)
  * @priority: the priority of the timeout source. Typically this will be in
  *            the range between #G_PRIORITY_DEFAULT and #G_PRIORITY_HIGH.
  * @interval: the time between calls to the function, in milliseconds
@@ -4610,15 +4766,19 @@ g_timeout_source_new_seconds (guint interval)
  * timeout is recalculated based on the current time and the given interval
  * (it does not try to 'catch up' time lost in delays).
  *
+ * See [memory management of sources][mainloop-memory-management] for details
+ * on how to handle the return value and memory management of @data.
+ *
  * This internally creates a main loop source using g_timeout_source_new()
- * and attaches it to the main loop context using g_source_attach(). You can
- * do these steps manually if you need greater control.
+ * and attaches it to the global #GMainContext using g_source_attach(), so
+ * the callback will be invoked in whichever thread is running that main
+ * context. You can do these steps manually if you need greater control or to
+ * use a custom main context.
  *
  * The interval given in terms of monotonic time, not wall clock time.
  * See g_get_monotonic_time().
  * 
  * Returns: the ID (greater than 0) of the event source.
- * Rename to: g_timeout_add
  **/
 guint
 g_timeout_add_full (gint           priority,
@@ -4639,6 +4799,9 @@ g_timeout_add_full (gint           priority,
 
   g_source_set_callback (source, function, data, notify);
   id = g_source_attach (source, NULL);
+
+  TRACE (GLIB_TIMEOUT_ADD (source, g_main_context_default (), id, priority, interval, function, data));
+
   g_source_unref (source);
 
   return id;
@@ -4663,14 +4826,19 @@ g_timeout_add_full (gint           priority,
  * timeout is recalculated based on the current time and the given interval
  * (it does not try to 'catch up' time lost in delays).
  *
+ * See [memory management of sources][mainloop-memory-management] for details
+ * on how to handle the return value and memory management of @data.
+ *
  * If you want to have a timer in the "seconds" range and do not care
  * about the exact time of the first call of the timer, use the
  * g_timeout_add_seconds() function; this function allows for more
  * optimizations and more efficient system power usage.
  *
  * This internally creates a main loop source using g_timeout_source_new()
- * and attaches it to the main loop context using g_source_attach(). You can
- * do these steps manually if you need greater control.
+ * and attaches it to the global #GMainContext using g_source_attach(), so
+ * the callback will be invoked in whichever thread is running that main
+ * context. You can do these steps manually if you need greater control or to
+ * use a custom main context.
  * 
  * The interval given is in terms of monotonic time, not wall clock
  * time.  See g_get_monotonic_time().
@@ -4687,7 +4855,7 @@ g_timeout_add (guint32        interval,
 }
 
 /**
- * g_timeout_add_seconds_full:
+ * g_timeout_add_seconds_full: (rename-to g_timeout_add_seconds)
  * @priority: the priority of the timeout source. Typically this will be in
  *            the range between #G_PRIORITY_DEFAULT and #G_PRIORITY_HIGH.
  * @interval: the time between calls to the function, in seconds
@@ -4713,6 +4881,9 @@ g_timeout_add (guint32        interval,
  * After each call to the timeout function, the time of the next
  * timeout is recalculated based on the current time and the given @interval
  *
+ * See [memory management of sources][mainloop-memory-management] for details
+ * on how to handle the return value and memory management of @data.
+ *
  * If you want timing more precise than whole seconds, use g_timeout_add()
  * instead.
  *
@@ -4731,7 +4902,6 @@ g_timeout_add (guint32        interval,
  * 
  * Returns: the ID (greater than 0) of the event source.
  *
- * Rename to: g_timeout_add_seconds
  * Since: 2.14
  **/
 guint
@@ -4777,6 +4947,9 @@ g_timeout_add_seconds_full (gint           priority,
  * Note that the first call of the timer may not be precise for timeouts
  * of one second. If you need finer precision and have such a timeout,
  * you may want to use g_timeout_add() instead.
+ *
+ * See [memory management of sources][mainloop-memory-management] for details
+ * on how to handle the return value and memory management of @data.
  *
  * The interval given is in terms of monotonic time, not wall clock
  * time.  See g_get_monotonic_time().
@@ -5158,10 +5331,14 @@ g_child_watch_dispatch (GSource    *source,
 static void
 g_unix_signal_handler (int signum)
 {
+  gint saved_errno = errno;
+
   unix_signal_pending[signum] = TRUE;
   any_unix_signal_pending = TRUE;
 
   g_wakeup_signal (glib_worker_context->wakeup);
+
+  errno = saved_errno;
 }
 
 #endif /* !G_OS_WIN32 */
@@ -5231,7 +5408,7 @@ g_child_watch_source_new (GPid pid)
 }
 
 /**
- * g_child_watch_add_full:
+ * g_child_watch_add_full: (rename-to g_child_watch_add)
  * @priority: the priority of the idle source. Typically this will be in the
  *            range between #G_PRIORITY_DEFAULT_IDLE and #G_PRIORITY_HIGH_IDLE.
  * @pid:      process to watch. On POSIX the positive pid of a child process. On
@@ -5265,7 +5442,6 @@ g_child_watch_source_new (GPid pid)
  *
  * Returns: the ID (greater than 0) of the event source.
  *
- * Rename to: g_child_watch_add
  * Since: 2.4
  **/
 guint
@@ -5357,14 +5533,20 @@ g_idle_dispatch (GSource    *source,
 		 GSourceFunc callback,
 		 gpointer    user_data)
 {
+  gboolean again;
+
   if (!callback)
     {
       g_warning ("Idle source dispatched without callback\n"
 		 "You must call g_source_set_callback().");
       return FALSE;
     }
-  
-  return callback (user_data);
+
+  again = callback (user_data);
+
+  TRACE (GLIB_IDLE_DISPATCH (source, source->context, callback, user_data, again));
+
+  return again;
 }
 
 /**
@@ -5392,7 +5574,7 @@ g_idle_source_new (void)
 }
 
 /**
- * g_idle_add_full:
+ * g_idle_add_full: (rename-to g_idle_add)
  * @priority: the priority of the idle source. Typically this will be in the
  *            range between #G_PRIORITY_DEFAULT_IDLE and #G_PRIORITY_HIGH_IDLE.
  * @function: function to call
@@ -5402,13 +5584,17 @@ g_idle_source_new (void)
  * Adds a function to be called whenever there are no higher priority
  * events pending.  If the function returns %FALSE it is automatically
  * removed from the list of event sources and will not be called again.
+ *
+ * See [memory management of sources][mainloop-memory-management] for details
+ * on how to handle the return value and memory management of @data.
  * 
  * This internally creates a main loop source using g_idle_source_new()
- * and attaches it to the main loop context using g_source_attach(). 
- * You can do these steps manually if you need greater control.
+ * and attaches it to the global #GMainContext using g_source_attach(), so
+ * the callback will be invoked in whichever thread is running that main
+ * context. You can do these steps manually if you need greater control or to
+ * use a custom main context.
  * 
  * Returns: the ID (greater than 0) of the event source.
- * Rename to: g_idle_add
  **/
 guint 
 g_idle_add_full (gint           priority,
@@ -5428,6 +5614,9 @@ g_idle_add_full (gint           priority,
 
   g_source_set_callback (source, function, data, notify);
   id = g_source_attach (source, NULL);
+
+  TRACE (GLIB_IDLE_ADD (source, g_main_context_default (), id, priority, function, data));
+
   g_source_unref (source);
 
   return id;
@@ -5443,10 +5632,15 @@ g_idle_add_full (gint           priority,
  * default idle priority, #G_PRIORITY_DEFAULT_IDLE.  If the function
  * returns %FALSE it is automatically removed from the list of event
  * sources and will not be called again.
+ *
+ * See [memory management of sources][mainloop-memory-management] for details
+ * on how to handle the return value and memory management of @data.
  * 
  * This internally creates a main loop source using g_idle_source_new()
- * and attaches it to the main loop context using g_source_attach(). 
- * You can do these steps manually if you need greater control.
+ * and attaches it to the global #GMainContext using g_source_attach(), so
+ * the callback will be invoked in whichever thread is running that main
+ * context. You can do these steps manually if you need greater control or to
+ * use a custom main context.
  * 
  * Returns: the ID (greater than 0) of the event source.
  **/

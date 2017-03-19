@@ -203,6 +203,12 @@ print_paths (GDBusConnection *c,
   GDBusNodeInfo *node;
   guint n;
 
+  if (!g_dbus_is_name (name))
+    {
+      g_printerr (_("Error: %s is not a valid name\n"), name);
+      goto out;
+    }
+
   error = NULL;
   result = g_dbus_connection_call_sync (c,
                                         name,
@@ -555,6 +561,8 @@ handle_emit (gint        *argc,
   gchar *interface_name;
   gchar *signal_name;
   GVariantBuilder builder;
+  gboolean skip_dashes;
+  guint parm;
   guint n;
 
   ret = FALSE;
@@ -657,9 +665,19 @@ handle_emit (gint        *argc,
 
   /* Read parameters */
   g_variant_builder_init (&builder, G_VARIANT_TYPE_TUPLE);
+  skip_dashes = TRUE;
+  parm = 0;
   for (n = 1; n < (guint) *argc; n++)
     {
       GVariant *value;
+
+      /* Under certain conditions, g_option_context_parse returns the "--"
+         itself (setting off unparsed arguments), too: */
+      if (skip_dashes && g_strcmp0 ((*argv)[n], "--") == 0)
+        {
+          skip_dashes = FALSE;
+          continue;
+        }
 
       error = NULL;
       value = g_variant_parse (NULL,
@@ -679,7 +697,7 @@ handle_emit (gint        *argc,
             {
               /* Use the original non-"parse-me-harder" error */
               g_printerr (_("Error parsing parameter %d: %s\n"),
-                          n,
+                          parm + 1,
                           context);
               g_error_free (error);
               g_free (context);
@@ -689,6 +707,7 @@ handle_emit (gint        *argc,
           g_free (context);
         }
       g_variant_builder_add_value (&builder, value);
+      ++parm;
     }
   parameters = g_variant_builder_end (&builder);
 
@@ -764,6 +783,8 @@ handle_call (gint        *argc,
   gboolean complete_paths;
   gboolean complete_methods;
   GVariantBuilder builder;
+  gboolean skip_dashes;
+  guint parm;
   guint n;
 
   ret = FALSE;
@@ -863,6 +884,12 @@ handle_call (gint        *argc,
         }
     }
 
+  if (!request_completion && !g_dbus_is_name (opt_call_dest))
+    {
+      g_printerr (_("Error: %s is not a valid bus name\n"), opt_call_dest);
+      goto out;
+    }
+
   /* validate and complete object path */
   if (complete_paths)
     {
@@ -946,18 +973,28 @@ handle_call (gint        *argc,
 
   /* Read parameters */
   g_variant_builder_init (&builder, G_VARIANT_TYPE_TUPLE);
+  skip_dashes = TRUE;
+  parm = 0;
   for (n = 1; n < (guint) *argc; n++)
     {
       GVariant *value;
       GVariantType *type;
 
+      /* Under certain conditions, g_option_context_parse returns the "--"
+         itself (setting off unparsed arguments), too: */
+      if (skip_dashes && g_strcmp0 ((*argv)[n], "--") == 0)
+        {
+          skip_dashes = FALSE;
+          continue;
+        }
+
       type = NULL;
       if (in_signature_types != NULL)
         {
-          if (n - 1 >= in_signature_types->len)
+          if (parm >= in_signature_types->len)
             {
               /* Only warn for the first param */
-              if (n - 1 == in_signature_types->len)
+              if (parm == in_signature_types->len)
                 {
                   g_printerr ("Warning: Introspection data indicates %d parameters but more was passed\n",
                               in_signature_types->len);
@@ -965,7 +1002,7 @@ handle_call (gint        *argc,
             }
           else
             {
-              type = in_signature_types->pdata[n - 1];
+              type = in_signature_types->pdata[parm];
             }
         }
 
@@ -989,7 +1026,7 @@ handle_call (gint        *argc,
                 {
                   s = g_variant_type_dup_string (type);
                   g_printerr (_("Error parsing parameter %d of type '%s': %s\n"),
-                              n,
+                              parm + 1,
                               s,
                               context);
                   g_free (s);
@@ -997,7 +1034,7 @@ handle_call (gint        *argc,
               else
                 {
                   g_printerr (_("Error parsing parameter %d: %s\n"),
-                              n,
+                              parm + 1,
                               context);
                 }
               g_error_free (error);
@@ -1008,6 +1045,7 @@ handle_call (gint        *argc,
           g_free (context);
         }
       g_variant_builder_add_value (&builder, value);
+      ++parm;
     }
   parameters = g_variant_builder_end (&builder);
 
@@ -1026,25 +1064,31 @@ handle_call (gint        *argc,
                                         &error);
   if (result == NULL)
     {
-      if (error)
+      g_printerr (_("Error: %s\n"), error->message);
+
+      if (g_error_matches (error, G_DBUS_ERROR, G_DBUS_ERROR_INVALID_ARGS) && in_signature_types != NULL)
         {
-          g_printerr (_("Error: %s\n"), error->message);
-          g_error_free (error);
-        }
-      if (in_signature_types != NULL)
-        {
-          GString *s;
-          s = g_string_new (NULL);
-          for (n = 0; n < in_signature_types->len; n++)
+          if (in_signature_types->len > 0)
             {
-              GVariantType *type = in_signature_types->pdata[n];
-              g_string_append_len (s,
-                                   g_variant_type_peek_string (type),
-                                   g_variant_type_get_string_length (type));
+              GString *s;
+              s = g_string_new (NULL);
+
+              for (n = 0; n < in_signature_types->len; n++)
+                {
+                  GVariantType *type = in_signature_types->pdata[n];
+                  g_string_append_len (s,
+                                       g_variant_type_peek_string (type),
+                                       g_variant_type_get_string_length (type));
+                }
+
+              g_printerr ("(According to introspection data, you need to pass '%s')\n", s->str);
+              g_string_free (s, TRUE);
             }
-          g_printerr ("(According to introspection data, you need to pass '%s')\n", s->str);
-          g_string_free (s, TRUE);
+          else
+            g_printerr ("(According to introspection data, you need to pass no arguments)\n");
         }
+
+      g_error_free (error);
       goto out;
     }
 
@@ -1601,6 +1645,13 @@ handle_introspect (gint        *argc,
       print_paths (c, opt_introspect_dest, "/");
       goto out;
     }
+
+  if (!request_completion && !g_dbus_is_name (opt_introspect_dest))
+    {
+        g_printerr (_("Error: %s is not a valid bus name\n"), opt_introspect_dest);
+      goto out;
+    }
+
   if (opt_introspect_object_path == NULL)
     {
       if (request_completion)
@@ -1824,6 +1875,13 @@ handle_monitor (gint        *argc,
           goto out;
         }
     }
+
+  if (!request_completion && !g_dbus_is_name (opt_monitor_dest))
+    {
+      g_printerr (_("Error: %s is not a valid bus name\n"), opt_monitor_dest);
+      goto out;
+    }
+
   if (complete_paths)
     {
       print_paths (c, opt_monitor_dest, "/");

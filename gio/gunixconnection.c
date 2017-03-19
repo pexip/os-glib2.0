@@ -46,6 +46,13 @@
  * Since: 2.22
  */
 
+/**
+ * GUnixConnection:
+ *
+ * #GUnixConnection is an opaque data structure and can only be accessed
+ * using the following functions.
+ **/
+
 G_DEFINE_TYPE_WITH_CODE (GUnixConnection, g_unix_connection,
 			 G_TYPE_SOCKET_CONNECTION,
   g_socket_connection_factory_register_type (g_define_type_id,
@@ -402,7 +409,7 @@ g_unix_connection_send_credentials_async (GUnixConnection      *connection,
   GTask *task;
 
   task = g_task_new (connection, cancellable, callback, user_data);
-
+  g_task_set_source_tag (task, g_unix_connection_send_credentials_async);
   g_task_run_in_thread (task, send_credentials_async_thread);
 }
 
@@ -663,7 +670,7 @@ g_unix_connection_receive_credentials_async (GUnixConnection      *connection,
   GTask *task;
 
   task = g_task_new (connection, cancellable, callback, user_data);
-
+  g_task_set_source_tag (task, g_unix_connection_receive_credentials_async);
   g_task_run_in_thread (task, receive_credentials_async_thread);
 }
 

@@ -1,7 +1,5 @@
 NULL =
 
-SUBDIRS = gdbus-object-manager-example
-
 # The name of the module.
 DOC_MODULE=gio
 
@@ -13,10 +11,11 @@ SCAN_OPTIONS=--deprecated-guards="G_DISABLE_DEPRECATED" \
              --ignore-decorators="G_GNUC_WARN_UNUSED_RESULT"
 
 # The directory containing the source code. Relative to $(srcdir)
-DOC_SOURCE_DIR=$(top_srcdir)/gio
+DOC_SOURCE_DIR =$(top_srcdir)/gio $(top_builddir)/gio
 
-BUILT_HFILES=gioenumtypes.h
-HFILE_GLOB=$(top_srcdir)/gio/*.h
+HFILE_GLOB= \
+    $(top_srcdir)/gio/*.h \
+    $(top_builddir)/gio/gioenumtypes.h
 CFILE_GLOB=$(top_srcdir)/gio/*.c
 
 IGNORE_HFILES = \
@@ -25,18 +24,25 @@ IGNORE_HFILES = \
 	gdbus-2.0			\
 	gvdb				\
 	inotify				\
+	kqueue				\
 	libasyncns			\
 	tests				\
 	win32				\
 	xdgmime				\
+	gappinfoprivate.h		\
 	gapplicationimpl.h		\
 	gasynchelper.h			\
 	gcontenttypeprivate.h		\
+	gcontextspecificgroup.h		\
+	gcredentialsprivate.h		\
+	gdbus-daemon-generated.h	\
+	gdbusactiongroup-private.h	\
 	gdbusauth.h			\
 	gdbusauthmechanismanon.h	\
 	gdbusauthmechanismexternal.h	\
 	gdbusauthmechanism.h		\
 	gdbusauthmechanismsha1.h	\
+	gdbusdaemon.h			\
 	gdbusprivate.h			\
 	gdelayedsettingsbackend.h	\
 	gdummyfile.h			\
@@ -44,7 +50,11 @@ IGNORE_HFILES = \
 	gdummytlsbackend.h		\
 	gfileattribute-priv.h		\
 	gfileinfo-priv.h		\
+	ghttpproxy.h			\
+	gio_trace.h			\
 	giomodule-priv.h		\
+	gioprivate.h			\
+	giowin32-priv.h			\
 	glocaldirectorymonitor.h	\
 	glocalfileenumerator.h		\
 	glocalfile.h			\
@@ -59,10 +69,12 @@ IGNORE_HFILES = \
 	gnetworkingprivate.h		\
 	gnetworkmonitorbase.h		\
 	gnetworkmonitornetlink.h	\
+	gnetworkmonitornm.h		\
 	gnotificationbackend.h		\
 	gnotification-private.h		\
 	gpollfilemonitor.h		\
 	gregistrysettingsbackend.h	\
+	gresourcefile.h			\
 	gsettingsbackendinternal.h	\
 	gsettings-mapping.h		\
 	gsettingsschema-internal.h	\
@@ -84,6 +96,12 @@ IGNORE_HFILES = \
 	gwin32volumemonitor.h		\
 	thumbnail-verify.h
 
+MKDB_IGNORE_FILES = \
+	gdbus-daemon-generated.c	\
+	kqueue				\
+	libasyncns			\
+	tests				\
+	$(NULL)
 
 # CFLAGS and LDFLAGS for compiling scan program. Only needed
 # if $(DOC_MODULE).types is non-empty.
@@ -100,7 +118,7 @@ GTKDOC_LIBS = \
 
 # Extra options to supply to gtkdoc-mkdb
 MKDB_OPTIONS = --output-format=xml --name-space=g \
-	--ignore-files='libasyncns tests'
+	--ignore-files='$(MKDB_IGNORE_FILES)'
 
 # Images to copy into HTML directory
 HTML_IMAGES =			\
@@ -123,6 +141,7 @@ content_files =			\
 	gresource.xml		\
 	gdbus.xml		\
 	gdbus-codegen.xml	\
+	gio.xml			\
 	$(NULL)
 
 expand_content_files =		\
@@ -150,15 +169,17 @@ man_MANS =
 
 if ENABLE_MAN
 
-man_MANS +=			\
-	gapplication.1		\
-	gio-querymodules.1	\
-	glib-compile-schemas.1	\
+man_MANS +=				\
+	gapplication.1			\
+	gio-querymodules.1		\
+	glib-compile-schemas.1		\
 	glib-compile-resources.1	\
-	gsettings.1		\
-	gresource.1		\
-	gdbus.1			\
-	gdbus-codegen.1
+	gsettings.1			\
+	gresource.1			\
+	gdbus.1				\
+	gdbus-codegen.1			\
+	gio.1				\
+	$(NULL)
 
 XSLTPROC_FLAGS = \
         --nonet \

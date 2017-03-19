@@ -86,6 +86,7 @@ static void g_network_address_get_property (GObject      *object,
 static void                      g_network_address_connectable_iface_init       (GSocketConnectableIface *iface);
 static GSocketAddressEnumerator *g_network_address_connectable_enumerate        (GSocketConnectable      *connectable);
 static GSocketAddressEnumerator	*g_network_address_connectable_proxy_enumerate  (GSocketConnectable      *connectable);
+static gchar                    *g_network_address_connectable_to_string        (GSocketConnectable      *connectable);
 
 G_DEFINE_TYPE_WITH_CODE (GNetworkAddress, g_network_address, G_TYPE_OBJECT,
                          G_ADD_PRIVATE (GNetworkAddress)
@@ -99,15 +100,7 @@ g_network_address_finalize (GObject *object)
 
   g_free (addr->priv->hostname);
   g_free (addr->priv->scheme);
-
-  if (addr->priv->sockaddrs)
-    {
-      GList *a;
-
-      for (a = addr->priv->sockaddrs; a; a = a->next)
-        g_object_unref (a->data);
-      g_list_free (addr->priv->sockaddrs);
-    }
+  g_list_free_full (addr->priv->sockaddrs, g_object_unref);
 
   G_OBJECT_CLASS (g_network_address_parent_class)->finalize (object);
 }
@@ -153,6 +146,7 @@ g_network_address_connectable_iface_init (GSocketConnectableIface *connectable_i
 {
   connectable_iface->enumerate  = g_network_address_connectable_enumerate;
   connectable_iface->proxy_enumerate = g_network_address_connectable_proxy_enumerate;
+  connectable_iface->to_string = g_network_address_connectable_to_string;
 }
 
 static void
@@ -267,6 +261,12 @@ g_network_address_parse_sockaddr (GNetworkAddress *addr)
  * Creates a new #GSocketConnectable for connecting to the given
  * @hostname and @port.
  *
+ * Note that depending on the configuration of the machine, a
+ * @hostname of `localhost` may refer to the IPv4 loopback address
+ * only, or to both IPv4 and IPv6; use
+ * g_network_address_new_loopback() to create a #GNetworkAddress that
+ * is guaranteed to resolve to both addresses.
+ *
  * Returns: (transfer full) (type GNetworkAddress): the new #GNetworkAddress
  *
  * Since: 2.22
@@ -279,6 +279,45 @@ g_network_address_new (const gchar *hostname,
                        "hostname", hostname,
                        "port", port,
                        NULL);
+}
+
+/**
+ * g_network_address_new_loopback:
+ * @port: the port
+ *
+ * Creates a new #GSocketConnectable for connecting to the local host
+ * over a loopback connection to the given @port. This is intended for
+ * use in connecting to local services which may be running on IPv4 or
+ * IPv6.
+ *
+ * The connectable will return IPv4 and IPv6 loopback addresses,
+ * regardless of how the host resolves `localhost`. By contrast,
+ * g_network_address_new() will often only return an IPv4 address when
+ * resolving `localhost`, and an IPv6 address for `localhost6`.
+ *
+ * g_network_address_get_hostname() will always return `localhost` for
+ * #GNetworkAddresses created with this constructor.
+ *
+ * Returns: (transfer full) (type GNetworkAddress): the new #GNetworkAddress
+ *
+ * Since: 2.44
+ */
+GSocketConnectable *
+g_network_address_new_loopback (guint16 port)
+{
+  GNetworkAddress *addr;
+  GList *addrs = NULL;
+
+  addr = g_object_new (G_TYPE_NETWORK_ADDRESS,
+                       "hostname", "localhost",
+                       "port", port,
+                       NULL);
+
+  addrs = g_list_append (addrs, g_inet_address_new_loopback (AF_INET6));
+  addrs = g_list_append (addrs, g_inet_address_new_loopback (AF_INET));
+  g_network_address_set_addresses (addr, addrs, 0);
+
+  return G_SOCKET_CONNECTABLE (addr);
 }
 
 /**
@@ -309,7 +348,8 @@ g_network_address_new (const gchar *hostname,
  * is deprecated, because it depends on the contents of /etc/services,
  * which is generally quite sparse on platforms other than Linux.)
  *
- * Returns: (transfer full): the new #GNetworkAddress, or %NULL on error
+ * Returns: (transfer full) (type GNetworkAddress): the new
+ *   #GNetworkAddress, or %NULL on error
  *
  * Since: 2.22
  */
@@ -727,7 +767,8 @@ _g_uri_from_authority (const gchar *protocol,
  * g_network_address_parse() allows #GSocketClient to determine
  * when to use application-specific proxy protocols.
  *
- * Returns: (transfer full): the new #GNetworkAddress, or %NULL on error
+ * Returns: (transfer full) (type GNetworkAddress): the new
+ *   #GNetworkAddress, or %NULL on error
  *
  * Since: 2.26
  */
@@ -965,6 +1006,7 @@ g_network_address_address_enumerator_next_async (GSocketAddressEnumerator  *enum
   GTask *task;
 
   task = g_task_new (addr_enum, cancellable, callback, user_data);
+  g_task_set_source_tag (task, g_network_address_address_enumerator_next_async);
 
   if (addr_enum->addresses == NULL)
     {
@@ -1071,4 +1113,28 @@ g_network_address_connectable_proxy_enumerate (GSocketConnectable *connectable)
   g_free (uri);
 
   return proxy_enum;
+}
+
+static gchar *
+g_network_address_connectable_to_string (GSocketConnectable *connectable)
+{
+  GNetworkAddress *addr;
+  const gchar *scheme;
+  guint16 port;
+  GString *out;  /* owned */
+
+  addr = G_NETWORK_ADDRESS (connectable);
+  out = g_string_new ("");
+
+  scheme = g_network_address_get_scheme (addr);
+  if (scheme != NULL)
+    g_string_append_printf (out, "%s:", scheme);
+
+  g_string_append (out, g_network_address_get_hostname (addr));
+
+  port = g_network_address_get_port (addr);
+  if (port != 0)
+    g_string_append_printf (out, ":%u", port);
+
+  return g_string_free (out, FALSE);
 }

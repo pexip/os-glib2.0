@@ -101,7 +101,11 @@ GTypeInterfaceCheckFunc
 g_type_value_table_peek
 g_type_ensure
 g_type_get_type_registration_serial
+g_type_get_instance_count
 
+G_DECLARE_FINAL_TYPE
+G_DECLARE_DERIVABLE_TYPE
+G_DECLARE_INTERFACE
 G_DEFINE_TYPE
 G_DEFINE_TYPE_WITH_PRIVATE
 G_DEFINE_TYPE_WITH_CODE
@@ -217,6 +221,7 @@ g_type_module_register_flags
 G_DEFINE_DYNAMIC_TYPE
 G_DEFINE_DYNAMIC_TYPE_EXTENDED
 G_IMPLEMENT_INTERFACE_DYNAMIC
+G_ADD_PRIVATE_DYNAMIC
 
 <SUBSECTION Standard>
 G_TYPE_MODULE
@@ -261,6 +266,7 @@ GParameter
 g_object_ref
 g_object_unref
 g_object_ref_sink
+g_set_object
 g_clear_object
 GInitiallyUnowned
 GInitiallyUnownedClass
@@ -386,11 +392,12 @@ G_TYPE_VARIANT_DICT
 G_TYPE_KEY_FILE
 G_TYPE_MAIN_CONTEXT
 G_TYPE_MAIN_LOOP
+G_TYPE_MAPPED_FILE
 G_TYPE_MARKUP_PARSE_CONTEXT
 G_TYPE_SOURCE
 G_TYPE_POLLFD
 G_TYPE_THREAD
-GStrv
+G_TYPE_OPTION_GROUP
 
 <SUBSECTION Standard>
 G_TYPE_IS_BOXED
@@ -419,6 +426,11 @@ g_source_get_type
 g_pollfd_get_type
 g_bytes_get_type
 g_key_file_get_type
+g_checksum_get_type
+g_mapped_file_get_type
+g_markup_parse_context_get_type
+g_thread_get_type
+g_option_group_get_type
 </SECTION>
 
 <SECTION>
@@ -486,7 +498,6 @@ G_PARAM_SPEC_VALUE_TYPE
 GParamSpec
 GParamSpecClass
 GParamFlags
-G_PARAM_READWRITE
 G_PARAM_STATIC_STRINGS
 G_PARAM_MASK
 G_PARAM_USER_SHIFT
@@ -501,6 +512,7 @@ g_param_value_validate
 g_param_value_convert
 g_param_values_cmp
 g_param_spec_get_name
+g_param_spec_get_name_quark
 g_param_spec_get_nick
 g_param_spec_get_blurb
 g_param_spec_get_qdata
