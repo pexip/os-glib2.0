@@ -22,4 +22,4 @@
 DATADIR = "${prefix}/share"
 DATADIR = DATADIR.replace(
     "${prefix}", "/home/mclasen/gnome")
-VERSION = "2.42.1"
+VERSION = "2.50.3"

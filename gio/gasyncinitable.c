@@ -272,6 +272,7 @@ g_async_initable_real_init_async (GAsyncInitable      *initable,
   g_return_if_fail (G_IS_INITABLE (initable));
 
   task = g_task_new (initable, cancellable, callback, user_data);
+  g_task_set_source_tag (task, g_async_initable_real_init_async);
   g_task_set_priority (task, io_priority);
   g_task_run_in_thread (task, async_init_thread);
   g_object_unref (task);
@@ -286,6 +287,7 @@ g_async_initable_real_init_finish (GAsyncInitable  *initable,
    * even though g_async_initable_real_init_async doesn't generate
    * them any more.
    */
+  G_GNUC_BEGIN_IGNORE_DEPRECATIONS
   if (G_IS_SIMPLE_ASYNC_RESULT (res))
     {
       GSimpleAsyncResult *simple = G_SIMPLE_ASYNC_RESULT (res);
@@ -294,6 +296,7 @@ g_async_initable_real_init_finish (GAsyncInitable  *initable,
       else
         return TRUE;
     }
+  G_GNUC_END_IGNORE_DEPRECATIONS
 
   g_return_val_if_fail (g_task_is_valid (res, initable), FALSE);
 
@@ -379,6 +382,7 @@ g_async_initable_newv_async (GType                object_type,
   g_async_initable_init_async (G_ASYNC_INITABLE (obj),
 			       io_priority, cancellable,
 			       callback, user_data);
+  g_object_unref (obj); /* Passed ownership to async call */
 }
 
 /**

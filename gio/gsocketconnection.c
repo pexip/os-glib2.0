@@ -196,6 +196,7 @@ g_socket_connection_connect_async (GSocketConnection   *connection,
   g_return_if_fail (G_IS_SOCKET_ADDRESS (address));
 
   task = g_task_new (connection, cancellable, callback, user_data);
+  g_task_set_source_tag (task, g_socket_connection_connect_async);
 
   g_socket_set_blocking (connection->priv->socket, FALSE);
 
@@ -272,7 +273,7 @@ g_socket_connection_connect_finish (GSocketConnection  *connection,
  * This can be useful if you want to do something unusual on it
  * not supported by the #GSocketConnection APIs.
  *
- * Returns: (transfer none): a #GSocketAddress or %NULL on error.
+ * Returns: (transfer none): a #GSocket or %NULL on error.
  *
  * Since: 2.22
  */
@@ -501,6 +502,7 @@ g_socket_connection_close_async (GIOStream           *stream,
   class = G_IO_STREAM_GET_CLASS (stream);
 
   task = g_task_new (stream, cancellable, callback, user_data);
+  g_task_set_source_tag (task, g_socket_connection_close_async);
 
   /* socket close is not blocked, just do it! */
   error = NULL;

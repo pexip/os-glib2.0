@@ -455,7 +455,7 @@ g_thread_pool_start_thread (GRealThreadPool  *pool,
  * @error can be %NULL to ignore errors, or non-%NULL to report
  * errors. An error can only occur when @exclusive is set to %TRUE
  * and not all @max_threads threads could be created.
- * See #GThreadError for possible errors that may occurr.
+ * See #GThreadError for possible errors that may occur.
  * Note, even in case of error a valid #GThreadPool is returned.
  *
  * Returns: the new #GThreadPool
@@ -960,6 +960,36 @@ g_thread_pool_set_sort_function (GThreadPool      *pool,
                                  real->sort_user_data);
 
   g_async_queue_unlock (real->queue);
+}
+
+/**
+ * g_thread_pool_move_to_front:
+ * @pool: a #GThreadPool
+ * @data: an unprocessed item in the pool
+ *
+ * Moves the item to the front of the queue of unprocessed
+ * items, so that it will be processed next.
+ *
+ * Returns: %TRUE if the item was found and moved
+ *
+ * Since: 2.46
+ */
+gboolean
+g_thread_pool_move_to_front (GThreadPool *pool,
+                             gpointer     data)
+{
+  GRealThreadPool *real = (GRealThreadPool*) pool;
+  gboolean found;
+
+  g_async_queue_lock (real->queue);
+
+  found = g_async_queue_remove_unlocked (real->queue, data);
+  if (found)
+    g_async_queue_push_front_unlocked (real->queue, data);
+
+  g_async_queue_unlock (real->queue);
+
+  return found;
 }
 
 /**

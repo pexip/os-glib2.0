@@ -17,11 +17,15 @@
  */
 
 #include "config.h"
+#include "gio_trace.h"
 
 #include "gtask.h"
 
 #include "gasyncresult.h"
 #include "gcancellable.h"
+#include "glib-private.h"
+
+#include "glibintl.h"
 
 /**
  * SECTION:gtask
@@ -191,11 +195,11 @@
  *
  *       // baking_data_free() will drop its ref on the cake, so we have to
  *       // take another here to give to the caller.
- *       g_task_return_pointer (result, g_object_ref (cake), g_object_unref);
+ *       g_task_return_pointer (task, g_object_ref (cake), g_object_unref);
  *       g_object_unref (task);
  *     }
  *
- *     static void
+ *     static gboolean
  *     decorator_ready (gpointer user_data)
  *     {
  *       GTask *task = user_data;
@@ -204,6 +208,8 @@
  *       cake_decorate_async (bd->cake, bd->frosting, bd->message,
  *                            g_task_get_cancellable (task),
  *                            decorated_cb, task);
+ *
+ *       return G_SOURCE_REMOVE;
  *     }
  *
  *     static void
@@ -240,8 +246,7 @@
  *           source = cake_decorator_wait_source_new (cake);
  *           // Attach @source to @task's GMainContext and have it call
  *           // decorator_ready() when it is ready.
- *           g_task_attach_source (task, source,
- *                                 G_CALLBACK (decorator_ready));
+ *           g_task_attach_source (task, source, decorator_ready);
  *           g_source_unref (source);
  *         }
  *     }
@@ -547,6 +552,7 @@ struct _GTask {
 
   GAsyncReadyCallback callback;
   gpointer callback_data;
+  gboolean completed;
 
   GTaskThreadFunc task_func;
   GMutex lock;
@@ -564,6 +570,7 @@ struct _GTask {
     gboolean boolean;
   } result;
   GDestroyNotify result_destroy;
+  gboolean had_error;
   gboolean result_set;
 };
 
@@ -574,7 +581,10 @@ struct _GTaskClass
   GObjectClass parent_class;
 };
 
-static void g_task_thread_pool_resort (void);
+typedef enum
+{
+  PROP_COMPLETED = 1,
+} GTaskProperty;
 
 static void g_task_async_result_iface_init (GAsyncResultIface *iface);
 static void g_task_thread_pool_init (void);
@@ -587,6 +597,25 @@ G_DEFINE_TYPE_WITH_CODE (GTask, g_task, G_TYPE_OBJECT,
 static GThreadPool *task_pool;
 static GMutex task_pool_mutex;
 static GPrivate task_private = G_PRIVATE_INIT (NULL);
+static GSource *task_pool_manager;
+static guint64 task_wait_time;
+static gint tasks_running;
+
+/* When the task pool fills up and blocks, and the program keeps
+ * queueing more tasks, we will slowly add more threads to the pool
+ * (in case the existing tasks are trying to queue subtasks of their
+ * own) until tasks start completing again. These "overflow" threads
+ * will only run one task apiece, and then exit, so the pool will
+ * eventually get back down to its base size.
+ *
+ * The base and multiplier below gives us 10 extra threads after about
+ * a second of blocking, 30 after 5 seconds, 100 after a minute, and
+ * 200 after 20 minutes.
+ */
+#define G_TASK_POOL_SIZE 10
+#define G_TASK_WAIT_TIME_BASE 100000
+#define G_TASK_WAIT_TIME_MULTIPLIER 1.03
+#define G_TASK_WAIT_TIME_MAX (30 * 60 * 1000000)
 
 static void
 g_task_init (GTask *task)
@@ -671,6 +700,9 @@ g_task_new (gpointer              source_object,
   source = g_main_current_source ();
   if (source)
     task->creation_time = g_source_get_time (source);
+
+  TRACE (GIO_TASK_NEW (task, source_object, cancellable,
+                       callback, callback_data));
 
   return task;
 }
@@ -775,6 +807,8 @@ g_task_set_task_data (GTask          *task,
 
   task->task_data = task_data;
   task->task_data_destroy = task_data_destroy;
+
+  TRACE (GIO_TASK_SET_TASK_DATA (task, task_data, task_data_destroy));
 }
 
 /**
@@ -797,6 +831,8 @@ g_task_set_priority (GTask *task,
                      gint   priority)
 {
   task->priority = priority;
+
+  TRACE (GIO_TASK_SET_PRIORITY (task, priority));
 }
 
 /**
@@ -923,6 +959,8 @@ g_task_set_source_tag (GTask    *task,
                        gpointer  source_tag)
 {
   task->source_tag = source_tag;
+
+  TRACE (GIO_TASK_SET_SOURCE_TAG (task, source_tag));
 }
 
 /**
@@ -1073,10 +1111,21 @@ g_task_get_source_tag (GTask *task)
 static void
 g_task_return_now (GTask *task)
 {
+  TRACE (GIO_TASK_BEFORE_RETURN (task, task->source_object, task->callback,
+                                 task->callback_data));
+
   g_main_context_push_thread_default (task->context);
-  task->callback (task->source_object,
-                  G_ASYNC_RESULT (task),
-                  task->callback_data);
+
+  if (task->callback != NULL)
+    {
+      task->callback (task->source_object,
+                      G_ASYNC_RESULT (task),
+                      task->callback_data);
+    }
+
+  task->completed = TRUE;
+  g_object_notify (G_OBJECT (task), "completed");
+
   g_main_context_pop_thread_default (task->context);
 }
 
@@ -1103,7 +1152,7 @@ g_task_return (GTask           *task,
   if (type == G_TASK_RETURN_SUCCESS)
     task->result_set = TRUE;
 
-  if (task->synchronous || !task->callback)
+  if (task->synchronous)
     return;
 
   /* Normally we want to invoke the task's callback when its return
@@ -1135,8 +1184,8 @@ g_task_return (GTask           *task,
 
   /* Otherwise, complete in the next iteration */
   source = g_idle_source_new ();
-  g_task_attach_source (task, source, complete_in_idle_cb);
   g_source_set_name (source, "[gio] complete_in_idle_cb");
+  g_task_attach_source (task, source, complete_in_idle_cb);
   g_source_unref (source);
 }
 
@@ -1183,16 +1232,9 @@ g_task_thread_complete (GTask *task)
       return;
     }
 
-  task->thread_complete = TRUE;
+  TRACE (GIO_TASK_AFTER_RUN_IN_THREAD (task, task->thread_cancelled));
 
-  if (task->blocking_other_task)
-    {
-      g_mutex_lock (&task_pool_mutex);
-      g_thread_pool_set_max_threads (task_pool,
-                                     g_thread_pool_get_max_threads (task_pool) - 1,
-                                     NULL);
-      g_mutex_unlock (&task_pool_mutex);
-    }
+  task->thread_complete = TRUE;
   g_mutex_unlock (&task->lock);
 
   if (task->cancellable)
@@ -1204,20 +1246,67 @@ g_task_thread_complete (GTask *task)
     g_task_return (task, G_TASK_RETURN_FROM_THREAD);
 }
 
+static gboolean
+task_pool_manager_timeout (gpointer user_data)
+{
+  g_mutex_lock (&task_pool_mutex);
+  g_thread_pool_set_max_threads (task_pool, tasks_running + 1, NULL);
+  g_source_set_ready_time (task_pool_manager, -1);
+  g_mutex_unlock (&task_pool_mutex);
+
+  return TRUE;
+}
+
+static void
+g_task_thread_setup (void)
+{
+  g_private_set (&task_private, GUINT_TO_POINTER (TRUE));
+  g_mutex_lock (&task_pool_mutex);
+  tasks_running++;
+
+  if (tasks_running == G_TASK_POOL_SIZE)
+    task_wait_time = G_TASK_WAIT_TIME_BASE;
+  else if (tasks_running > G_TASK_POOL_SIZE && task_wait_time < G_TASK_WAIT_TIME_MAX)
+    task_wait_time *= G_TASK_WAIT_TIME_MULTIPLIER;
+
+  if (tasks_running >= G_TASK_POOL_SIZE)
+    g_source_set_ready_time (task_pool_manager, g_get_monotonic_time () + task_wait_time);
+
+  g_mutex_unlock (&task_pool_mutex);
+}
+
+static void
+g_task_thread_cleanup (void)
+{
+  gint tasks_pending;
+
+  g_mutex_lock (&task_pool_mutex);
+  tasks_pending = g_thread_pool_unprocessed (task_pool);
+
+  if (tasks_running > G_TASK_POOL_SIZE)
+    g_thread_pool_set_max_threads (task_pool, tasks_running - 1, NULL);
+  else if (tasks_running + tasks_pending < G_TASK_POOL_SIZE)
+    g_source_set_ready_time (task_pool_manager, -1);
+
+  tasks_running--;
+  g_mutex_unlock (&task_pool_mutex);
+  g_private_set (&task_private, GUINT_TO_POINTER (FALSE));
+}
+
 static void
 g_task_thread_pool_thread (gpointer thread_data,
                            gpointer pool_data)
 {
   GTask *task = thread_data;
 
-  g_private_set (&task_private, task);
+  g_task_thread_setup ();
 
   task->task_func (task, task->source_object, task->task_data,
                    task->cancellable);
   g_task_thread_complete (task);
-
-  g_private_set (&task_private, NULL);
   g_object_unref (task);
+
+  g_task_thread_cleanup ();
 }
 
 static void
@@ -1226,7 +1315,10 @@ task_thread_cancelled (GCancellable *cancellable,
 {
   GTask *task = user_data;
 
-  g_task_thread_pool_resort ();
+  /* Move this task to the front of the queue - no need for
+   * a complete resorting of the queue.
+   */
+  g_thread_pool_move_to_front (task_pool, task);
 
   g_mutex_lock (&task->lock);
   task->thread_cancelled = TRUE;
@@ -1261,6 +1353,8 @@ g_task_start_task_thread (GTask           *task,
 
   g_mutex_lock (&task->lock);
 
+  TRACE (GIO_TASK_BEFORE_RUN_IN_THREAD (task, task_func));
+
   task->task_func = task_func;
 
   if (task->cancellable)
@@ -1270,6 +1364,7 @@ g_task_start_task_thread (GTask           *task,
                                                 &task->error))
         {
           task->thread_cancelled = task->thread_complete = TRUE;
+          TRACE (GIO_TASK_AFTER_RUN_IN_THREAD (task, task->thread_cancelled));
           g_thread_pool_push (task_pool, g_object_ref (task), NULL);
           return;
         }
@@ -1288,19 +1383,9 @@ g_task_start_task_thread (GTask           *task,
                              task_thread_cancelled_disconnect_notify, 0);
     }
 
-  g_thread_pool_push (task_pool, g_object_ref (task), NULL);
   if (g_private_get (&task_private))
-    {
-      /* This thread is being spawned from another GTask thread, so
-       * bump up max-threads so we don't starve.
-       */
-      g_mutex_lock (&task_pool_mutex);
-      if (g_thread_pool_set_max_threads (task_pool,
-                                         g_thread_pool_get_max_threads (task_pool) + 1,
-                                         NULL))
-        task->blocking_other_task = TRUE;
-      g_mutex_unlock (&task_pool_mutex);
-    }
+    task->blocking_other_task = TRUE;
+  g_thread_pool_push (task_pool, g_object_ref (task), NULL);
 }
 
 /**
@@ -1314,6 +1399,12 @@ g_task_start_task_thread (GTask           *task,
  * This takes a ref on @task until the task completes.
  *
  * See #GTaskThreadFunc for more details about how @task_func is handled.
+ *
+ * Although GLib currently rate-limits the tasks queued via
+ * g_task_run_in_thread(), you should not assume that it will always
+ * do this. If you have a very large number of tasks to run, but don't
+ * want them to all run at once, you should only queue a limited
+ * number of them at a time.
  *
  * Since: 2.36
  */
@@ -1354,6 +1445,13 @@ g_task_run_in_thread (GTask           *task,
  * Normally this is used with tasks created with a %NULL
  * `callback`, but note that even if the task does
  * have a callback, it will not be invoked when @task_func returns.
+ * #GTask:completed will be set to %TRUE just before this function returns.
+ *
+ * Although GLib currently rate-limits the tasks queued via
+ * g_task_run_in_thread_sync(), you should not assume that it will
+ * always do this. If you have a very large number of tasks to run,
+ * but don't want them to all run at once, you should only queue a
+ * limited number of them at a time.
  *
  * Since: 2.36
  */
@@ -1372,6 +1470,15 @@ g_task_run_in_thread_sync (GTask           *task,
     g_cond_wait (&task->cond, &task->lock);
 
   g_mutex_unlock (&task->lock);
+
+  TRACE (GIO_TASK_BEFORE_RETURN (task, task->source_object,
+                                 NULL  /* callback */,
+                                 NULL  /* callback data */));
+
+  /* Notify of completion in this thread. */
+  task->completed = TRUE;
+  g_object_notify (G_OBJECT (task), "completed");
+
   g_object_unref (task);
 }
 
@@ -1406,17 +1513,24 @@ static gboolean
 g_task_propagate_error (GTask   *task,
                         GError **error)
 {
+  gboolean error_set;
+
   if (task->check_cancellable &&
       g_cancellable_set_error_if_cancelled (task->cancellable, error))
-    return TRUE;
+    error_set = TRUE;
   else if (task->error)
     {
       g_propagate_error (error, task->error);
       task->error = NULL;
-      return TRUE;
+      task->had_error = TRUE;
+      error_set = TRUE;
     }
   else
-    return FALSE;
+    error_set = FALSE;
+
+  TRACE (GIO_TASK_PROPAGATE (task, error_set));
+
+  return error_set;
 }
 
 /**
@@ -1709,13 +1823,33 @@ g_task_return_error_if_cancelled (GTask *task)
 gboolean
 g_task_had_error (GTask *task)
 {
-  if (task->error != NULL)
+  if (task->error != NULL || task->had_error)
     return TRUE;
 
   if (task->check_cancellable && g_cancellable_is_cancelled (task->cancellable))
     return TRUE;
 
   return FALSE;
+}
+
+/**
+ * g_task_get_completed:
+ * @task: a #GTask.
+ *
+ * Gets the value of #GTask:completed. This changes from %FALSE to %TRUE after
+ * the task’s callback is invoked, and will return %FALSE if called from inside
+ * the callback.
+ *
+ * Returns: %TRUE if the task has completed, %FALSE otherwise.
+ *
+ * Since: 2.44
+ */
+gboolean
+g_task_get_completed (GTask *task)
+{
+  g_return_val_if_fail (G_IS_TASK (task), FALSE);
+
+  return task->completed;
 }
 
 /**
@@ -1774,20 +1908,52 @@ g_task_compare_priority (gconstpointer a,
   return ta->priority - tb->priority;
 }
 
+static gboolean
+trivial_source_dispatch (GSource     *source,
+                         GSourceFunc  callback,
+                         gpointer     user_data)
+{
+  return callback (user_data);
+}
+
+GSourceFuncs trivial_source_funcs = {
+  NULL, /* prepare */
+  NULL, /* check */
+  trivial_source_dispatch,
+  NULL
+};
+
 static void
 g_task_thread_pool_init (void)
 {
   task_pool = g_thread_pool_new (g_task_thread_pool_thread, NULL,
-                                 10, FALSE, NULL);
+                                 G_TASK_POOL_SIZE, FALSE, NULL);
   g_assert (task_pool != NULL);
 
   g_thread_pool_set_sort_function (task_pool, g_task_compare_priority, NULL);
+
+  task_pool_manager = g_source_new (&trivial_source_funcs, sizeof (GSource));
+  g_source_set_callback (task_pool_manager, task_pool_manager_timeout, NULL, NULL);
+  g_source_set_ready_time (task_pool_manager, -1);
+  g_source_attach (task_pool_manager,
+                   GLIB_PRIVATE_CALL (g_get_worker_context ()));
+  g_source_unref (task_pool_manager);
 }
 
 static void
-g_task_thread_pool_resort (void)
+g_task_get_property (GObject    *object,
+                     guint       prop_id,
+                     GValue     *value,
+                     GParamSpec *pspec)
 {
-  g_thread_pool_set_sort_function (task_pool, g_task_compare_priority, NULL);
+  GTask *task = G_TASK (object);
+
+  switch ((GTaskProperty) prop_id)
+    {
+    case PROP_COMPLETED:
+      g_value_set_boolean (value, task->completed);
+      break;
+    }
 }
 
 static void
@@ -1795,7 +1961,29 @@ g_task_class_init (GTaskClass *klass)
 {
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
 
+  gobject_class->get_property = g_task_get_property;
   gobject_class->finalize = g_task_finalize;
+
+  /**
+   * GTask:completed:
+   *
+   * Whether the task has completed, meaning its callback (if set) has been
+   * invoked. This can only happen after g_task_return_pointer(),
+   * g_task_return_error() or one of the other return functions have been called
+   * on the task.
+   *
+   * This property is guaranteed to change from %FALSE to %TRUE exactly once.
+   *
+   * The #GObject::notify signal for this change is emitted in the same main
+   * context as the task’s callback, immediately after that callback is invoked.
+   *
+   * Since: 2.44
+   */
+  g_object_class_install_property (gobject_class, PROP_COMPLETED,
+    g_param_spec_boolean ("completed",
+                          P_("Task completed"),
+                          P_("Whether the task has completed yet"),
+                          FALSE, G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
 }
 
 static gpointer

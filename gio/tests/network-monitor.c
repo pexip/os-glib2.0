@@ -492,6 +492,22 @@ watch_network_changed (GNetworkMonitor *monitor,
 }
 
 static void
+watch_connectivity_changed (GNetworkMonitor *monitor,
+			    GParamSpec      *pspec,
+			    gpointer         user_data)
+{
+  g_print ("Connectivity is %d\n", g_network_monitor_get_connectivity (monitor));
+}
+
+static void
+watch_metered_changed (GNetworkMonitor *monitor,
+                       GParamSpec      *pspec,
+                       gpointer         user_data)
+{
+  g_print ("Metered is %d\n", g_network_monitor_get_network_metered (monitor));
+}
+
+static void
 do_watch_network (void)
 {
   GNetworkMonitor *monitor = g_network_monitor_get_default ();
@@ -501,7 +517,13 @@ do_watch_network (void)
 
   g_signal_connect (monitor, "network-changed",
                     G_CALLBACK (watch_network_changed), NULL);
+  g_signal_connect (monitor, "notify::connectivity",
+                    G_CALLBACK (watch_connectivity_changed), NULL);
+  g_signal_connect (monitor, "notify::network-metered",
+                    G_CALLBACK (watch_metered_changed), NULL);
   watch_network_changed (monitor, g_network_monitor_get_network_available (monitor), NULL);
+  watch_connectivity_changed (monitor, NULL, NULL);
+  watch_metered_changed (monitor, NULL, NULL);
 
   loop = g_main_loop_new (NULL, FALSE);
   g_main_loop_run (loop);

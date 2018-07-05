@@ -22,10 +22,19 @@
 
 #include "gappinfo.h"
 #include "gappinfoprivate.h"
+#include "gcontextspecificgroup.h"
+#include "gtask.h"
 
 #include "glibintl.h"
 #include <gioerror.h>
 #include <gfile.h>
+
+#ifdef G_OS_UNIX
+#include "gdbusconnection.h"
+#include "gdbusmessage.h"
+#include "gdocumentportal.h"
+#include "gportalsupport.h"
+#endif
 
 
 /**
@@ -83,6 +92,10 @@
  * Different launcher applications (e.g. file managers) may have
  * different ideas of what a given URI means.
  */
+
+struct _GAppLaunchContextPrivate {
+  char **envp;
+};
 
 typedef GAppInfoIface GAppInfoInterface;
 G_DEFINE_INTERFACE (GAppInfo, g_app_info, G_TYPE_OBJECT)
@@ -239,7 +252,7 @@ g_app_info_get_description (GAppInfo *appinfo)
  * 
  * Gets the executable's name for the installed application.
  *
- * Returns: a string containing the @appinfo's application 
+ * Returns: (type filename): a string containing the @appinfo's application
  * binaries name
  **/
 const char *
@@ -262,7 +275,7 @@ g_app_info_get_executable (GAppInfo *appinfo)
  * Gets the commandline with which the application will be
  * started.  
  *
- * Returns: a string containing the @appinfo's commandline, 
+ * Returns: (type filename): a string containing the @appinfo's commandline,
  *     or %NULL if this information is not available
  *
  * Since: 2.20
@@ -338,7 +351,8 @@ g_app_info_set_as_last_used_for_type (GAppInfo    *appinfo,
 /**
  * g_app_info_set_as_default_for_extension:
  * @appinfo: a #GAppInfo.
- * @extension: a string containing the file extension (without the dot).
+ * @extension: (type filename): a string containing the file extension
+ *     (without the dot).
  * @error: a #GError.
  * 
  * Sets the application as the default handler for the given file extension.
@@ -663,23 +677,167 @@ g_app_info_should_show (GAppInfo *appinfo)
   return (* iface->should_show) (appinfo);
 }
 
-/**
- * g_app_info_launch_default_for_uri:
- * @uri: the uri to show
- * @launch_context: (allow-none): an optional #GAppLaunchContext.
- * @error: a #GError.
- *
- * Utility function that launches the default application
- * registered to handle the specified uri. Synchronous I/O
- * is done on the uri to detect the type of the file if
- * required.
- * 
- * Returns: %TRUE on success, %FALSE on error.
- **/
-gboolean
-g_app_info_launch_default_for_uri (const char         *uri,
-				   GAppLaunchContext  *launch_context,
-				   GError            **error)
+#ifdef G_OS_UNIX
+static void
+response_received (GDBusConnection *connection,
+                   const char      *sender_name,
+                   const char      *object_path,
+                   const char      *interface_name,
+                   const char      *signal_name,
+                   GVariant        *parameters,
+                   gpointer         user_data)
+{
+  GTask *task = user_data;
+  guint32 response;
+  guint signal_id;
+
+  signal_id = GPOINTER_TO_UINT (g_object_get_data (G_OBJECT (task), "signal-id"));
+  g_dbus_connection_signal_unsubscribe (connection, signal_id);
+
+  g_variant_get (parameters, "(u@a{sv})", &response, NULL);
+
+  if (response == 0)
+    g_task_return_boolean (task, TRUE);
+  else if (response == 1)
+    g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_CANCELLED, "Launch cancelled");
+  else
+    g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_FAILED, "Launch failed");
+
+  g_object_unref (task);
+}
+
+static void
+open_uri_done (GObject      *source,
+               GAsyncResult *result,
+               gpointer      user_data)
+{
+  GDBusConnection *connection = G_DBUS_CONNECTION (source);
+  GTask *task = user_data;
+  GVariant *res;
+  GError *error = NULL;
+  const char *path;
+  guint signal_id;
+
+  res = g_dbus_connection_call_finish (connection, result, &error);
+
+  if (res == NULL)
+    {
+      g_task_return_error (task, error);
+      g_object_unref (task);
+      return;
+    }
+
+  g_variant_get (res, "(&o)", &path);
+
+  signal_id =
+      g_dbus_connection_signal_subscribe (connection,
+                                          "org.freedesktop.portal.Desktop",
+                                          "org.freedesktop.portal.Request",
+                                          "Response",
+                                          path,
+                                          NULL,
+                                          G_DBUS_SIGNAL_FLAGS_NO_MATCH_RULE,
+                                          response_received,
+                                          task, NULL);
+
+  g_object_set_data (G_OBJECT (task), "signal-id", GINT_TO_POINTER (signal_id));
+
+  g_variant_unref (res);
+}
+
+static void
+launch_default_with_portal_async (const char          *uri,
+                                  GAppLaunchContext   *context,
+                                  GCancellable        *cancellable,
+                                  GAsyncReadyCallback  callback,
+                                  gpointer             user_data)
+{
+  GDBusConnection *session_bus;
+  GVariantBuilder opt_builder;
+  const char *parent_window = NULL;
+  GFile *file;
+  char *real_uri;
+  GTask *task;
+  GAsyncReadyCallback dbus_callback;
+  GError *error = NULL;
+
+  session_bus = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, &error);
+  if (session_bus == NULL)
+    {
+      g_task_report_error (context, callback, user_data, NULL, error);
+      return;
+    }
+
+  if (context && context->priv->envp)
+    parent_window = g_environ_getenv (context->priv->envp, "PARENT_WINDOW_ID");
+
+  g_variant_builder_init (&opt_builder, G_VARIANT_TYPE_VARDICT);
+
+  file = g_file_new_for_uri (uri);
+
+  if (g_file_is_native (file))
+    {
+      real_uri = g_document_portal_add_document (file, &error);
+      g_object_unref (file);
+
+      if (real_uri == NULL)
+        {
+          g_task_report_error (context, callback, user_data, NULL, error);
+          return;
+        }
+    }
+  else
+    {
+      g_object_unref (file);
+      real_uri = g_strdup (uri);
+    }
+
+  if (callback)
+    {
+      task = g_task_new (context, cancellable, callback, user_data);
+      dbus_callback = open_uri_done;
+    }
+  else
+    {
+      task = NULL;
+      dbus_callback = NULL;
+    }
+
+  g_dbus_connection_call (session_bus,
+                          "org.freedesktop.portal.Desktop",
+                          "/org/freedesktop/portal/desktop",
+                          "org.freedesktop.portal.OpenURI",
+                          "OpenURI",
+                          g_variant_new ("(ss@a{sv})",
+                                         parent_window ? parent_window : "",
+                                         real_uri,
+                                         g_variant_builder_end (&opt_builder)),
+                          NULL,
+                          G_DBUS_CALL_FLAGS_NONE,
+                          G_MAXINT,
+                          cancellable,
+                          dbus_callback,
+                          task);
+
+  g_dbus_connection_flush (session_bus, cancellable, NULL, NULL);
+  g_object_unref (session_bus);
+  g_free (real_uri);
+}
+
+static gboolean
+launch_default_with_portal (const char         *uri,
+                            GAppLaunchContext  *context,
+                            GError            **error)
+{
+  launch_default_with_portal_async (uri, context, NULL, NULL, NULL);
+  return TRUE;
+}
+#endif
+
+static gboolean
+launch_default_for_uri (const char         *uri,
+                        GAppLaunchContext  *context,
+                        GError            **error)
 {
   char *uri_scheme;
   GAppInfo *app_info = NULL;
@@ -702,24 +860,109 @@ g_app_info_launch_default_for_uri (const char         *uri,
       file = g_file_new_for_uri (uri);
       app_info = g_file_query_default_handler (file, NULL, error);
       g_object_unref (file);
-      if (app_info == NULL)
-	return FALSE;
-
-      /* We still use the original @uri rather than calling
-       * g_file_get_uri(), because GFile might have modified the URI
-       * in ways we don't want (eg, removing the fragment identifier
-       * from a file: URI).
-       */
     }
+
+  if (app_info == NULL)
+    return FALSE;
 
   l.data = (char *)uri;
   l.next = l.prev = NULL;
-  res = g_app_info_launch_uris (app_info, &l,
-				launch_context, error);
+  res = g_app_info_launch_uris (app_info, &l, context, error);
 
   g_object_unref (app_info);
-  
+
   return res;
+}
+
+/**
+ * g_app_info_launch_default_for_uri:
+ * @uri: the uri to show
+ * @launch_context: (allow-none): an optional #GAppLaunchContext
+ * @error: (nullable): return location for an error, or %NULL
+ *
+ * Utility function that launches the default application
+ * registered to handle the specified uri. Synchronous I/O
+ * is done on the uri to detect the type of the file if
+ * required.
+ * 
+ * Returns: %TRUE on success, %FALSE on error.
+ **/
+gboolean
+g_app_info_launch_default_for_uri (const char         *uri,
+				   GAppLaunchContext  *launch_context,
+				   GError            **error)
+{
+#ifdef G_OS_UNIX
+  if (glib_should_use_portal ())
+    return launch_default_with_portal (uri, launch_context, error);
+  else
+#endif
+    return launch_default_for_uri (uri, launch_context, error);
+}
+
+/**
+ * g_app_info_launch_default_for_uri_async:
+ * @uri: the uri to show
+ * @context: (allow-none): an optional #GAppLaunchContext
+ * cancellable: (allow-none): a #GCancellable
+ * @callback: (allow-none): a #GASyncReadyCallback to call when the request is done
+ * @user_data: (allow-none): data to pass to @callback
+ *
+ * Async version of g_app_info_launch_default_for_uri().
+ *
+ * This version is useful if you are interested in receiving
+ * error information in the case where the application is
+ * sandboxed and the portal may present an application chooser
+ * dialog to the user.
+ *
+ * Since: 2.50
+ */
+void
+g_app_info_launch_default_for_uri_async (const char          *uri,
+                                         GAppLaunchContext   *context,
+                                         GCancellable        *cancellable,
+                                         GAsyncReadyCallback  callback,
+                                         gpointer             user_data)
+{
+  gboolean res;
+  GError *error = NULL;
+  GTask *task;
+
+#ifdef G_OS_UNIX
+  if (glib_should_use_portal ())
+    {
+      launch_default_with_portal_async (uri, context, cancellable, callback, user_data);
+      return;
+    }
+#endif
+
+  res = launch_default_for_uri (uri, context, &error);
+
+  task = g_task_new (context, cancellable, callback, user_data);
+  if (!res)
+    g_task_return_error (task, error);
+  else
+    g_task_return_boolean (task, TRUE);
+
+  g_object_unref (task);
+}
+
+/**
+ * g_app_info_launch_default_for_uri_finish:
+ * @result: a #GAsyncResult
+ * @error: (nullable): return location for an error, or %NULL
+ *
+ * Finishes an asynchronous launch-default-for-uri operation.
+ *
+ * Returns: %TRUE if the launch was successful, %FALSE if @error is set
+ *
+ * Since: 2.50
+ */
+gboolean
+g_app_info_launch_default_for_uri_finish (GAsyncResult  *result,
+                                          GError       **error)
+{
+  return g_task_propagate_boolean (G_TASK (result), error);
 }
 
 /**
@@ -786,10 +1029,6 @@ enum {
   LAST_SIGNAL
 };
 
-struct _GAppLaunchContextPrivate {
-  char **envp;
-};
-
 static guint signals[LAST_SIGNAL] = { 0 };
 
 G_DEFINE_TYPE_WITH_PRIVATE (GAppLaunchContext, g_app_launch_context, G_TYPE_OBJECT)
@@ -825,7 +1064,7 @@ g_app_launch_context_class_init (GAppLaunchContextClass *klass)
 
   object_class->finalize = g_app_launch_context_finalize;
 
-  /*
+  /**
    * GAppLaunchContext::launch-failed:
    * @context: the object emitting the signal
    * @startup_notify_id: the startup notification id for the failed launch
@@ -836,14 +1075,14 @@ g_app_launch_context_class_init (GAppLaunchContextClass *klass)
    *
    * Since: 2.36
    */
-  signals[LAUNCH_FAILED] = g_signal_new ("launch-failed",
+  signals[LAUNCH_FAILED] = g_signal_new (I_("launch-failed"),
                                          G_OBJECT_CLASS_TYPE (object_class),
                                          G_SIGNAL_RUN_LAST,
                                          G_STRUCT_OFFSET (GAppLaunchContextClass, launch_failed),
                                          NULL, NULL, NULL,
                                          G_TYPE_NONE, 1, G_TYPE_STRING);
 
-  /*
+  /**
    * GAppLaunchContext::launched:
    * @context: the object emitting the signal
    * @info: the #GAppInfo that was just launched
@@ -857,7 +1096,7 @@ g_app_launch_context_class_init (GAppLaunchContextClass *klass)
    *
    * Since: 2.36
    */
-  signals[LAUNCHED] = g_signal_new ("launched",
+  signals[LAUNCHED] = g_signal_new (I_("launched"),
                                     G_OBJECT_CLASS_TYPE (object_class),
                                     G_SIGNAL_RUN_LAST,
                                     G_STRUCT_OFFSET (GAppLaunchContextClass, launched),
@@ -1057,40 +1296,6 @@ g_app_launch_context_launch_failed (GAppLaunchContext *context,
  * Since: 2.40
  **/
 
-/* We have one of each of these per main context and hand them out
- * according to the thread default main context at the time of the call
- * to g_app_info_monitor_get().
- *
- * g_object_unref() is only ever called from the same context, so we
- * effectively have a single-threaded scenario for each GAppInfoMonitor.
- *
- * We use a hashtable to cache the per-context monitor (but we do not
- * hold a ref).  During finalize, we remove it.  This is possible
- * because we don't have to worry about the usual races due to the
- * single-threaded nature of each object.
- *
- * We keep a global list of all contexts that have a monitor for them,
- * which we have to access under a lock.  When we dispatch the events to
- * be handled in each context, we don't pass the monitor, but the
- * context itself.
- *
- * We dispatch from the GLib worker context, so if we passed the
- * monitor, we would need to take a ref on it (in case it was destroyed
- * in its own thread meanwhile).  The monitor holds a ref on a context
- * and the dispatch would mean that the context would hold a ref on the
- * monitor.  If someone stopped iterating the context at just this
- * moment both the context and monitor would leak.
- *
- * Instead, we dispatch the context to itself.  We don't hold a ref.
- * There is the danger that the context will be destroyed during the
- * dispatch, but if that is the case then we just won't receive our
- * callback.
- *
- * When the dispatch occurs we just lookup the monitor in the hashtable,
- * by context.  We can now add and remove refs, since the context will
- * have been acquired.
- */
-
 typedef struct _GAppInfoMonitorClass GAppInfoMonitorClass;
 
 struct _GAppInfoMonitor
@@ -1104,9 +1309,8 @@ struct _GAppInfoMonitorClass
   GObjectClass parent_class;
 };
 
-static GHashTable *g_app_info_monitors;
-static GMutex      g_app_info_monitor_lock;
-static guint       g_app_info_monitor_changed_signal;
+static GContextSpecificGroup g_app_info_monitor_group;
+static guint                 g_app_info_monitor_changed_signal;
 
 G_DEFINE_TYPE (GAppInfoMonitor, g_app_info_monitor, G_TYPE_OBJECT)
 
@@ -1115,9 +1319,7 @@ g_app_info_monitor_finalize (GObject *object)
 {
   GAppInfoMonitor *monitor = G_APP_INFO_MONITOR (object);
 
-  g_mutex_lock (&g_app_info_monitor_lock);
-  g_hash_table_remove (g_app_info_monitors, monitor->context);
-  g_mutex_unlock (&g_app_info_monitor_lock);
+  g_context_specific_group_remove (&g_app_info_monitor_group, monitor->context, monitor, NULL);
 
   G_OBJECT_CLASS (g_app_info_monitor_parent_class)->finalize (object);
 }
@@ -1132,7 +1334,13 @@ g_app_info_monitor_class_init (GAppInfoMonitorClass *class)
 {
   GObjectClass *object_class = G_OBJECT_CLASS (class);
 
-  g_app_info_monitor_changed_signal = g_signal_new ("changed", G_TYPE_APP_INFO_MONITOR, G_SIGNAL_RUN_FIRST,
+  /**
+   * GAppInfoMonitor::changed:
+   *
+   * Signal emitted when the app info database for changes (ie: newly installed
+   * or removed applications).
+   **/
+  g_app_info_monitor_changed_signal = g_signal_new (I_("changed"), G_TYPE_APP_INFO_MONITOR, G_SIGNAL_RUN_FIRST,
                                                     0, NULL, NULL, g_cclosure_marshal_VOID__VOID, G_TYPE_NONE, 0);
 
   object_class->finalize = g_app_info_monitor_finalize;
@@ -1158,91 +1366,14 @@ g_app_info_monitor_class_init (GAppInfoMonitorClass *class)
 GAppInfoMonitor *
 g_app_info_monitor_get (void)
 {
-  GAppInfoMonitor *monitor;
-  GMainContext *context;
-
-  context = g_main_context_get_thread_default ();
-  if (!context)
-    context = g_main_context_default ();
-
-  g_return_val_if_fail (g_main_context_acquire (context), NULL);
-
-  g_mutex_lock (&g_app_info_monitor_lock);
-  if (!g_app_info_monitors)
-    g_app_info_monitors = g_hash_table_new (NULL, NULL);
-
-  monitor = g_hash_table_lookup (g_app_info_monitors, context);
-  g_mutex_unlock (&g_app_info_monitor_lock);
-
-  if (!monitor)
-    {
-      monitor = g_object_new (G_TYPE_APP_INFO_MONITOR, NULL);
-      monitor->context = g_main_context_ref (context);
-
-      g_mutex_lock (&g_app_info_monitor_lock);
-      g_hash_table_insert (g_app_info_monitors, context, monitor);
-      g_mutex_unlock (&g_app_info_monitor_lock);
-    }
-  else
-    g_object_ref (monitor);
-
-  g_main_context_release (context);
-
-  return monitor;
-}
-
-static gboolean
-g_app_info_monitor_emit (gpointer user_data)
-{
-  GMainContext *context = user_data;
-  GAppInfoMonitor *monitor;
-
-  g_mutex_lock (&g_app_info_monitor_lock);
-  monitor = g_hash_table_lookup (g_app_info_monitors, context);
-  g_mutex_unlock (&g_app_info_monitor_lock);
-
-  /* It is possible that the monitor was already destroyed by the time
-   * we get here, so make sure it's not NULL.
-   */
-  if (monitor != NULL)
-    {
-      /* We don't have to worry about another thread disposing the
-       * monitor but we do have to worry about the possibility that one
-       * of the attached handlers may do so.
-       *
-       * Take a ref so that the monitor doesn't disappear in the middle
-       * of the emission.
-       */
-      g_object_ref (monitor);
-      g_signal_emit (monitor, g_app_info_monitor_changed_signal, 0);
-      g_object_unref (monitor);
-    }
-
-  return FALSE;
+  return g_context_specific_group_get (&g_app_info_monitor_group,
+                                       G_TYPE_APP_INFO_MONITOR,
+                                       G_STRUCT_OFFSET (GAppInfoMonitor, context),
+                                       NULL);
 }
 
 void
 g_app_info_monitor_fire (void)
 {
-  GHashTableIter iter;
-  gpointer context;
-
-  g_mutex_lock (&g_app_info_monitor_lock);
-
-  if (g_app_info_monitors)
-    {
-      g_hash_table_iter_init (&iter, g_app_info_monitors);
-      while (g_hash_table_iter_next (&iter, &context, NULL))
-        {
-          GSource *idle;
-
-          idle = g_idle_source_new ();
-          g_source_set_callback (idle, g_app_info_monitor_emit, context, NULL);
-          g_source_set_name (idle, "[gio] g_app_info_monitor_emit");
-          g_source_attach (idle, context);
-          g_source_unref (idle);
-        }
-    }
-
-  g_mutex_unlock (&g_app_info_monitor_lock);
+  g_context_specific_group_emit (&g_app_info_monitor_group, g_app_info_monitor_changed_signal);
 }

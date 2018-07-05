@@ -271,30 +271,17 @@ g_poll (GPollFD *fds,
       }
     else if (f->fd > 0)
       {
-	/* Don't add the same handle several times into the array, as
-	 * docs say that is not allowed, even if it actually does seem
-	 * to work.
-	 */
-	gint i;
-
-	for (i = 0; i < nhandles; i++)
-	  if (handles[i] == (HANDLE) f->fd)
-	    break;
-
-	if (i == nhandles)
-	  {
-	    if (nhandles == MAXIMUM_WAIT_OBJECTS)
-	      {
-		g_warning ("Too many handles to wait for!\n");
-		break;
-	      }
-	    else
-	      {
-		if (_g_main_poll_debug)
-		  g_print (" %p", (HANDLE) f->fd);
-		handles[nhandles++] = (HANDLE) f->fd;
-	      }
-	  }
+        if (nhandles == MAXIMUM_WAIT_OBJECTS)
+          {
+            g_warning ("Too many handles to wait for!\n");
+            break;
+          }
+        else
+          {
+            if (_g_main_poll_debug)
+              g_print (" %p", (HANDLE) f->fd);
+            handles[nhandles++] = (HANDLE) f->fd;
+          }
       }
 
   if (_g_main_poll_debug)
@@ -316,12 +303,9 @@ g_poll (GPollFD *fds,
 
       /* If not, and we have a significant timeout, poll again with
        * timeout then. Note that this will return indication for only
-       * one event, or only for messages. We ignore timeouts less than
-       * ten milliseconds as they are mostly pointless on Windows, the
-       * MsgWaitForMultipleObjectsEx() call will timeout right away
-       * anyway.
+       * one event, or only for messages.
        */
-      if (retval == 0 && (timeout == INFINITE || timeout >= 10))
+      if (retval == 0 && (timeout == INFINITE || timeout > 0))
 	retval = poll_rest (poll_msgs, handles, nhandles, fds, nfds, timeout);
     }
   else

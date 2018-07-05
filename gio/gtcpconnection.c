@@ -261,6 +261,7 @@ g_tcp_connection_close_async (GIOStream           *stream,
       !g_cancellable_is_cancelled (cancellable) /* Cancelled -> close fast */)
     {
       task = g_task_new (stream, cancellable, callback, user_data);
+      g_task_set_source_tag (task, g_tcp_connection_close_async);
       g_task_set_priority (task, io_priority);
 
       socket = g_socket_connection_get_socket (G_SOCKET_CONNECTION (stream));
@@ -289,7 +290,7 @@ g_tcp_connection_close_async (GIOStream           *stream,
  * @connection: a #GTcpConnection
  * @graceful_disconnect: Whether to do graceful disconnects or not
  *
- * This enabled graceful disconnects on close. A graceful disconnect
+ * This enables graceful disconnects on close. A graceful disconnect
  * means that we signal the receiving end that the connection is terminated
  * and wait for it to close the connection before closing the connection.
  *

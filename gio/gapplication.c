@@ -164,6 +164,14 @@
  */
 
 /**
+ * GApplication:
+ *
+ * #GApplication is an opaque data structure and can only be accessed
+ * using the following functions.
+ * Since: 2.28
+ */
+
+/**
  * GApplicationClass:
  * @startup: invoked on the primary instance immediately after registration
  * @shutdown: invoked only on the registered primary instance immediately
@@ -172,11 +180,11 @@
  * @open: invoked on the primary instance when there are files to open
  * @command_line: invoked on the primary instance when a command-line is
  *   not handled locally
- * @local_command_line: invoked (locally) when the process has been invoked
- *     via commandline execution (as opposed to, say, D-Bus activation - which
- *     is not currently supported by GApplication). The virtual function has
- *     the chance to inspect (and possibly replace) the list of command line
- *     arguments. See g_application_run() for more information.
+ * @local_command_line: invoked (locally). The virtual function has the chance
+ *     to inspect (and possibly replace) command line arguments. See
+ *     g_application_run() for more information. Also see the
+ *     #GApplication::handle-local-options signal, which is a simpler
+ *     alternative to handling some commandline options locally
  * @before_emit: invoked on the primary instance before 'activate', 'open',
  *     'command-line' or any action invocation, gets the 'platform data' from
  *     the calling instance
@@ -202,6 +210,8 @@
  * @dbus_unregister: invoked locally during unregistration, if the application
  *     is using its D-Bus backend. Use this to undo anything done by the
  *     @dbus_register vfunc. Since: 2.34
+ * @handle_local_options: invoked locally after the parsing of the commandline
+ *  options has occurred. Since: 2.40
  *
  * Virtual function table for #GApplication.
  *
@@ -253,7 +263,8 @@ enum
   PROP_IS_REGISTERED,
   PROP_IS_REMOTE,
   PROP_INACTIVITY_TIMEOUT,
-  PROP_ACTION_GROUP
+  PROP_ACTION_GROUP,
+  PROP_IS_BUSY
 };
 
 enum
@@ -463,8 +474,10 @@ g_application_parse_command_line (GApplication   *application,
                                   GError        **error)
 {
   gboolean become_service = FALSE;
+  gchar *app_id = NULL;
   GVariantDict *dict = NULL;
   GOptionContext *context;
+  GOptionGroup *gapplication_group;
 
   /* Due to the memory management of GOptionGroup we can only parse
    * options once.  That's because once you add a group to the
@@ -475,6 +488,26 @@ g_application_parse_command_line (GApplication   *application,
   g_return_val_if_fail (!application->priv->options_parsed, NULL);
 
   context = g_option_context_new (NULL);
+
+  gapplication_group = g_option_group_new ("gapplication",
+                                           _("GApplication options"), _("Show GApplication options"),
+                                           NULL, NULL);
+  g_option_group_set_translation_domain (gapplication_group, GETTEXT_PACKAGE);
+  g_option_context_add_group (context, gapplication_group);
+
+  /* If the application has not registered local options and it has
+   * G_APPLICATION_HANDLES_COMMAND_LINE then we have to assume that
+   * their primary instance commandline handler may want to deal with
+   * the arguments.  We must therefore ignore them.
+   *
+   * We must also ignore --help in this case since some applications
+   * will try to handle this from the remote side.  See #737869.
+   */
+  if (application->priv->main_options == NULL && (application->priv->flags & G_APPLICATION_HANDLES_COMMAND_LINE))
+    {
+      g_option_context_set_ignore_unknown_options (context, TRUE);
+      g_option_context_set_help_enabled (context, FALSE);
+    }
 
   /* Add the main option group, if it exists */
   if (application->priv->main_options)
@@ -494,34 +527,31 @@ g_application_parse_command_line (GApplication   *application,
                                                               application->priv->option_groups);
     }
 
-  /* If the application has not registered local options and it has
-   * G_APPLICATION_HANDLES_COMMAND_LINE then we have to assume that
-   * their primary instance commandline handler may want to deal with
-   * the arguments.  We must therefore ignore them.
-   */
-  if (application->priv->main_options == NULL && (application->priv->flags & G_APPLICATION_HANDLES_COMMAND_LINE))
-    g_option_context_set_ignore_unknown_options (context, TRUE);
-
   /* In the case that we are not explicitly marked as a service or a
    * launcher then we want to add the "--gapplication-service" option to
    * allow the process to be made into a service.
    */
   if ((application->priv->flags & (G_APPLICATION_IS_SERVICE | G_APPLICATION_IS_LAUNCHER)) == 0)
     {
-      GOptionGroup *option_group;
       GOptionEntry entries[] = {
         { "gapplication-service", '\0', 0, G_OPTION_ARG_NONE, &become_service,
           N_("Enter GApplication service mode (use from D-Bus service files)") },
         { NULL }
       };
 
-      option_group = g_option_group_new ("gapplication",
-                                         _("GApplication options"), _("Show GApplication options"),
-                                         NULL, NULL);
-      g_option_group_set_translation_domain (option_group, GETTEXT_PACKAGE);
-      g_option_group_add_entries (option_group, entries);
+      g_option_group_add_entries (gapplication_group, entries);
+    }
 
-      g_option_context_add_group (context, option_group);
+  /* Allow overriding the ID if the application allows it */
+  if (application->priv->flags & G_APPLICATION_CAN_OVERRIDE_APP_ID)
+    {
+      GOptionEntry entries[] = {
+        { "gapplication-app-id", '\0', 0, G_OPTION_ARG_STRING, &app_id,
+          N_("Override the application's ID") },
+        { NULL }
+      };
+
+      g_option_group_add_entries (gapplication_group, entries);
     }
 
   /* Now we parse... */
@@ -531,6 +561,10 @@ g_application_parse_command_line (GApplication   *application,
   /* Check for --gapplication-service */
   if (become_service)
     application->priv->flags |= G_APPLICATION_IS_SERVICE;
+
+  /* Check for --gapplication-app-id */
+  if (app_id)
+    g_application_set_application_id (application, app_id);
 
   dict = g_variant_dict_new (NULL);
   if (application->priv->packed_options)
@@ -545,6 +579,7 @@ out:
   application->priv->options_parsed = TRUE;
 
   g_option_context_free (context);
+  g_free (app_id);
 
   return dict;
 }
@@ -641,6 +676,17 @@ add_packed_option (GApplication *application,
  * consumed, they will no longer be visible to the default handling
  * (which treats them as filenames to be opened).
  *
+ * It is important to use the proper GVariant format when retrieving
+ * the options with g_variant_dict_lookup():
+ * - for %G_OPTION_ARG_NONE, use b
+ * - for %G_OPTION_ARG_STRING, use &s
+ * - for %G_OPTION_ARG_INT, use i
+ * - for %G_OPTION_ARG_INT64, use x
+ * - for %G_OPTION_ARG_DOUBLE, use d
+ * - for %G_OPTION_ARG_FILENAME, use ^ay
+ * - for %G_OPTION_ARG_STRING_ARRAY, use &as
+ * - for %G_OPTION_ARG_FILENAME_ARRAY, use ^aay
+ *
  * Since: 2.40
  */
 void
@@ -653,7 +699,10 @@ g_application_add_main_option_entries (GApplication       *application,
   g_return_if_fail (entries != NULL);
 
   if (!application->priv->main_options)
-    application->priv->main_options = g_option_group_new (NULL, NULL, NULL, NULL, NULL);
+    {
+      application->priv->main_options = g_option_group_new (NULL, NULL, NULL, NULL, NULL);
+      g_option_group_set_translation_domain (application->priv->main_options, NULL);
+    }
 
   for (i = 0; entries[i].long_name; i++)
     {
@@ -728,7 +777,7 @@ g_application_add_main_option (GApplication *application,
 /**
  * g_application_add_option_group:
  * @application: the #GApplication
- * @group: a #GOptionGroup
+ * @group: (transfer full): a #GOptionGroup
  *
  * Adds a #GOptionGroup to the commandline handling of @application.
  *
@@ -1164,6 +1213,10 @@ g_application_get_property (GObject    *object,
                         g_application_get_inactivity_timeout (application));
       break;
 
+    case PROP_IS_BUSY:
+      g_value_set_boolean (value, g_application_get_is_busy (application));
+      break;
+
     default:
       g_assert_not_reached ();
     }
@@ -1197,14 +1250,14 @@ g_application_finalize (GObject *object)
 {
   GApplication *application = G_APPLICATION (object);
 
-  g_slist_free_full (application->priv->option_groups, (GDestroyNotify) g_option_group_free);
+  g_slist_free_full (application->priv->option_groups, (GDestroyNotify) g_option_group_unref);
   if (application->priv->main_options)
-    g_option_group_free (application->priv->main_options);
+    g_option_group_unref (application->priv->main_options);
   if (application->priv->packed_options)
-    {
-      g_slist_free_full (application->priv->option_strings, g_free);
-      g_hash_table_unref (application->priv->packed_options);
-    }
+    g_hash_table_unref (application->priv->packed_options);
+
+  g_slist_free_full (application->priv->option_strings, g_free);
+
   if (application->priv->impl)
     g_application_impl_destroy (application->priv->impl);
   g_free (application->priv->id);
@@ -1217,6 +1270,8 @@ g_application_finalize (GObject *object)
 
   if (application->priv->notifications)
     g_object_unref (application->priv->notifications);
+
+  g_free (application->priv->resource_path);
 
   G_OBJECT_CLASS (g_application_parent_class)
     ->finalize (object);
@@ -1253,7 +1308,7 @@ g_application_handle_local_options_accumulator (GSignalInvocationHint *ihint,
   value = g_value_get_int (handler_return);
   g_value_set_int (return_accu, value);
 
-  return value >= 0;
+  return value < 0;
 }
 
 static void
@@ -1326,6 +1381,20 @@ g_application_class_init (GApplicationClass *class)
                          G_PARAM_DEPRECATED | G_PARAM_WRITABLE | G_PARAM_STATIC_STRINGS));
 
   /**
+   * GApplication:is-busy:
+   *
+   * Whether the application is currently marked as busy through
+   * g_application_mark_busy() or g_application_bind_busy_property().
+   *
+   * Since: 2.44
+   */
+  g_object_class_install_property (object_class, PROP_IS_BUSY,
+    g_param_spec_boolean ("is-busy",
+                          P_("Is busy"),
+                          P_("If this application is currently marked busy"),
+                          FALSE, G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
+
+  /**
    * GApplication::startup:
    * @application: the application
    *
@@ -1333,7 +1402,7 @@ g_application_class_init (GApplicationClass *class)
    * after registration. See g_application_register().
    */
   g_application_signals[SIGNAL_STARTUP] =
-    g_signal_new ("startup", G_TYPE_APPLICATION, G_SIGNAL_RUN_FIRST,
+    g_signal_new (I_("startup"), G_TYPE_APPLICATION, G_SIGNAL_RUN_FIRST,
                   G_STRUCT_OFFSET (GApplicationClass, startup),
                   NULL, NULL, g_cclosure_marshal_VOID__VOID, G_TYPE_NONE, 0);
 
@@ -1345,7 +1414,7 @@ g_application_class_init (GApplicationClass *class)
    * immediately after the main loop terminates.
    */
   g_application_signals[SIGNAL_SHUTDOWN] =
-    g_signal_new ("shutdown", G_TYPE_APPLICATION, G_SIGNAL_RUN_LAST,
+    g_signal_new (I_("shutdown"), G_TYPE_APPLICATION, G_SIGNAL_RUN_LAST,
                   G_STRUCT_OFFSET (GApplicationClass, shutdown),
                   NULL, NULL, g_cclosure_marshal_VOID__VOID, G_TYPE_NONE, 0);
 
@@ -1357,7 +1426,7 @@ g_application_class_init (GApplicationClass *class)
    * activation occurs. See g_application_activate().
    */
   g_application_signals[SIGNAL_ACTIVATE] =
-    g_signal_new ("activate", G_TYPE_APPLICATION, G_SIGNAL_RUN_LAST,
+    g_signal_new (I_("activate"), G_TYPE_APPLICATION, G_SIGNAL_RUN_LAST,
                   G_STRUCT_OFFSET (GApplicationClass, activate),
                   NULL, NULL, g_cclosure_marshal_VOID__VOID, G_TYPE_NONE, 0);
 
@@ -1373,7 +1442,7 @@ g_application_class_init (GApplicationClass *class)
    * files to open. See g_application_open() for more information.
    */
   g_application_signals[SIGNAL_OPEN] =
-    g_signal_new ("open", G_TYPE_APPLICATION, G_SIGNAL_RUN_LAST,
+    g_signal_new (I_("open"), G_TYPE_APPLICATION, G_SIGNAL_RUN_LAST,
                   G_STRUCT_OFFSET (GApplicationClass, open),
                   NULL, NULL, NULL,
                   G_TYPE_NONE, 3, G_TYPE_POINTER, G_TYPE_INT, G_TYPE_STRING);
@@ -1392,7 +1461,7 @@ g_application_class_init (GApplicationClass *class)
    *   process. See g_application_command_line_set_exit_status().
    */
   g_application_signals[SIGNAL_COMMAND_LINE] =
-    g_signal_new ("command-line", G_TYPE_APPLICATION, G_SIGNAL_RUN_LAST,
+    g_signal_new (I_("command-line"), G_TYPE_APPLICATION, G_SIGNAL_RUN_LAST,
                   G_STRUCT_OFFSET (GApplicationClass, command_line),
                   g_signal_accumulator_first_wins, NULL,
                   NULL,
@@ -1417,8 +1486,8 @@ g_application_class_init (GApplicationClass *class)
    *
    * In the event that the application is marked
    * %G_APPLICATION_HANDLES_COMMAND_LINE the "normal processing" will
-   * send the @option dictionary to the primary instance where it can be
-   * read with g_application_command_line_get_options().  The signal
+   * send the @options dictionary to the primary instance where it can be
+   * read with g_application_command_line_get_options_dict().  The signal
    * handler can modify the dictionary before returning, and the
    * modified dictionary will be sent.
    *
@@ -1453,7 +1522,7 @@ g_application_class_init (GApplicationClass *class)
    * Since: 2.40
    **/
   g_application_signals[SIGNAL_HANDLE_LOCAL_OPTIONS] =
-    g_signal_new ("handle-local-options", G_TYPE_APPLICATION, G_SIGNAL_RUN_LAST,
+    g_signal_new (I_("handle-local-options"), G_TYPE_APPLICATION, G_SIGNAL_RUN_LAST,
                   G_STRUCT_OFFSET (GApplicationClass, handle_local_options),
                   g_application_handle_local_options_accumulator, NULL, NULL,
                   G_TYPE_INT, 1, G_TYPE_VARIANT_DICT);
@@ -1716,7 +1785,12 @@ g_application_get_resource_base_path (GApplication *application)
  *
  * Changing the resource base path once the application is running is
  * not recommended.  The point at which the resource path is consulted
- * for forming paths for various purposes is unspecified.
+ * for forming paths for various purposes is unspecified.  When writing
+ * a sub-class of #GApplication you should either set the
+ * #GApplication:resource-base-path property at construction time, or call
+ * this function during the instance initialization. Alternatively, you
+ * can call this function in the #GApplicationClass.startup virtual function,
+ * before chaining up to the parent implementation.
  *
  * Since: 2.42
  */
@@ -2180,11 +2254,10 @@ g_application_open (GApplication  *application,
  * use.
  *
  * This function sets the prgname (g_set_prgname()), if not already set,
- * to the basename of argv[0].  Since 2.38, if %G_APPLICATION_IS_SERVICE
- * is specified, the prgname is set to the application ID.  The main
- * impact of this is is that the wmclass of windows created by Gtk+ will
- * be set accordingly, which helps the window manager determine which
- * application is showing the window.
+ * to the basename of argv[0].
+ *
+ * Much like g_main_loop_run(), this function will acquire the main context
+ * for the duration that the application is running.
  *
  * Since 2.40, applications that are not explicitly flagged as services
  * or launchers (ie: neither %G_APPLICATION_IS_SERVICE or
@@ -2214,13 +2287,42 @@ g_application_run (GApplication  *application,
 {
   gchar **arguments;
   int status;
+  GMainContext *context;
+  gboolean acquired_context;
 
   g_return_val_if_fail (G_IS_APPLICATION (application), 1);
   g_return_val_if_fail (argc == 0 || argv != NULL, 1);
   g_return_val_if_fail (!application->priv->must_quit_now, 1);
 
 #ifdef G_OS_WIN32
-  arguments = g_win32_get_command_line ();
+  {
+    gint new_argc = 0;
+
+    arguments = g_win32_get_command_line ();
+
+    /*
+     * CommandLineToArgvW(), which is called by g_win32_get_command_line(),
+     * pulls in the whole command line that is used to call the program.  This is
+     * fine in cases where the program is a .exe program, but in the cases where the
+     * program is a called via a script, such as PyGObject's gtk-demo.py, which is normally
+     * called using 'python gtk-demo.py' on Windows, the program name (argv[0])
+     * returned by g_win32_get_command_line() will not be the argv[0] that ->local_command_line()
+     * would expect, causing the program to fail with "This application can not open files."
+     */
+    new_argc = g_strv_length (arguments);
+
+    if (new_argc > argc)
+      {
+        gint i;
+
+        for (i = 0; i < new_argc - argc; i++)
+          g_free (arguments[i]);
+
+        memmove (&arguments[0],
+                 &arguments[new_argc - argc],
+                 sizeof (arguments[0]) * (argc + 1));
+      }
+  }
 #else
   {
     gint i;
@@ -2232,21 +2334,18 @@ g_application_run (GApplication  *application,
   }
 #endif
 
-  if (g_get_prgname () == NULL)
+  if (g_get_prgname () == NULL && argc > 0)
     {
-      if (application->priv->flags & G_APPLICATION_IS_SERVICE)
-        {
-          g_set_prgname (application->priv->id);
-        }
-      else if (argc > 0)
-        {
-          gchar *prgname;
+      gchar *prgname;
 
-          prgname = g_path_get_basename (argv[0]);
-          g_set_prgname (prgname);
-          g_free (prgname);
-        }
+      prgname = g_path_get_basename (argv[0]);
+      g_set_prgname (prgname);
+      g_free (prgname);
     }
+
+  context = g_main_context_default ();
+  acquired_context = g_main_context_acquire (context);
+  g_return_val_if_fail (acquired_context, 0);
 
   if (!G_APPLICATION_GET_CLASS (application)
         ->local_command_line (application, &arguments, &status))
@@ -2279,7 +2378,7 @@ g_application_run (GApplication  *application,
       if (application->priv->must_quit_now)
         break;
 
-      g_main_context_iteration (NULL, TRUE);
+      g_main_context_iteration (context, TRUE);
       status = 0;
     }
 
@@ -2294,9 +2393,19 @@ g_application_run (GApplication  *application,
     }
 
   if (application->priv->impl)
-    g_application_impl_flush (application->priv->impl);
+    {
+      g_application_impl_flush (application->priv->impl);
+      g_application_impl_destroy (application->priv->impl);
+      application->priv->impl = NULL;
+    }
 
   g_settings_sync ();
+
+  if (!application->priv->must_quit_now)
+    while (g_main_context_iteration (context, FALSE))
+      ;
+
+  g_main_context_release (context);
 
   return status;
 }
@@ -2537,7 +2646,10 @@ g_application_mark_busy (GApplication *application)
   application->priv->busy_count++;
 
   if (!was_busy)
-    g_application_impl_set_busy_state (application->priv->impl, TRUE);
+    {
+      g_application_impl_set_busy_state (application->priv->impl, TRUE);
+      g_object_notify (G_OBJECT (application), "is-busy");
+    }
 }
 
 /**
@@ -2563,7 +2675,29 @@ g_application_unmark_busy (GApplication *application)
   application->priv->busy_count--;
 
   if (application->priv->busy_count == 0)
-    g_application_impl_set_busy_state (application->priv->impl, FALSE);
+    {
+      g_application_impl_set_busy_state (application->priv->impl, FALSE);
+      g_object_notify (G_OBJECT (application), "is-busy");
+    }
+}
+
+/**
+ * g_application_get_is_busy:
+ * @application: a #GApplication
+ *
+ * Gets the application's current busy state, as set through
+ * g_application_mark_busy() or g_application_bind_busy_property().
+ *
+ * Returns: %TRUE if @application is currenty marked as busy
+ *
+ * Since: 2.44
+ */
+gboolean
+g_application_get_is_busy (GApplication *application)
+{
+  g_return_val_if_fail (G_IS_APPLICATION (application), FALSE);
+
+  return application->priv->busy_count > 0;
 }
 
 /* Notifications {{{1 */
@@ -2657,8 +2791,143 @@ g_application_withdraw_notification (GApplication *application,
   g_return_if_fail (G_IS_APPLICATION (application));
   g_return_if_fail (id != NULL);
 
-  if (application->priv->notifications)
-    g_notification_backend_withdraw_notification (application->priv->notifications, id);
+  if (application->priv->notifications == NULL)
+    application->priv->notifications = g_notification_backend_new_default (application);
+
+  g_notification_backend_withdraw_notification (application->priv->notifications, id);
+}
+
+/* Busy binding {{{1 */
+
+typedef struct
+{
+  GApplication *app;
+  gboolean is_busy;
+} GApplicationBusyBinding;
+
+static void
+g_application_busy_binding_destroy (gpointer  data,
+                                    GClosure *closure)
+{
+  GApplicationBusyBinding *binding = data;
+
+  if (binding->is_busy)
+    g_application_unmark_busy (binding->app);
+
+  g_object_unref (binding->app);
+  g_slice_free (GApplicationBusyBinding, binding);
+}
+
+static void
+g_application_notify_busy_binding (GObject    *object,
+                                   GParamSpec *pspec,
+                                   gpointer    user_data)
+{
+  GApplicationBusyBinding *binding = user_data;
+  gboolean is_busy;
+
+  g_object_get (object, pspec->name, &is_busy, NULL);
+
+  if (is_busy && !binding->is_busy)
+    g_application_mark_busy (binding->app);
+  else if (!is_busy && binding->is_busy)
+    g_application_unmark_busy (binding->app);
+
+  binding->is_busy = is_busy;
+}
+
+/**
+ * g_application_bind_busy_property:
+ * @application: a #GApplication
+ * @object: (type GObject.Object): a #GObject
+ * @property: the name of a boolean property of @object
+ *
+ * Marks @application as busy (see g_application_mark_busy()) while
+ * @property on @object is %TRUE.
+ *
+ * The binding holds a reference to @application while it is active, but
+ * not to @object. Instead, the binding is destroyed when @object is
+ * finalized.
+ *
+ * Since: 2.44
+ */
+void
+g_application_bind_busy_property (GApplication *application,
+                                  gpointer      object,
+                                  const gchar  *property)
+{
+  guint notify_id;
+  GQuark property_quark;
+  GParamSpec *pspec;
+  GApplicationBusyBinding *binding;
+  GClosure *closure;
+
+  g_return_if_fail (G_IS_APPLICATION (application));
+  g_return_if_fail (G_IS_OBJECT (object));
+  g_return_if_fail (property != NULL);
+
+  notify_id = g_signal_lookup ("notify", G_TYPE_OBJECT);
+  property_quark = g_quark_from_string (property);
+  pspec = g_object_class_find_property (G_OBJECT_GET_CLASS (object), property);
+
+  g_return_if_fail (pspec != NULL && pspec->value_type == G_TYPE_BOOLEAN);
+
+  if (g_signal_handler_find (object, G_SIGNAL_MATCH_ID | G_SIGNAL_MATCH_DETAIL | G_SIGNAL_MATCH_FUNC,
+                             notify_id, property_quark, NULL, g_application_notify_busy_binding, NULL) > 0)
+    {
+      g_critical ("%s: '%s' is already bound to the busy state of the application", G_STRFUNC, property);
+      return;
+    }
+
+  binding = g_slice_new (GApplicationBusyBinding);
+  binding->app = g_object_ref (application);
+  binding->is_busy = FALSE;
+
+  closure = g_cclosure_new (G_CALLBACK (g_application_notify_busy_binding), binding,
+                            g_application_busy_binding_destroy);
+  g_signal_connect_closure_by_id (object, notify_id, property_quark, closure, FALSE);
+
+  /* fetch the initial value */
+  g_application_notify_busy_binding (object, pspec, binding);
+}
+
+/**
+ * g_application_unbind_busy_property:
+ * @application: a #GApplication
+ * @object: (type GObject.Object): a #GObject
+ * @property: the name of a boolean property of @object
+ *
+ * Destroys a binding between @property and the busy state of
+ * @application that was previously created with
+ * g_application_bind_busy_property().
+ *
+ * Since: 2.44
+ */
+void
+g_application_unbind_busy_property (GApplication *application,
+                                    gpointer      object,
+                                    const gchar  *property)
+{
+  guint notify_id;
+  GQuark property_quark;
+  gulong handler_id;
+
+  g_return_if_fail (G_IS_APPLICATION (application));
+  g_return_if_fail (G_IS_OBJECT (object));
+  g_return_if_fail (property != NULL);
+
+  notify_id = g_signal_lookup ("notify", G_TYPE_OBJECT);
+  property_quark = g_quark_from_string (property);
+
+  handler_id = g_signal_handler_find (object, G_SIGNAL_MATCH_ID | G_SIGNAL_MATCH_DETAIL | G_SIGNAL_MATCH_FUNC,
+                                      notify_id, property_quark, NULL, g_application_notify_busy_binding, NULL);
+  if (handler_id == 0)
+    {
+      g_critical ("%s: '%s' is not bound to the busy state of the application", G_STRFUNC, property);
+      return;
+    }
+
+  g_signal_handler_disconnect (object, handler_id);
 }
 
 /* Epilogue {{{1 */

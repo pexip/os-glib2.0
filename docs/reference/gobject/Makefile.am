@@ -9,7 +9,7 @@ DOC_MODULE=gobject
 DOC_MAIN_SGML_FILE=gobject-docs.xml
 
 # The directory containing the source code. Relative to $(srcdir)
-DOC_SOURCE_DIR=$(top_srcdir)/gobject
+DOC_SOURCE_DIR =$(top_srcdir)/gobject $(top_builddir)/gobject
 
 # Extra options to supply to gtkdoc-scan
 SCAN_OPTIONS=--deprecated-guards="G_DISABLE_DEPRECATED" \
@@ -25,10 +25,9 @@ CFILE_GLOB=$(top_srcdir)/gobject/*.c
 # Headers to ignore
 IGNORE_HFILES = \
 	tests			\
+	gatomicarray.h		\
 	gobject_trace.h		\
-	gtype-private.h		\
-	gatomicarray.h
-
+	gtype-private.h
 
 # CFLAGS and LDFLAGS for compiling scan program. Only needed
 # if $(DOC_MODULE).types is non-empty.

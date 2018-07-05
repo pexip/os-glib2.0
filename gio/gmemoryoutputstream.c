@@ -422,7 +422,8 @@ g_memory_output_stream_new_resizable (void)
  * Note that the returned pointer may become invalid on the next
  * write or truncate operation on the stream.
  *
- * Returns: (transfer none): pointer to the stream's data
+ * Returns: (transfer none): pointer to the stream's data, or %NULL if the data
+ *    has been stolen
  **/
 gpointer
 g_memory_output_stream_get_data (GMemoryOutputStream *ostream)
@@ -492,7 +493,8 @@ g_memory_output_stream_get_data_size (GMemoryOutputStream *ostream)
  *
  * @ostream must be closed before calling this function.
  *
- * Returns: (transfer full): the stream's data
+ * Returns: (transfer full): the stream's data, or %NULL if it has previously
+ *    been stolen
  *
  * Since: 2.26
  **/
@@ -594,12 +596,12 @@ array_resize (GMemoryOutputStream  *ostream,
   return TRUE;
 }
 
-static gint
-g_nearest_pow (gint num)
+static gsize
+g_nearest_pow (gsize num)
 {
-  gint n = 1;
+  gsize n = 1;
 
-  while (n < num)
+  while (n < num && n > 0)
     n <<= 1;
 
   return n;
@@ -639,12 +641,10 @@ g_memory_output_stream_write (GOutputStream  *stream,
        * much memory.
        */
       new_size = g_nearest_pow (priv->pos + count);
-      /* Check for overflow again. We have only checked if
-         pos + count > G_MAXSIZE, but it only catches the case of writing
-         more than 4GiB total on a 32-bit system. There's still the problem
-         of g_nearest_pow overflowing above 0x7fffffff, so we're
-         effectively limited to 2GiB. */
-      if (new_size < priv->len)
+      /* Check for overflow again. We have checked if
+         pos + count > G_MAXSIZE, but now check if g_nearest_pow () has
+         overflowed */
+      if (new_size == 0)
         goto overflow;
 
       new_size = MAX (new_size, MIN_ARRAY_SIZE);
@@ -693,6 +693,7 @@ g_memory_output_stream_close_async (GOutputStream       *stream,
   GTask *task;
 
   task = g_task_new (stream, cancellable, callback, data);
+  g_task_set_source_tag (task, g_memory_output_stream_close_async);
 
   /* will always return TRUE */
   g_memory_output_stream_close (stream, cancellable, NULL);
