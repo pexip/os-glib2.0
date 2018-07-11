@@ -1,6 +1,7 @@
 glib2.0 (2.50.3-2pexip1) pexip; urgency=medium
 
   * Migrate to Stretch
+  * debian/patches/skip-broken-gresolver-test.patch: Drop; not needed
 
  -- John-Mark Bell <jmb@pexip.com>  Wed, 11 Jul 2018 13:52:43 +0100
 
