@@ -37,6 +37,13 @@
  * interfaces.
  */
 
+/**
+ * GDBusObject:
+ *
+ * #GDBusObject is an opaque data structure and can only be accessed
+ * using the following functions.
+ */
+
 typedef GDBusObjectIface GDBusObjectInterface;
 G_DEFINE_INTERFACE (GDBusObject, g_dbus_object, G_TYPE_OBJECT)
 
@@ -52,7 +59,7 @@ g_dbus_object_default_init (GDBusObjectIface *iface)
    *
    * Since: 2.30
    */
-  g_signal_new ("interface-added",
+  g_signal_new (I_("interface-added"),
                 G_TYPE_FROM_INTERFACE (iface),
                 G_SIGNAL_RUN_LAST,
                 G_STRUCT_OFFSET (GDBusObjectIface, interface_added),
@@ -72,7 +79,7 @@ g_dbus_object_default_init (GDBusObjectIface *iface)
    *
    * Since: 2.30
    */
-  g_signal_new ("interface-removed",
+  g_signal_new (I_("interface-removed"),
                 G_TYPE_FROM_INTERFACE (iface),
                 G_SIGNAL_RUN_LAST,
                 G_STRUCT_OFFSET (GDBusObjectIface, interface_removed),

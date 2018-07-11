@@ -165,6 +165,8 @@ G_DEFINE_BOXED_TYPE (GMarkupParseContext, g_markup_parse_context, g_markup_parse
 G_DEFINE_BOXED_TYPE (GThread, g_thread, g_thread_ref, g_thread_unref)
 G_DEFINE_BOXED_TYPE (GChecksum, g_checksum, g_checksum_copy, g_checksum_free)
 
+G_DEFINE_BOXED_TYPE (GOptionGroup, g_option_group, g_option_group_ref, g_option_group_unref)
+
 /* This one can't use G_DEFINE_BOXED_TYPE (GStrv, g_strv, g_strdupv, g_strfreev) */
 GType
 g_strv_get_type (void)
@@ -184,12 +186,6 @@ g_strv_get_type (void)
   return g_define_type_id__volatile;
 }
 
-/**
- * g_variant_get_gtype:
- *
- * Since: 2.24
- * Deprecated: 2.26
- */
 GType
 g_variant_get_gtype (void)
 {
@@ -326,11 +322,12 @@ g_boxed_type_register_static (const gchar   *name,
 /**
  * g_boxed_copy:
  * @boxed_type: The type of @src_boxed.
- * @src_boxed: The boxed structure to be copied.
+ * @src_boxed: (not nullable): The boxed structure to be copied.
  * 
  * Provide a copy of a boxed structure @src_boxed which is of type @boxed_type.
  * 
- * Returns: (transfer full): The newly created copy of the boxed structure.
+ * Returns: (transfer full) (not nullable): The newly created copy of the boxed
+ *    structure.
  */
 gpointer
 g_boxed_copy (GType         boxed_type,
@@ -387,7 +384,7 @@ g_boxed_copy (GType         boxed_type,
 /**
  * g_boxed_free:
  * @boxed_type: The type of @boxed.
- * @boxed: The boxed structure to be freed.
+ * @boxed: (not nullable): The boxed structure to be freed.
  *
  * Free the boxed structure @boxed which is of type @boxed_type.
  */

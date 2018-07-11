@@ -88,17 +88,17 @@
       <AdditionalDependencies>libffi.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>$(OutDir)$(GlibDllPrefix)$(ProjectName)$(GlibDllSuffix).dll</OutputFile>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <ProgramDatabaseFile>$(OutDir)$(GlibDllPrefix)$(ProjectName)$(GlibDllSuffix).pdb</ProgramDatabaseFile>
+      <ImportLibrary>$(TargetDir)$(ProjectName)-$(ApiVersion).lib</ImportLibrary>
       <SubSystem>Windows</SubSystem>
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
       <DataExecutionPrevention>
       </DataExecutionPrevention>
-      <ImportLibrary>$(TargetDir)$(ProjectName)-2.0.lib</ImportLibrary>
       <TargetMachine>MachineX86</TargetMachine>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
-      <WholeProgramOptimization>false</WholeProgramOptimization>
       <PreprocessorDefinitions>$(GObjectBuildDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <PrecompiledHeader>
@@ -110,15 +110,14 @@
       <AdditionalDependencies>libffi.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>$(OutDir)$(GlibDllPrefix)$(ProjectName)$(GlibDllSuffix).dll</OutputFile>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <ProgramDatabaseFile>$(OutDir)$(GlibDllPrefix)$(ProjectName)$(GlibDllSuffix).pdb</ProgramDatabaseFile>
+      <ImportLibrary>$(TargetDir)$(ProjectName)-$(ApiVersion).lib</ImportLibrary>
       <SubSystem>Windows</SubSystem>
       <OptimizeReferences>true</OptimizeReferences>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
-      <LinkTimeCodeGeneration>
-      </LinkTimeCodeGeneration>
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
       <DataExecutionPrevention>
       </DataExecutionPrevention>
-      <ImportLibrary>$(TargetDir)$(ProjectName)-2.0.lib</ImportLibrary>
       <TargetMachine>MachineX86</TargetMachine>
     </Link>
   </ItemDefinitionGroup>
@@ -138,17 +137,17 @@
       <AdditionalDependencies>libffi.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>$(OutDir)$(GlibDllPrefix)$(ProjectName)$(GlibDllSuffix).dll</OutputFile>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <ProgramDatabaseFile>$(OutDir)$(GlibDllPrefix)$(ProjectName)$(GlibDllSuffix).pdb</ProgramDatabaseFile>
+      <ImportLibrary>$(TargetDir)$(ProjectName)-$(ApiVersion).lib</ImportLibrary>
       <SubSystem>Windows</SubSystem>
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
       <DataExecutionPrevention>
       </DataExecutionPrevention>
-      <ImportLibrary>$(TargetDir)$(ProjectName)-2.0.lib</ImportLibrary>
       <TargetMachine>MachineX64</TargetMachine>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <WholeProgramOptimization>false</WholeProgramOptimization>
       <PreprocessorDefinitions>$(GObjectBuildDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <PrecompiledHeader>
@@ -160,37 +159,36 @@
       <AdditionalDependencies>libffi.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>$(OutDir)$(GlibDllPrefix)$(ProjectName)$(GlibDllSuffix).dll</OutputFile>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <ProgramDatabaseFile>$(OutDir)$(GlibDllPrefix)$(ProjectName)$(GlibDllSuffix).pdb</ProgramDatabaseFile>
+      <ImportLibrary>$(TargetDir)$(ProjectName)-$(ApiVersion).lib</ImportLibrary>
       <SubSystem>Windows</SubSystem>
       <OptimizeReferences>true</OptimizeReferences>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
-      <LinkTimeCodeGeneration>
-      </LinkTimeCodeGeneration>
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
       <DataExecutionPrevention>
       </DataExecutionPrevention>
-      <ImportLibrary>$(TargetDir)$(ProjectName)-2.0.lib</ImportLibrary>
       <TargetMachine>MachineX64</TargetMachine>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\..\gobject\gatomicarray.c" />
-    <ClCompile Include="..\..\..\gobject\gbinding.c" />
-    <ClCompile Include="..\..\..\gobject\gboxed.c" />
-    <ClCompile Include="..\..\..\gobject\gclosure.c" />
-    <ClCompile Include="..\..\..\gobject\genums.c" />
-    <ClCompile Include="..\..\..\gobject\gmarshal.c" />
-    <ClCompile Include="..\..\..\gobject\gobject.c" />
-    <ClCompile Include="..\..\..\gobject\gparam.c" />
-    <ClCompile Include="..\..\..\gobject\gparamspecs.c" />
-    <ClCompile Include="..\..\..\gobject\gsignal.c" />
-    <ClCompile Include="..\..\..\gobject\gsourceclosure.c" />
-    <ClCompile Include="..\..\..\gobject\gtype.c" />
-    <ClCompile Include="..\..\..\gobject\gtypemodule.c" />
-    <ClCompile Include="..\..\..\gobject\gtypeplugin.c" />
-    <ClCompile Include="..\..\..\gobject\gvalue.c" />
-    <ClCompile Include="..\..\..\gobject\gvaluearray.c" />
-    <ClCompile Include="..\..\..\gobject\gvaluetransform.c" />
-    <ClCompile Include="..\..\..\gobject\gvaluetypes.c" />
+   <ClCompile Include="..\..\..\gobject\gatomicarray.c" />
+   <ClCompile Include="..\..\..\gobject\gbinding.c" />
+   <ClCompile Include="..\..\..\gobject\gboxed.c" />
+   <ClCompile Include="..\..\..\gobject\gclosure.c" />
+   <ClCompile Include="..\..\..\gobject\genums.c" />
+   <ClCompile Include="..\..\..\gobject\gmarshal.c" />
+   <ClCompile Include="..\..\..\gobject\gobject.c" />
+   <ClCompile Include="..\..\..\gobject\gparam.c" />
+   <ClCompile Include="..\..\..\gobject\gparamspecs.c" />
+   <ClCompile Include="..\..\..\gobject\gsignal.c" />
+   <ClCompile Include="..\..\..\gobject\gsourceclosure.c" />
+   <ClCompile Include="..\..\..\gobject\gtype.c" />
+   <ClCompile Include="..\..\..\gobject\gtypemodule.c" />
+   <ClCompile Include="..\..\..\gobject\gtypeplugin.c" />
+   <ClCompile Include="..\..\..\gobject\gvalue.c" />
+   <ClCompile Include="..\..\..\gobject\gvaluearray.c" />
+   <ClCompile Include="..\..\..\gobject\gvaluetransform.c" />
+   <ClCompile Include="..\..\..\gobject\gvaluetypes.c" />
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="..\..\..\gobject\glib-mkenums.in">

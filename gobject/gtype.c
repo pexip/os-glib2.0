@@ -31,8 +31,16 @@
 #include "gatomicarray.h"
 #include "gobject_trace.h"
 
+#include "glib-private.h"
 #include "gconstructor.h"
 
+#ifdef G_OS_WIN32
+#include <windows.h>
+#endif
+
+#ifdef	G_ENABLE_DEBUG
+#define	IF_DEBUG(debug_type)	if (_g_type_debug_flags & G_TYPE_DEBUG_ ## debug_type)
+#endif
 
 /**
  * SECTION:gtype
@@ -73,10 +81,10 @@
  * separately (typically by using #GArray or #GPtrArray) and put a pointer
  * to the buffer in the structure.
  *
- * A final word about type names: Such an identifier needs to be at least
- * three characters long. There is no upper length limit. The first character
- * needs to be a letter (a-z or A-Z) or an underscore '_'. Subsequent
- * characters can be letters, numbers or any of '-_+'.
+ * As mentioned in the [GType conventions][gtype-conventions], type names must
+ * be at least three characters long. There is no upper length limit. The first
+ * character must be a letter (a–z or A–Z) or an underscore (‘_’). Subsequent
+ * characters can be letters, numbers or any of ‘-_+’.
  */
 
 
@@ -130,15 +138,6 @@
 }G_STMT_END
 #define g_assert_type_system_initialized() \
   g_assert (static_quark_type_flags)
-
-#ifdef  G_ENABLE_DEBUG
-#define DEBUG_CODE(debug_type, code_block)  G_STMT_START {    \
-    if (_g_type_debug_flags & G_TYPE_DEBUG_ ## debug_type) \
-      { code_block; }                                     \
-} G_STMT_END
-#else /* !G_ENABLE_DEBUG */
-#define DEBUG_CODE(debug_type, code_block)  /* code_block */
-#endif  /* G_ENABLE_DEBUG */
 
 #define TYPE_FUNDAMENTAL_FLAG_MASK (G_TYPE_FLAG_CLASSED | \
 				    G_TYPE_FLAG_INSTANTIATABLE | \
@@ -223,6 +222,9 @@ typedef enum
 struct _TypeNode
 {
   guint volatile ref_count;
+#ifdef G_ENABLE_DEBUG
+  guint volatile instance_count;
+#endif
   GTypePlugin *plugin;
   guint        n_children; /* writable with lock */
   guint        n_supers : 8;
@@ -244,7 +246,7 @@ struct _TypeNode
 
 #define SIZEOF_BASE_TYPE_NODE()			(G_STRUCT_OFFSET (TypeNode, supers))
 #define MAX_N_SUPERS				(255)
-#define MAX_N_CHILDREN				(4095)
+#define MAX_N_CHILDREN				(G_MAXUINT)
 #define	MAX_N_INTERFACES			(255) /* Limited by offsets being 8 bits */
 #define	MAX_N_PREREQUISITES			(511)
 #define NODE_TYPE(node)				(node->supers[0])
@@ -506,7 +508,6 @@ type_node_any_new_W (TypeNode             *pnode,
   node->data = NULL;
   node->qname = g_quark_from_string (name);
   node->global_gdata = NULL;
-  
   g_hash_table_insert (static_type_nodes_ht,
 		       (gpointer) g_quark_to_string (node->qname),
 		       (gpointer) type);
@@ -1864,6 +1865,13 @@ g_type_create_instance (GType type)
   if (node->data->instance.instance_init)
     node->data->instance.instance_init (instance, class);
 
+#ifdef	G_ENABLE_DEBUG
+  IF_DEBUG (INSTANCE_COUNT)
+    {
+      g_atomic_int_inc ((int *) &node->instance_count);
+    }
+#endif
+
   TRACE(GOBJECT_OBJECT_NEW(instance, type));
 
   return instance;
@@ -1933,6 +1941,13 @@ g_type_free_instance (GTypeInstance *instance)
     }
   else
     g_slice_free1 (private_size + ivar_size, allocated);
+
+#ifdef	G_ENABLE_DEBUG
+  IF_DEBUG (INSTANCE_COUNT)
+    {
+      g_atomic_int_add ((int *) &node->instance_count, -1);
+    }
+#endif
 
   g_type_class_unref (class);
 }
@@ -3807,6 +3822,34 @@ g_type_query (GType       type,
     }
 }
 
+/**
+ * g_type_get_instance_count:
+ * @type: a #GType
+ *
+ * Returns the number of instances allocated of the particular type;
+ * this is only available if GLib is built with debugging support and
+ * the instance_count debug flag is set (by setting the GOBJECT_DEBUG
+ * variable to include instance-count).
+ *
+ * Returns: the number of instances allocated of the given type;
+ *   if instance counts are not available, returns 0.
+ *
+ * Since: 2.44
+ */
+int
+g_type_get_instance_count (GType type)
+{
+#ifdef G_ENABLE_DEBUG
+  TypeNode *node;
+
+  node = lookup_type_node_I (type);
+  g_return_val_if_fail (node != NULL, 0);
+
+  return g_atomic_int_get (&node->instance_count);
+#else
+  return 0;
+#endif
+}
 
 /* --- implementation details --- */
 gboolean
@@ -4312,22 +4355,18 @@ g_type_init (void)
   g_assert_type_system_initialized ();
 }
 
-#if defined (G_HAS_CONSTRUCTORS)
-#ifdef G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA
-#pragma G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(gobject_init_ctor)
-#endif
-G_DEFINE_CONSTRUCTOR(gobject_init_ctor)
-#else
-# error Your platform/compiler is missing constructor support
-#endif
-
 static void
-gobject_init_ctor (void)
+gobject_init (void)
 {
   const gchar *env_string;
   GTypeInfo info;
   TypeNode *node;
   GType type;
+
+  /* Ensure GLib is initialized first, see
+   * https://bugzilla.gnome.org/show_bug.cgi?id=756139
+   */
+  GLIB_PRIVATE_CALL (glib_init) ();
 
   G_WRITE_LOCK (&type_rw_lock);
 
@@ -4337,30 +4376,31 @@ gobject_init_ctor (void)
     {
       GDebugKey debug_keys[] = {
         { "objects", G_TYPE_DEBUG_OBJECTS },
+        { "instance-count", G_TYPE_DEBUG_INSTANCE_COUNT },
         { "signals", G_TYPE_DEBUG_SIGNALS },
       };
 
       _g_type_debug_flags = g_parse_debug_string (env_string, debug_keys, G_N_ELEMENTS (debug_keys));
     }
-  
+
   /* quarks */
   static_quark_type_flags = g_quark_from_static_string ("-g-type-private--GTypeFlags");
   static_quark_iface_holder = g_quark_from_static_string ("-g-type-private--IFaceHolder");
   static_quark_dependants_array = g_quark_from_static_string ("-g-type-private--dependants-array");
-  
+
   /* type qname hash table */
   static_type_nodes_ht = g_hash_table_new (g_str_hash, g_str_equal);
-  
+
   /* invalid type G_TYPE_INVALID (0)
    */
   static_fundamental_type_nodes[0] = NULL;
-  
+
   /* void type G_TYPE_NONE
    */
   node = type_node_fundamental_new_W (G_TYPE_NONE, g_intern_static_string ("void"), 0);
   type = NODE_TYPE (node);
   g_assert (type == G_TYPE_NONE);
-  
+
   /* interface fundamental type G_TYPE_INTERFACE (!classed)
    */
   memset (&info, 0, sizeof (info));
@@ -4368,51 +4408,93 @@ gobject_init_ctor (void)
   type = NODE_TYPE (node);
   type_data_make_W (node, &info, NULL);
   g_assert (type == G_TYPE_INTERFACE);
-  
+
   G_WRITE_UNLOCK (&type_rw_lock);
-  
+
   _g_value_c_init ();
 
   /* G_TYPE_TYPE_PLUGIN
    */
   g_type_ensure (g_type_plugin_get_type ());
-  
+
   /* G_TYPE_* value types
    */
   _g_value_types_init ();
-  
+
   /* G_TYPE_ENUM & G_TYPE_FLAGS
    */
   _g_enum_types_init ();
-  
+
   /* G_TYPE_BOXED
    */
   _g_boxed_type_init ();
-  
+
   /* G_TYPE_PARAM
    */
   _g_param_type_init ();
-  
+
   /* G_TYPE_OBJECT
    */
   _g_object_type_init ();
-  
+
   /* G_TYPE_PARAM_* pspec types
    */
   _g_param_spec_types_init ();
-  
+
   /* Value Transformations
    */
   _g_value_transforms_init ();
-  
+
   /* Signal system
    */
   _g_signal_init ();
 }
 
+#if defined (G_OS_WIN32)
+
+BOOL WINAPI DllMain (HINSTANCE hinstDLL,
+                     DWORD     fdwReason,
+                     LPVOID    lpvReserved);
+
+BOOL WINAPI
+DllMain (HINSTANCE hinstDLL,
+         DWORD     fdwReason,
+         LPVOID    lpvReserved)
+{
+  switch (fdwReason)
+    {
+    case DLL_PROCESS_ATTACH:
+      gobject_init ();
+      break;
+
+    default:
+      /* do nothing */
+      ;
+    }
+
+  return TRUE;
+}
+
+#elif defined (G_HAS_CONSTRUCTORS)
+#ifdef G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA
+#pragma G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(gobject_init_ctor)
+#endif
+G_DEFINE_CONSTRUCTOR(gobject_init_ctor)
+
+static void
+gobject_init_ctor (void)
+{
+  gobject_init ();
+}
+
+#else
+# error Your platform/compiler is missing constructor support
+#endif
+
 /**
  * g_type_class_add_private:
- * @g_class: class structure for an instantiatable type
+ * @g_class: (type GObject.TypeClass): class structure for an instantiatable
+ *    type
  * @private_size: size of private structure
  *
  * Registers a private structure for an instantiatable type.
@@ -4644,7 +4726,7 @@ g_type_instance_get_private (GTypeInstance *instance,
 
 /**
  * g_type_class_get_instance_private_offset: (skip)
- * @g_class: a #GTypeClass
+ * @g_class: (type GObject.TypeClass): a #GTypeClass
  *
  * Gets the offset of the private data for instances of @g_class.
  *
@@ -4817,3 +4899,4 @@ g_type_ensure (GType type)
   if (G_UNLIKELY (type == (GType)-1))
     g_error ("can't happen");
 }
+

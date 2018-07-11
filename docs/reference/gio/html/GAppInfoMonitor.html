@@ -2,13 +2,13 @@
 <html>
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-<title>GIO Reference Manual: GAppInfoMonitor</title>
-<meta name="generator" content="DocBook XSL Stylesheets V1.78.1">
+<title>GAppInfoMonitor: GIO Reference Manual</title>
+<meta name="generator" content="DocBook XSL Stylesheets V1.79.1">
 <link rel="home" href="index.html" title="GIO Reference Manual">
 <link rel="up" href="types.html" title="File types and applications">
 <link rel="prev" href="GAppInfo.html" title="GAppInfo">
 <link rel="next" href="gio-Desktop-file-based-GAppInfo.html" title="GDesktopAppInfo">
-<meta name="generator" content="GTK-Doc V1.21.1 (XML mode)">
+<meta name="generator" content="GTK-Doc V1.25.1 (XML mode)">
 <link rel="stylesheet" href="style.css" type="text/css">
 </head>
 <body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
@@ -35,7 +35,7 @@
 </tr></table></div>
 <div class="refsect1">
 <a name="GAppInfoMonitor.functions"></a><h2>Functions</h2>
-<div class="informaltable"><table width="100%" border="0">
+<div class="informaltable"><table class="informaltable" width="100%" border="0">
 <colgroup>
 <col width="150px" class="functions_return">
 <col class="functions_name">
@@ -52,7 +52,7 @@
 </div>
 <div class="refsect1">
 <a name="GAppInfoMonitor.signals"></a><h2>Signals</h2>
-<div class="informaltable"><table border="0">
+<div class="informaltable"><table class="informaltable" border="0">
 <colgroup>
 <col width="150px" class="signals_return">
 <col width="300px" class="signals_name">
@@ -61,26 +61,13 @@
 <tbody><tr>
 <td class="signal_type"><span class="returnvalue">void</span></td>
 <td class="signal_name"><a class="link" href="GAppInfoMonitor.html#GAppInfoMonitor-changed" title="The “changed” signal">changed</a></td>
-<td class="signal_flags">Run First</td>
-</tr></tbody>
-</table></div>
-</div>
-<div class="refsect1">
-<a name="GAppInfoMonitor.other"></a><h2>Types and Values</h2>
-<div class="informaltable"><table width="100%" border="0">
-<colgroup>
-<col width="150px" class="name">
-<col class="description">
-</colgroup>
-<tbody><tr>
-<td class="datatype_keyword"> </td>
-<td class="function_name"><a class="link" href="GAppInfoMonitor.html#GAppInfoMonitor-struct" title="GAppInfoMonitor">GAppInfoMonitor</a></td>
+<td class="signal_flags"><a href="../gobject-Signals.html#G-SIGNAL-RUN-FIRST:CAPS">Run First</a></td>
 </tr></tbody>
 </table></div>
 </div>
 <div class="refsect1">
 <a name="GAppInfoMonitor.object-hierarchy"></a><h2>Object Hierarchy</h2>
-<pre class="screen">    <a href="https://developer.gnome.org/gobject/unstable/gobject-The-Base-Object-Type.html#GObject">GObject</a>
+<pre class="screen">    <a href="../gobject-The-Base-Object-Type.html#GObject-struct">GObject</a>
     <span class="lineart">╰──</span> GAppInfoMonitor
 </pre>
 </div>
@@ -113,39 +100,48 @@ context.</p>
 <p>The <a class="link" href="GAppInfoMonitor.html" title="GAppInfoMonitor"><span class="type">GAppInfoMonitor</span></a> will emit a "changed" signal in the
 thread-default main context whenever the list of installed
 applications (as reported by <a class="link" href="GAppInfo.html#g-app-info-get-all" title="g_app_info_get_all ()"><code class="function">g_app_info_get_all()</code></a>) may have changed.</p>
-<p>You must only call <a href="https://developer.gnome.org/gobject/unstable/gobject-The-Base-Object-Type.html#g-object-unref"><code class="function">g_object_unref()</code></a> on the return value from under
+<p>You must only call <a href="../gobject-The-Base-Object-Type.html#g-object-unref"><code class="function">g_object_unref()</code></a> on the return value from under
 the same main context as you created it.</p>
 <div class="refsect3">
-<a name="id-1.4.8.4.8.2.7"></a><h4>Returns</h4>
+<a name="g-app-info-monitor-get.returns"></a><h4>Returns</h4>
 <p> a reference to a <a class="link" href="GAppInfoMonitor.html" title="GAppInfoMonitor"><span class="type">GAppInfoMonitor</span></a>. </p>
 <p><span class="annotation">[<acronym title="Free data after the code is done."><span class="acronym">transfer full</span></acronym>]</span></p>
 </div>
-<p class="since">Since 2.40</p>
+<p class="since">Since: <a class="link" href="api-index-2-40.html#api-index-2.40">2.40</a></p>
 </div>
 </div>
 <div class="refsect1">
 <a name="GAppInfoMonitor.other_details"></a><h2>Types and Values</h2>
-<div class="refsect2">
-<a name="GAppInfoMonitor-struct"></a><h3>GAppInfoMonitor</h3>
-<pre class="programlisting">typedef struct _GAppInfoMonitor GAppInfoMonitor;</pre>
-<p>The only thing you can do with this is to get it via
-<a class="link" href="GAppInfoMonitor.html#g-app-info-monitor-get" title="g_app_info_monitor_get ()"><code class="function">g_app_info_monitor_get()</code></a> and connect to the "changed" signal.</p>
-<p class="since">Since 2.40</p>
-</div>
 </div>
 <div class="refsect1">
 <a name="GAppInfoMonitor.signal-details"></a><h2>Signal Details</h2>
 <div class="refsect2">
 <a name="GAppInfoMonitor-changed"></a><h3>The <code class="literal">“changed”</code> signal</h3>
 <pre class="programlisting"><span class="returnvalue">void</span>
-user_function (<a class="link" href="GAppInfoMonitor.html" title="GAppInfoMonitor"><span class="type">GAppInfoMonitor</span></a> *gappinfomonitor,
-               <a href="https://developer.gnome.org/glib/unstable/glib-Basic-Types.html#gpointer"><span class="type">gpointer</span></a>         user_data)</pre>
-<p>Flags: Run First</p>
+user_function (<a class="link" href="GAppInfoMonitor.html" title="GAppInfoMonitor"><span class="type">GAppInfoMonitor</span></a> *arg0,
+               <a href="../glib-Basic-Types.html#gpointer"><span class="type">gpointer</span></a>         user_data)</pre>
+<p>Signal emitted when the app info database for changes (ie: newly installed
+or removed applications).</p>
+<div class="refsect3">
+<a name="GAppInfoMonitor-changed.parameters"></a><h4>Parameters</h4>
+<div class="informaltable"><table class="informaltable" width="100%" border="0">
+<colgroup>
+<col width="150px" class="parameters_name">
+<col class="parameters_description">
+<col width="200px" class="parameters_annotations">
+</colgroup>
+<tbody><tr>
+<td class="parameter_name"><p>user_data</p></td>
+<td class="parameter_description"><p>user data set when the signal handler was connected.</p></td>
+<td class="parameter_annotations"> </td>
+</tr></tbody>
+</table></div>
+</div>
+<p>Flags: <a href="../gobject-Signals.html#G-SIGNAL-RUN-FIRST:CAPS">Run First</a></p>
 </div>
 </div>
 </div>
 <div class="footer">
-<hr>
-          Generated by GTK-Doc V1.21.1</div>
+<hr>Generated by GTK-Doc V1.25.1</div>
 </body>
 </html>

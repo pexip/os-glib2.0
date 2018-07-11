@@ -36,6 +36,14 @@
  *
  * See also #GtkAction.
  */
+
+/**
+ * GSimpleAction:
+ *
+ * #GSimpleAction is an opaque data structure and can only be accessed
+ * using the following functions.
+ **/
+
 struct _GSimpleAction
 {
   GObject       parent_instance;
@@ -44,6 +52,7 @@ struct _GSimpleAction
   GVariantType *parameter_type;
   gboolean      enabled;
   GVariant     *state;
+  GVariant     *state_hint;
   gboolean      state_set_already;
 };
 
@@ -102,7 +111,12 @@ g_simple_action_get_state_type (GAction *action)
 static GVariant *
 g_simple_action_get_state_hint (GAction *action)
 {
-  return NULL;
+  GSimpleAction *simple = G_SIMPLE_ACTION (action);
+
+  if (simple->state_hint != NULL)
+    return g_variant_ref (simple->state_hint);
+  else
+    return NULL;
 }
 
 static gboolean
@@ -319,6 +333,8 @@ g_simple_action_finalize (GObject *object)
     g_variant_type_free (simple->parameter_type);
   if (simple->state)
     g_variant_unref (simple->state);
+  if (simple->state_hint)
+    g_variant_unref (simple->state_hint);
 
   G_OBJECT_CLASS (g_simple_action_parent_class)
     ->finalize (object);
@@ -543,6 +559,35 @@ g_simple_action_set_enabled (GSimpleAction *simple,
       g_object_notify (G_OBJECT (simple), "enabled");
     }
 }
+
+/**
+ * g_simple_action_set_state_hint:
+ * @simple: a #GSimpleAction
+ * @state_hint: (allow-none): a #GVariant representing the state hint
+ *
+ * Sets the state hint for the action.
+ *
+ * See g_action_get_state_hint() for more information about
+ * action state hints.
+ *
+ * Since: 2.44
+ **/
+void
+g_simple_action_set_state_hint (GSimpleAction *simple,
+                                GVariant      *state_hint)
+{
+  g_return_if_fail (G_IS_SIMPLE_ACTION (simple));
+
+  if (simple->state_hint != NULL)
+    {
+      g_variant_unref (simple->state_hint);
+      simple->state_hint = NULL;
+    }
+
+  if (state_hint != NULL)
+    simple->state_hint = g_variant_ref (state_hint);
+}
+
 /**
  * g_simple_action_new:
  * @name: the name of the action
@@ -560,6 +605,8 @@ GSimpleAction *
 g_simple_action_new (const gchar        *name,
                      const GVariantType *parameter_type)
 {
+  g_return_val_if_fail (name != NULL, NULL);
+
   return g_object_new (G_TYPE_SIMPLE_ACTION,
                        "name", name,
                        "parameter-type", parameter_type,

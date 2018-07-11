@@ -77,6 +77,13 @@
  */
 
 /**
+ * GActionGroup:
+ *
+ * #GActionGroup is an opaque data structure and can only be accessed
+ * using the following functions.
+ **/
+
+/**
  * GActionGroupInterface:
  * @has_action: the virtual function pointer for g_action_group_has_action()
  * @list_actions: the virtual function pointer for g_action_group_list_actions()
@@ -336,7 +343,7 @@ g_action_group_default_init (GActionGroupInterface *iface)
  * it is no longer required.
  *
  * Returns: (transfer full): a %NULL-terminated array of the names of the
- * actions in the groupb
+ * actions in the group
  *
  * Since: 2.28
  **/
@@ -425,8 +432,7 @@ g_action_group_get_action_parameter_type (GActionGroup *action_group,
  * possible for an action to be removed and for a new action to be added
  * with the same name but a different state type.
  *
- * Returns: (nullable) (transfer full): the state type, if the action
- * is stateful
+ * Returns: (nullable): the state type, if the action is stateful
  *
  * Since: 2.28
  **/

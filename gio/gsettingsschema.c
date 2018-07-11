@@ -129,6 +129,13 @@
  **/
 
 /**
+ * GSettingsSchemaKey:
+ *
+ * #GSettingsSchemaKey is an opaque data structure and can only be accessed
+ * using the following functions.
+ **/
+
+/**
  * GSettingsSchema:
  *
  * This is an opaque structure type.  You may not access it directly.
@@ -239,7 +246,7 @@ g_settings_schema_source_unref (GSettingsSchemaSource *source)
 
 /**
  * g_settings_schema_source_new_from_directory:
- * @directory: the filename of a directory
+ * @directory: (type filename): the filename of a directory
  * @parent: (allow-none): a #GSettingsSchemaSource, or %NULL
  * @trusted: %TRUE, if the directory is trusted
  * @error: a pointer to a #GError pointer set to %NULL, or %NULL
@@ -620,7 +627,7 @@ end_element (GMarkupParseContext *context,
 
           normalised = normalise_whitespace (info->string->str);
 
-          if (gettext_domain)
+          if (gettext_domain && normalised[0])
             {
               gchar *translated;
 
@@ -836,13 +843,15 @@ ensure_schema_lists (void)
 /**
  * g_settings_list_schemas:
  *
+ * <!-- -->
+ *
  * Returns: (element-type utf8) (transfer none):  a list of #GSettings
  *   schemas that are available.  The list must not be modified or
  *   freed.
  *
  * Since: 2.26
  *
- * Deprecated:2.40: Use g_settings_schema_source_list_schemas() instead.
+ * Deprecated: 2.40: Use g_settings_schema_source_list_schemas() instead.
  * If you used g_settings_list_schemas() to check for the presence of
  * a particular schema, use g_settings_schema_source_lookup() instead
  * of your whole loop.
@@ -858,13 +867,15 @@ g_settings_list_schemas (void)
 /**
  * g_settings_list_relocatable_schemas:
  *
+ * <!-- -->
+ *
  * Returns: (element-type utf8) (transfer none): a list of relocatable
  *   #GSettings schemas that are available.  The list must not be
  *   modified or freed.
  *
  * Since: 2.28
  *
- * Deprecated:2.40: Use g_settings_schema_source_list_schemas() instead
+ * Deprecated: 2.40: Use g_settings_schema_source_list_schemas() instead
  **/
 const gchar * const *
 g_settings_list_relocatable_schemas (void)
@@ -939,7 +950,7 @@ g_settings_schema_get_value (GSettingsSchema *schema,
 {
   GSettingsSchema *s = schema;
   GVariantIter *iter;
-  GVariant *value;
+  GVariant *value = NULL;
 
   g_return_val_if_fail (schema != NULL, NULL);
 
@@ -1004,6 +1015,88 @@ g_settings_schema_has_key (GSettingsSchema *schema,
   return gvdb_table_has_value (schema->table, key);
 }
 
+/**
+ * g_settings_schema_list_children:
+ * @schema: a #GSettingsSchema
+ *
+ * Gets the list of children in @schema.
+ *
+ * You should free the return value with g_strfreev() when you are done
+ * with it.
+ *
+ * Returns: (transfer full) (element-type utf8): a list of the children on @settings
+ *
+ * Since: 2.44
+ */
+gchar **
+g_settings_schema_list_children (GSettingsSchema *schema)
+{
+  const GQuark *keys;
+  gchar **strv;
+  gint n_keys;
+  gint i, j;
+
+  g_return_val_if_fail (schema != NULL, NULL);
+
+  keys = g_settings_schema_list (schema, &n_keys);
+  strv = g_new (gchar *, n_keys + 1);
+  for (i = j = 0; i < n_keys; i++)
+    {
+      const gchar *key = g_quark_to_string (keys[i]);
+
+      if (g_str_has_suffix (key, "/"))
+        {
+          gint length = strlen (key);
+
+          strv[j] = g_memdup (key, length);
+          strv[j][length - 1] = '\0';
+          j++;
+        }
+    }
+  strv[j] = NULL;
+
+  return strv;
+}
+
+/**
+ * g_settings_schema_list_keys:
+ * @schema: a #GSettingsSchema
+ *
+ * Introspects the list of keys on @schema.
+ *
+ * You should probably not be calling this function from "normal" code
+ * (since you should already know what keys are in your schema).  This
+ * function is intended for introspection reasons.
+ *
+ * Returns: (transfer full) (element-type utf8): a list of the keys on
+ *   @schema
+ *
+ * Since: 2.46
+ */
+gchar **
+g_settings_schema_list_keys (GSettingsSchema *schema)
+{
+  const GQuark *keys;
+  gchar **strv;
+  gint n_keys;
+  gint i, j;
+
+  g_return_val_if_fail (schema != NULL, NULL);
+
+  keys = g_settings_schema_list (schema, &n_keys);
+  strv = g_new (gchar *, n_keys + 1);
+  for (i = j = 0; i < n_keys; i++)
+    {
+      const gchar *key = g_quark_to_string (keys[i]);
+
+      if (!g_str_has_suffix (key, "/"))
+        strv[j++] = g_strdup (key);
+    }
+  strv[j] = NULL;
+
+  return strv;
+}
+
 const GQuark *
 g_settings_schema_list (GSettingsSchema *schema,
                         gint            *n_items)
@@ -1052,7 +1145,7 @@ g_settings_schema_list (GSettingsSchema *schema,
 
             child_table = NULL;
 
-            for (source = schema_sources; source; source = source->parent)
+            for (source = schema->source; source; source = source->parent)
               if ((child_table = gvdb_table_get_table (source->table, g_variant_get_string (child_schema, NULL))))
                 break;
 
@@ -1292,7 +1385,7 @@ g_settings_schema_key_get_translated_default (GSettingsSchemaKey *key)
   if (value == NULL)
     {
       g_warning ("Failed to parse translated string '%s' for "
-                 "key '%s' in schema '%s': %s", key->unparsed, key->name,
+                 "key '%s' in schema '%s': %s", translated, key->name,
                  g_settings_schema_get_id (key->schema), error->message);
       g_warning ("Using untranslated default instead.");
       g_error_free (error);
@@ -1469,6 +1562,24 @@ g_settings_schema_get_key (GSettingsSchema *schema,
   key->ref_count = 1;
 
   return key;
+}
+
+/**
+ * g_settings_schema_key_get_name:
+ * @key: a #GSettingsSchemaKey
+ *
+ * Gets the name of @key.
+ *
+ * Returns: the name of @key.
+ *
+ * Since: 2.44
+ */
+const gchar *
+g_settings_schema_key_get_name (GSettingsSchemaKey *key)
+{
+  g_return_val_if_fail (key != NULL, NULL);
+
+  return key->name;
 }
 
 /**

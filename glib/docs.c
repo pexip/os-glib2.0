@@ -549,7 +549,7 @@
  * G_GSIZE_MODIFIER:
  *
  * The platform dependent length modifier for conversion specifiers
- * for scanning and printing values of type #gsize or #gssize. It
+ * for scanning and printing values of type #gsize. It
  * is a string literal.
  *
  * Since: 2.6
@@ -573,7 +573,7 @@
  * to #G_MAXSSIZE.
  *
  * To print or scan values of this type, use
- * %G_GSIZE_MODIFIER and/or %G_GSSIZE_FORMAT.
+ * %G_GSSIZE_MODIFIER and/or %G_GSSIZE_FORMAT.
  */
 
 /**
@@ -597,6 +597,16 @@
  *
  * This is the platform dependent conversion specifier for scanning
  * and printing values of type #gssize. See also #G_GINT16_FORMAT.
+ *
+ * Since: 2.6
+ */
+
+/**
+ * G_GSSIZE_MODIFIER:
+ *
+ * The platform dependent length modifier for conversion specifiers
+ * for scanning and printing values of type #gssize. It
+ * is a string literal.
  *
  * Since: 2.6
  */
@@ -1413,6 +1423,130 @@
  * Returns: @val converted to the opposite byte order
  */
  
+/* Bounds-checked integer arithmetic {{{1 */
+/**
+ * SECTION:checkedmath
+ * @title: Bounds-checking integer arithmetic
+ * @short_description: a set of helpers for performing checked integer arithmetic
+ *
+ * GLib offers a set of macros for doing additions and multiplications
+ * of unsigned integers, with checks for overflows.
+ *
+ * The helpers all have three arguments.  A pointer to the destination
+ * is always the first argument and the operands to the operation are
+ * the other two.
+ *
+ * Following standard GLib convention, the helpers return %TRUE in case
+ * of success (ie: no overflow).
+ *
+ * The helpers may be macros, normal functions or inlines.  They may be
+ * implemented with inline assembly or compiler intrinsics where
+ * available.
+ *
+ * Since: 2.48
+ */
+
+/**
+ * g_uint_checked_add
+ * @dest: a pointer to the #guint destination
+ * @a: the #guint left operand
+ * @b: the #guint right operand
+ *
+ * Performs a checked addition of @a and @b, storing the result in
+ * @dest.
+ *
+ * If the operation is successful, %TRUE is returned.  If the operation
+ * overflows then the state of @dest is undefined and %FALSE is
+ * returned.
+ *
+ * Returns: %TRUE if there was no overflow
+ * Since: 2.48
+ */
+
+/**
+ * g_uint_checked_mul
+ * @dest: a pointer to the #guint destination
+ * @a: the #guint left operand
+ * @b: the #guint right operand
+ *
+ * Performs a checked multiplication of @a and @b, storing the result in
+ * @dest.
+ *
+ * If the operation is successful, %TRUE is returned.  If the operation
+ * overflows then the state of @dest is undefined and %FALSE is
+ * returned.
+ *
+ * Returns: %TRUE if there was no overflow
+ * Since: 2.48
+ */
+
+/**
+ * g_uint64_checked_add
+ * @dest: a pointer to the #guint64 destination
+ * @a: the #guint64 left operand
+ * @b: the #guint64 right operand
+ *
+ * Performs a checked addition of @a and @b, storing the result in
+ * @dest.
+ *
+ * If the operation is successful, %TRUE is returned.  If the operation
+ * overflows then the state of @dest is undefined and %FALSE is
+ * returned.
+ *
+ * Returns: %TRUE if there was no overflow
+ * Since: 2.48
+ */
+
+/**
+ * g_uint64_checked_mul
+ * @dest: a pointer to the #guint64 destination
+ * @a: the #guint64 left operand
+ * @b: the #guint64 right operand
+ *
+ * Performs a checked multiplication of @a and @b, storing the result in
+ * @dest.
+ *
+ * If the operation is successful, %TRUE is returned.  If the operation
+ * overflows then the state of @dest is undefined and %FALSE is
+ * returned.
+ *
+ * Returns: %TRUE if there was no overflow
+ * Since: 2.48
+ */
+
+/**
+ * g_size_checked_add
+ * @dest: a pointer to the #gsize destination
+ * @a: the #gsize left operand
+ * @b: the #gsize right operand
+ *
+ * Performs a checked addition of @a and @b, storing the result in
+ * @dest.
+ *
+ * If the operation is successful, %TRUE is returned.  If the operation
+ * overflows then the state of @dest is undefined and %FALSE is
+ * returned.
+ *
+ * Returns: %TRUE if there was no overflow
+ * Since: 2.48
+ */
+
+/**
+ * g_size_checked_mul
+ * @dest: a pointer to the #gsize destination
+ * @a: the #gsize left operand
+ * @b: the #gsize right operand
+ *
+ * Performs a checked multiplication of @a and @b, storing the result in
+ * @dest.
+ *
+ * If the operation is successful, %TRUE is returned.  If the operation
+ * overflows then the state of @dest is undefined and %FALSE is
+ * returned.
+ *
+ * Returns: %TRUE if there was no overflow
+ * Since: 2.48
+ */
 /* Numerical Definitions {{{1 */
 
 /**
@@ -1716,16 +1850,15 @@
 /**
  * G_INLINE_FUNC:
  *
- * This macro is used to export function prototypes so they can be linked
- * with an external version when no inlining is performed. The file which
- * implements the functions should define %G_IMPLEMENTS_INLINES
- * before including the headers which contain %G_INLINE_FUNC declarations.
- * Since inlining is very compiler-dependent using these macros correctly
- * is very difficult. Their use is strongly discouraged.
+ * This macro used to be used to conditionally define inline functions
+ * in a compatible way before this feature was supported in all
+ * compilers.  These days, GLib requires inlining support from the
+ * compiler, so your GLib-using programs can safely assume that the
+ * "inline" keywork works properly.
  *
- * This macro is often mistaken for a replacement for the inline keyword;
- * inline is already declared in a portable manner in the GLib headers
- * and can be used normally.
+ * Never use this macro anymore.  Just say "static inline".
+ *
+ * Deprecated: 2.48: Use "static inline" instead
  */
 
 /**
@@ -1860,6 +1993,21 @@
  * Expands to __extension__ when gcc is used as the compiler. This simply
  * tells gcc not to warn about the following non-standard code when compiling
  * with the `-pedantic` option.
+ */
+
+/**
+ * G_GNUC_CHECK_VERSION:
+ *
+ * Expands to a a check for a compiler with __GNUC__ defined and a version
+ * greater than or equal to the major and minor numbers provided. For example,
+ * the following would only match on compilers such as GCC 4.8 or newer.
+ *
+ * |[<!-- language="C" -->
+ * #if G_GNUC_CHECK_VERSION(4, 8)
+ * #endif
+ * ]|
+ *
+ * Since: 2.42
  */
 
 /**
@@ -2298,6 +2446,233 @@
  * G_HAVE_GNUC_VISIBILITY:
  *
  * Defined to 1 if gcc-style visibility handling is supported.
+ */
+
+/* g_auto(), g_autoptr() and helpers {{{1 */
+
+/**
+ * g_auto:
+ * @TypeName: a supported variable type
+ *
+ * Helper to declare a variable with automatic cleanup.
+ *
+ * The variable is cleaned up in a way appropriate to its type when the
+ * variable goes out of scope.  The type must support this.
+ *
+ * This feature is only supported on GCC and clang.  This macro is not
+ * defined on other compilers and should not be used in programs that
+ * are intended to be portable to those compilers.
+ *
+ * This is meant to be used with stack-allocated structures and
+ * non-pointer types.  For the (more commonly used) pointer version, see
+ * g_autoptr().
+ *
+ * This macro can be used to avoid having to do explicit cleanups of
+ * local variables when exiting functions.  It often vastly simplifies
+ * handling of error conditions, removing the need for various tricks
+ * such as 'goto out' or repeating of cleanup code.  It is also helpful
+ * for non-error cases.
+ *
+ * Consider the following example:
+ *
+ * |[
+ * GVariant *
+ * my_func(void)
+ * {
+ *   g_auto(GQueue) queue = G_QUEUE_INIT;
+ *   g_auto(GVariantBuilder) builder;
+ *   g_auto(GStrv) strv;
+ *
+ *   g_variant_builder_init (&builder, G_VARIANT_TYPE_VARDICT);
+ *   strv = g_strsplit("a:b:c", ":", -1);
+ *
+ *   ...
+ *
+ *   if (error_condition)
+ *     return NULL;
+ *
+ *   ...
+ *
+ *   return g_variant_builder_end (&builder);
+ * }
+ * ]|
+ *
+ * You must initialize the variable in some way -- either by use of an
+ * initialiser or by ensuring that an _init function will be called on
+ * it unconditionally before it goes out of scope.
+ *
+ * Since: 2.44
+ */
+
+/**
+ * g_autoptr:
+ * @TypeName: a supported variable type
+ *
+ * Helper to declare a pointer variable with automatic cleanup.
+ *
+ * The variable is cleaned up in a way appropriate to its type when the
+ * variable goes out of scope.  The type must support this.
+ *
+ * This feature is only supported on GCC and clang.  This macro is not
+ * defined on other compilers and should not be used in programs that
+ * are intended to be portable to those compilers.
+ *
+ * This is meant to be used to declare pointers to types with cleanup
+ * functions.  The type of the variable is a pointer to @TypeName.  You
+ * must not add your own '*'.
+ *
+ * This macro can be used to avoid having to do explicit cleanups of
+ * local variables when exiting functions.  It often vastly simplifies
+ * handling of error conditions, removing the need for various tricks
+ * such as 'goto out' or repeating of cleanup code.  It is also helpful
+ * for non-error cases.
+ *
+ * Consider the following example:
+ *
+ * |[
+ * gboolean
+ * check_exists(GVariant *dict)
+ * {
+ *   g_autoptr(GVariant) dirname, basename = NULL;
+ *   g_autofree gchar *path = NULL;
+ *
+ *   dirname = g_variant_lookup_value (dict, "dirname", G_VARIANT_TYPE_STRING);
+ *
+ *   if (dirname == NULL)
+ *     return FALSE;
+ *
+ *   basename = g_variant_lookup_value (dict, "basename", G_VARIANT_TYPE_STRING);
+ *
+ *   if (basename == NULL)
+ *     return FALSE;
+ *
+ *   path = g_build_filename (g_variant_get_string (dirname, NULL),
+ *                            g_variant_get_string (basename, NULL),
+ *                            NULL);
+ *
+ *   return g_access (path, R_OK) == 0;
+ * }
+ * ]|
+ *
+ * You must initialise the variable in some way -- either by use of an
+ * initialiser or by ensuring that it is assigned to unconditionally
+ * before it goes out of scope.
+ *
+ * See also g_auto(), g_autofree() and g_steal_pointer().
+ *
+ * Since: 2.44
+ */
+
+/**
+ * g_autofree:
+ *
+ * Macro to add an attribute to pointer variable to ensure automatic
+ * cleanup using g_free().
+ *
+ * This macro differs from g_autoptr() in that it is an attribute supplied
+ * before the type name, rather than wrapping the type definition.  Instead
+ * of using a type-specific lookup, this macro always calls g_free() directly.
+ *
+ * This means it's useful for any type that is returned from
+ * g_malloc().
+ *
+ * Otherwise, this macro has similar constraints as g_autoptr() - only
+ * supported on GCC and clang, the variable must be initialized, etc.
+ *
+ * |[
+ * gboolean
+ * operate_on_malloc_buf (void)
+ * {
+ *   g_autofree guint8* membuf = NULL;
+ *
+ *   membuf = g_malloc (8192);
+ *
+ *   /<!-- -->* Some computation on membuf *<!-- -->/
+ *
+ *   /<!-- -->* membuf will be automatically freed here *<!-- -->/
+ *   return TRUE;
+ * }
+ * ]|
+ *
+ * Since: 2.44
+ */
+
+/**
+ * G_DEFINE_AUTOPTR_CLEANUP_FUNC:
+ * @TypeName: a type name to define a g_autoptr() cleanup function for
+ * @func: the cleanup function
+ *
+ * Defines the appropriate cleanup function for a pointer type.
+ *
+ * The function will not be called if the variable to be cleaned up
+ * contains %NULL.
+ *
+ * This will typically be the _free() or _unref() function for the given
+ * type.
+ *
+ * With this definition, it will be possible to use g_autoptr() with
+ * @TypeName.
+ *
+ * |[
+ * G_DEFINE_AUTOPTR_CLEANUP_FUNC(GObject, g_object_unref)
+ * ]|
+ *
+ * This macro should be used unconditionally; it is a no-op on compilers
+ * where cleanup is not supported.
+ *
+ * Since: 2.44
+ */
+
+/**
+ * G_DEFINE_AUTO_CLEANUP_CLEAR_FUNC:
+ * @TypeName: a type name to define a g_auto() cleanup function for
+ * @func: the clear function
+ *
+ * Defines the appropriate cleanup function for a type.
+ *
+ * This will typically be the _clear() function for the given type.
+ *
+ * With this definition, it will be possible to use g_auto() with
+ * @TypeName.
+ *
+ * |[
+ * G_DEFINE_AUTO_CLEANUP_CLEAR_FUNC(GQueue, g_queue_clear)
+ * ]|
+ *
+ * This macro should be used unconditionally; it is a no-op on compilers
+ * where cleanup is not supported.
+ *
+ * Since: 2.44
+ */
+
+/**
+ * G_DEFINE_AUTO_CLEANUP_FREE_FUNC:
+ * @TypeName: a type name to define a g_auto() cleanup function for
+ * @func: the free function
+ * @none: the "none" value for the type
+ *
+ * Defines the appropriate cleanup function for a type.
+ *
+ * With this definition, it will be possible to use g_auto() with
+ * @TypeName.
+ *
+ * This function will be rarely used.  It is used with pointer-based
+ * typedefs and non-pointer types where the value of the variable
+ * represents a resource that must be freed.  Two examples are #GStrv
+ * and file descriptors.
+ *
+ * @none specifies the "none" value for the type in question.  It is
+ * probably something like %NULL or -1.  If the variable is found to
+ * contain this value then the free function will not be called.
+ *
+ * |[
+ * G_DEFINE_AUTO_CLEANUP_FREE_FUNC(GStrv, g_strfreev, NULL)
+ * ]|
+ *
+ * This macro should be used unconditionally; it is a no-op on compilers
+ * where cleanup is not supported.
+ *
+ * Since: 2.44
  */
 
 /* Windows Compatibility Functions {{{1 */
