@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -206,7 +206,7 @@ g_tls_connection_class_init (GTlsConnectionClass *klass)
   g_object_class_install_property (gobject_class, PROP_CERTIFICATE,
 				   g_param_spec_object ("certificate",
 							P_("Certificate"),
-							P_("The connection's certificate"),
+							P_("The connection’s certificate"),
 							G_TYPE_TLS_CERTIFICATE,
 							G_PARAM_READWRITE |
 							G_PARAM_STATIC_STRINGS));
@@ -226,7 +226,7 @@ g_tls_connection_class_init (GTlsConnectionClass *klass)
   g_object_class_install_property (gobject_class, PROP_PEER_CERTIFICATE,
 				   g_param_spec_object ("peer-certificate",
 							P_("Peer Certificate"),
-							P_("The connection's peer's certificate"),
+							P_("The connection’s peer’s certificate"),
 							G_TYPE_TLS_CERTIFICATE,
 							G_PARAM_READABLE |
 							G_PARAM_STATIC_STRINGS));
@@ -245,7 +245,7 @@ g_tls_connection_class_init (GTlsConnectionClass *klass)
   g_object_class_install_property (gobject_class, PROP_PEER_CERTIFICATE_ERRORS,
 				   g_param_spec_flags ("peer-certificate-errors",
 						       P_("Peer Certificate Errors"),
-						       P_("Errors found with the peer's certificate"),
+						       P_("Errors found with the peer’s certificate"),
 						       G_TYPE_TLS_CERTIFICATE_FLAGS,
 						       0,
 						       G_PARAM_READABLE |
@@ -501,7 +501,7 @@ g_tls_connection_get_certificate (GTlsConnection *conn)
 /**
  * g_tls_connection_set_interaction:
  * @conn: a connection
- * @interaction: (allow-none): an interaction object, or %NULL
+ * @interaction: (nullable): an interaction object, or %NULL
  *
  * Set the object that will be used to interact with the user. It will be used
  * for things like prompting the user for passwords.
@@ -674,7 +674,8 @@ g_tls_connection_get_require_close_notify (GTlsConnection *conn)
  * @conn: a #GTlsConnection
  * @mode: the rehandshaking mode
  *
- * Sets how @conn behaves with respect to rehandshaking requests.
+ * Sets how @conn behaves with respect to rehandshaking requests, when
+ * TLS 1.2 or older is in use.
  *
  * %G_TLS_REHANDSHAKE_NEVER means that it will never agree to
  * rehandshake after the initial handshake is complete. (For a client,
@@ -735,7 +736,7 @@ g_tls_connection_get_rehandshake_mode (GTlsConnection       *conn)
 /**
  * g_tls_connection_handshake:
  * @conn: a #GTlsConnection
- * @cancellable: (allow-none): a #GCancellable, or %NULL
+ * @cancellable: (nullable): a #GCancellable, or %NULL
  * @error: a #GError, or %NULL
  *
  * Attempts a TLS handshake on @conn.
@@ -756,7 +757,10 @@ g_tls_connection_get_rehandshake_mode (GTlsConnection       *conn)
  * the beginning of the communication, you do not need to call this
  * function explicitly unless you want clearer error reporting.
  * However, you may call g_tls_connection_handshake() later on to
- * renegotiate parameters (encryption methods, etc) with the client.
+ * rehandshake, if TLS 1.2 or older is in use. With TLS 1.3, the
+ * behavior is undefined but guaranteed to be reasonable and
+ * nondestructive, so most older code should be expected to continue to
+ * work without changes.
  *
  * #GTlsConnection::accept_certificate may be emitted during the
  * handshake.
@@ -779,7 +783,7 @@ g_tls_connection_handshake (GTlsConnection   *conn,
  * g_tls_connection_handshake_async:
  * @conn: a #GTlsConnection
  * @io_priority: the [I/O priority][io-priority] of the request
- * @cancellable: (allow-none): a #GCancellable, or %NULL
+ * @cancellable: (nullable): a #GCancellable, or %NULL
  * @callback: callback to call when the handshake is complete
  * @user_data: the data to pass to the callback function
  *

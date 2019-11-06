@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -108,14 +108,14 @@ echo_server_thread (gpointer user_data)
 }
 
 static IPTestData *
-create_server_full (GSocketFamily family,
-		    GSocketType   socket_type,
-		    GThreadFunc   server_thread,
-		    gboolean      v4mapped)
+create_server_full (GSocketFamily   family,
+                    GSocketType     socket_type,
+                    GThreadFunc     server_thread,
+                    gboolean        v4mapped,
+                    GError        **error)
 {
   IPTestData *data;
   GSocket *server;
-  GError *error = NULL;
   GSocketAddress *addr;
   GInetAddress *iaddr;
 
@@ -125,8 +125,9 @@ create_server_full (GSocketFamily family,
   data->server = server = g_socket_new (family,
 					socket_type,
 					G_SOCKET_PROTOCOL_DEFAULT,
-					&error);
-  g_assert_no_error (error);
+					error);
+  if (server == NULL)
+    goto error;
 
   g_assert_cmpint (g_socket_get_family (server), ==, family);
   g_assert_cmpint (g_socket_get_socket_type (server), ==, socket_type);
@@ -138,12 +139,8 @@ create_server_full (GSocketFamily family,
   if (v4mapped)
     {
       g_socket_set_option (data->server, IPPROTO_IPV6, IPV6_V6ONLY, FALSE, NULL);
-      if (! g_socket_speaks_ipv4 (data->server))
-        {
-          g_object_unref (data->server);
-          g_slice_free (IPTestData, data);
-          return NULL;
-        }
+      if (!g_socket_speaks_ipv4 (data->server))
+        goto error;
     }
 #endif
 
@@ -155,19 +152,23 @@ create_server_full (GSocketFamily family,
   g_object_unref (iaddr);
 
   g_assert_cmpint (g_inet_socket_address_get_port (G_INET_SOCKET_ADDRESS (addr)), ==, 0);
-  g_socket_bind (server, addr, TRUE, &error);
-  g_assert_no_error (error);
+  if (!g_socket_bind (server, addr, TRUE, error))
+    {
+      g_object_unref (addr);
+      goto error;
+    }
   g_object_unref (addr);
 
-  addr = g_socket_get_local_address (server, &error);
-  g_assert_no_error (error);
+  addr = g_socket_get_local_address (server, error);
+  if (addr == NULL)
+    goto error;
   g_assert_cmpint (g_inet_socket_address_get_port (G_INET_SOCKET_ADDRESS (addr)), !=, 0);
   g_object_unref (addr);
 
   if (socket_type == G_SOCKET_TYPE_STREAM)
     {
-      g_socket_listen (server, &error);
-      g_assert_no_error (error);
+      if (!g_socket_listen (server, error))
+        goto error;
     }
   else
     {
@@ -177,14 +178,21 @@ create_server_full (GSocketFamily family,
   data->thread = g_thread_new ("server", server_thread, data);
 
   return data;
+
+error:
+  g_clear_object (&data->server);
+  g_slice_free (IPTestData, data);
+
+  return NULL;
 }
 
 static IPTestData *
-create_server (GSocketFamily family,
-	       GThreadFunc   server_thread,
-	       gboolean      v4mapped)
+create_server (GSocketFamily   family,
+               GThreadFunc     server_thread,
+               gboolean        v4mapped,
+               GError        **error)
 {
-  return create_server_full (family, G_SOCKET_TYPE_STREAM, server_thread, v4mapped);
+  return create_server_full (family, G_SOCKET_TYPE_STREAM, server_thread, v4mapped, error);
 }
 
 static const gchar *testbuf = "0123456789abcdef";
@@ -325,7 +333,16 @@ test_ip_async (GSocketFamily family)
   gssize len;
   gchar buf[128];
 
-  data = create_server (family, echo_server_thread, FALSE);
+  data = create_server (family, echo_server_thread, FALSE, &error);
+  if (error != NULL)
+    {
+      gchar *message = g_strdup_printf ("Failed to create server: %s", error->message);
+      g_test_skip (message);
+      g_free (message);
+      g_clear_error (&error);
+      return;
+    }
+
   addr = g_socket_get_local_address (data->server, &error);
   g_assert_no_error (error);
 
@@ -428,7 +445,16 @@ test_ip_sync (GSocketFamily family)
   gssize len;
   gchar buf[128];
 
-  data = create_server (family, echo_server_thread, FALSE);
+  data = create_server (family, echo_server_thread, FALSE, &error);
+  if (error != NULL)
+    {
+      gchar *message = g_strdup_printf ("Failed to create server: %s", error->message);
+      g_test_skip (message);
+      g_free (message);
+      g_clear_error (&error);
+      return;
+    }
+
   addr = g_socket_get_local_address (data->server, &error);
   g_assert_no_error (error);
 
@@ -559,7 +585,15 @@ test_ip_sync_dgram (GSocketFamily family)
   gchar buf[128];
 
   data = create_server_full (family, G_SOCKET_TYPE_DATAGRAM,
-                             echo_server_dgram_thread, FALSE);
+                             echo_server_dgram_thread, FALSE, &error);
+  if (error != NULL)
+    {
+      gchar *message = g_strdup_printf ("Failed to create server: %s", error->message);
+      g_test_skip (message);
+      g_free (message);
+      g_clear_error (&error);
+      return;
+    }
 
   dest_addr = g_socket_get_local_address (data->server, &error);
 
@@ -912,7 +946,16 @@ test_close_graceful (void)
   gssize len;
   gchar buf[128];
 
-  data = create_server (family, graceful_server_thread, FALSE);
+  data = create_server (family, graceful_server_thread, FALSE, &error);
+  if (error != NULL)
+    {
+      gchar *message = g_strdup_printf ("Failed to create server: %s", error->message);
+      g_test_skip (message);
+      g_free (message);
+      g_clear_error (&error);
+      return;
+    }
+
   addr = g_socket_get_local_address (data->server, &error);
   g_assert_no_error (error);
 
@@ -1013,11 +1056,13 @@ test_ipv6_v4mapped (void)
       return;
     }
 
-  data = create_server (G_SOCKET_FAMILY_IPV6, v4mapped_server_thread, TRUE);
-
-  if (data == NULL)
+  data = create_server (G_SOCKET_FAMILY_IPV6, v4mapped_server_thread, TRUE, &error);
+  if (error != NULL)
     {
-      g_test_message ("Test not run: not supported by the OS");
+      gchar *message = g_strdup_printf ("Failed to create server: %s", error->message);
+      g_test_skip (message);
+      g_free (message);
+      g_clear_error (&error);
       return;
     }
 
@@ -1066,7 +1111,16 @@ test_timed_wait (void)
   gint64 start_time;
   gint poll_duration;
 
-  data = create_server (G_SOCKET_FAMILY_IPV4, echo_server_thread, FALSE);
+  data = create_server (G_SOCKET_FAMILY_IPV4, echo_server_thread, FALSE, &error);
+  if (error != NULL)
+    {
+      gchar *message = g_strdup_printf ("Failed to create server: %s", error->message);
+      g_test_skip (message);
+      g_free (message);
+      g_clear_error (&error);
+      return;
+    }
+
   addr = g_socket_get_local_address (data->server, &error);
   g_assert_no_error (error);
 
@@ -1144,7 +1198,16 @@ test_fd_reuse (void)
 
   g_test_bug ("741707");
 
-  data = create_server (G_SOCKET_FAMILY_IPV4, echo_server_thread, FALSE);
+  data = create_server (G_SOCKET_FAMILY_IPV4, echo_server_thread, FALSE, &error);
+  if (error != NULL)
+    {
+      gchar *message = g_strdup_printf ("Failed to create server: %s", error->message);
+      g_test_skip (message);
+      g_free (message);
+      g_clear_error (&error);
+      return;
+    }
+
   addr = g_socket_get_local_address (data->server, &error);
   g_assert_no_error (error);
 
@@ -1386,6 +1449,53 @@ test_unix_connection_ancillary_data (void)
    * g_unix_connection_receive_credentials().
    */
 }
+
+static gboolean
+postmortem_source_cb (GSocket      *socket,
+                      GIOCondition  condition,
+                      gpointer      user_data)
+{
+  gboolean *been_here = user_data;
+
+  g_assert_cmpint (condition, ==, G_IO_NVAL);
+
+  *been_here = TRUE;
+  return FALSE;
+}
+
+static void
+test_source_postmortem (void)
+{
+  GMainContext *context;
+  GSocket *socket;
+  GSource *source;
+  GError *error = NULL;
+  gboolean callback_visited = FALSE;
+
+  socket = g_socket_new (G_SOCKET_FAMILY_UNIX, G_SOCKET_TYPE_STREAM, G_SOCKET_PROTOCOL_DEFAULT, &error);
+  g_assert_no_error (error);
+
+  context = g_main_context_new ();
+
+  source = g_socket_create_source (socket, G_IO_IN, NULL);
+  g_source_set_callback (source, (GSourceFunc) postmortem_source_cb,
+                         &callback_visited, NULL);
+  g_source_attach (source, context);
+  g_source_unref (source);
+
+  g_socket_close (socket, &error);
+  g_assert_no_error (error);
+  g_object_unref (socket);
+
+  /* Test that, after a socket is closed, its source callback should be called
+   * exactly once. */
+  g_main_context_iteration (context, FALSE);
+  g_assert (callback_visited);
+  g_assert (!g_main_context_pending (context));
+
+  g_main_context_unref (context);
+}
+
 #endif /* G_OS_UNIX */
 
 static void
@@ -1643,6 +1753,7 @@ main (int   argc,
   g_test_add_func ("/socket/unix-from-fd", test_unix_from_fd);
   g_test_add_func ("/socket/unix-connection", test_unix_connection);
   g_test_add_func ("/socket/unix-connection-ancillary-data", test_unix_connection_ancillary_data);
+  g_test_add_func ("/socket/source-postmortem", test_source_postmortem);
 #endif
   g_test_add_func ("/socket/reuse/tcp", test_reuse_tcp);
   g_test_add_func ("/socket/reuse/udp", test_reuse_udp);

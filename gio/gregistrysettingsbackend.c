@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the licence, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -1800,7 +1800,7 @@ watch_thread_function (LPVOID parameter)
            * likely to block (only when changing notification subscriptions).
            */
           event = g_slice_new (RegistryEvent);
-          event->self = g_object_ref (self->owner);
+          event->self = G_REGISTRY_BACKEND (g_object_ref (self->owner));
           event->prefix = g_strdup (prefix);
           event->items = g_ptr_array_new_with_free_func (g_free);
 

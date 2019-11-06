@@ -129,6 +129,9 @@ GLIB_VERSION_2_44
 GLIB_VERSION_2_46
 GLIB_VERSION_2_48
 GLIB_VERSION_2_50
+GLIB_VERSION_2_52
+GLIB_VERSION_2_54
+GLIB_VERSION_2_56
 GLIB_VERSION_MIN_REQUIRED
 GLIB_VERSION_MAX_ALLOWED
 GLIB_DISABLE_DEPRECATION_WARNINGS
@@ -149,6 +152,9 @@ GLIB_AVAILABLE_IN_2_44
 GLIB_AVAILABLE_IN_2_46
 GLIB_AVAILABLE_IN_2_48
 GLIB_AVAILABLE_IN_2_50
+GLIB_AVAILABLE_IN_2_52
+GLIB_AVAILABLE_IN_2_54
+GLIB_AVAILABLE_IN_2_56
 GLIB_DEPRECATED_IN_2_26
 GLIB_DEPRECATED_IN_2_26_FOR
 GLIB_DEPRECATED_IN_2_28
@@ -175,6 +181,12 @@ GLIB_DEPRECATED_IN_2_48
 GLIB_DEPRECATED_IN_2_48_FOR
 GLIB_DEPRECATED_IN_2_50
 GLIB_DEPRECATED_IN_2_50_FOR
+GLIB_DEPRECATED_IN_2_52
+GLIB_DEPRECATED_IN_2_52_FOR
+GLIB_DEPRECATED_IN_2_54
+GLIB_DEPRECATED_IN_2_54_FOR
+GLIB_DEPRECATED_IN_2_56
+GLIB_DEPRECATED_IN_2_56_FOR
 GLIB_VERSION_CUR_STABLE
 GLIB_VERSION_PREV_STABLE
 </SECTION>
@@ -207,6 +219,7 @@ MAX
 <SUBSECTION>
 ABS
 CLAMP
+G_APPROX_VALUE
 
 <SUBSECTION>
 G_STRUCT_MEMBER
@@ -389,6 +402,8 @@ G_INLINE_FUNC
 g_auto
 g_autoptr
 g_autofree
+g_autolist
+g_autoslist
 G_DEFINE_AUTOPTR_CLEANUP_FUNC
 G_DEFINE_AUTO_CLEANUP_CLEAR_FUNC
 G_DEFINE_AUTO_CLEANUP_FREE_FUNC
@@ -431,6 +446,7 @@ G_GNUC_NULL_TERMINATED
 G_GNUC_WARN_UNUSED_RESULT
 G_GNUC_FUNCTION
 G_GNUC_PRETTY_FUNCTION
+G_GNUC_NO_INLINE
 G_GNUC_NO_INSTRUMENT
 G_HAVE_GNUC_VISIBILITY
 G_GNUC_INTERNAL
@@ -605,6 +621,7 @@ g_source_set_name_by_id
 g_source_get_context
 g_source_set_callback
 GSourceFunc
+G_SOURCE_FUNC
 g_source_set_callback_indirect
 g_source_set_ready_time
 g_source_get_ready_time
@@ -621,6 +638,8 @@ g_source_get_current_time
 g_source_remove
 g_source_remove_by_funcs_user_data
 g_source_remove_by_user_data
+GClearHandleFunc
+g_clear_handle_id
 
 <SUBSECTION Private>
 GLIB_HAVE_ALLOCA_H
@@ -1214,6 +1233,7 @@ GSpawnError
 G_SPAWN_ERROR
 GSpawnFlags
 GSpawnChildSetupFunc
+g_spawn_async_with_fds
 g_spawn_async_with_pipes
 g_spawn_async
 g_spawn_sync
@@ -1324,7 +1344,7 @@ g_option_error_quark
 <SECTION>
 <TITLE>File Utilities</TITLE>
 <FILE>fileutils</FILE>
-<INCLUDE>glib.h,glib/gstdio.h</INCLUDE>
+<INCLUDE>glib.h,glib/gstdio.h,fcntl.h,sys/types.h,sys/stat.h</INCLUDE>
 GFileError
 G_FILE_ERROR
 GFileTest
@@ -1476,6 +1496,15 @@ g_ascii_formatd
 g_strtod
 
 <SUBSECTION>
+GNumberParserError
+G_NUMBER_PARSER_ERROR
+g_ascii_string_to_signed
+g_ascii_string_to_unsigned
+
+<SUBSECTION Private>
+g_number_parser_error_quark
+
+<SUBSECTION>
 g_strchug
 g_strchomp
 g_strstrip
@@ -1542,6 +1571,7 @@ g_date_new_dmy
 g_date_new_julian
 g_date_clear
 g_date_free
+g_date_copy
 
 <SUBSECTION>
 g_date_set_day
@@ -1622,11 +1652,13 @@ g_time_zone_ref
 g_time_zone_new
 g_time_zone_new_local
 g_time_zone_new_utc
+g_time_zone_new_offset
 <SUBSECTION>
 GTimeType
 g_time_zone_find_interval
 g_time_zone_adjust_time
 <SUBSECTION>
+g_time_zone_get_identifier
 g_time_zone_get_abbreviation
 g_time_zone_get_offset
 g_time_zone_is_dst
@@ -1658,6 +1690,7 @@ g_date_time_new_from_unix_utc
 <SUBSECTION>
 g_date_time_new_from_timeval_local
 g_date_time_new_from_timeval_utc
+g_date_time_new_from_iso8601
 
 <SUBSECTION>
 g_date_time_new
@@ -1716,6 +1749,7 @@ g_date_time_to_timeval
 
 <SUBSECTION>
 g_date_time_get_utc_offset
+g_date_time_get_timezone
 g_date_time_get_timezone_abbreviation
 g_date_time_is_daylight_savings
 
@@ -1822,12 +1856,14 @@ g_get_tmp_dir
 g_get_current_dir
 g_basename
 g_dirname
+g_canonicalize_filename
 g_path_is_absolute
 g_path_skip_root
 g_path_get_basename
 g_path_get_dirname
 g_build_filename
 g_build_filenamev
+g_build_filename_valist
 g_build_path
 g_build_pathv
 
@@ -1959,6 +1995,7 @@ g_key_file_has_key
 g_key_file_get_value
 g_key_file_get_string
 g_key_file_get_locale_string
+g_key_file_get_locale_for_key
 g_key_file_get_boolean
 g_key_file_get_integer
 g_key_file_get_int64
@@ -2420,6 +2457,7 @@ g_hash_table_find
 GHFunc
 g_hash_table_remove
 g_hash_table_steal
+g_hash_table_steal_extended
 g_hash_table_foreach_remove
 g_hash_table_foreach_steal
 g_hash_table_remove_all
@@ -2566,6 +2604,8 @@ g_ptr_array_set_size
 g_ptr_array_index
 g_ptr_array_free
 g_ptr_array_foreach
+g_ptr_array_find
+g_ptr_array_find_with_equal_func
 
 </SECTION>
 
@@ -2923,6 +2963,7 @@ g_utf8_strrchr
 g_utf8_strreverse
 g_utf8_substring
 g_utf8_validate
+g_utf8_make_valid
 
 <SUBSECTION>
 g_utf8_strup
@@ -3108,6 +3149,7 @@ g_assert_cmpint
 g_assert_cmpuint
 g_assert_cmphex
 g_assert_cmpfloat
+g_assert_cmpfloat_with_epsilon
 g_assert_cmpmem
 g_assert_no_error
 g_assert_error
@@ -3388,6 +3430,7 @@ g_variant_parse_error_print_context
 g_variant_parse_error_quark
 g_variant_parser_get_error_quark
 g_variant_type_checked_
+g_variant_type_string_get_depth_
 </SECTION>
 
 
@@ -3401,4 +3444,62 @@ g_hostname_is_non_ascii
 g_hostname_is_ascii_encoded
 <SUBSECTION>
 g_hostname_is_ip_address
+</SECTION>
+
+<SECTION>
+<FILE>uuid</FILE>
+<TITLE>GUuid</TITLE>
+g_uuid_string_is_valid
+g_uuid_string_random
+</SECTION>
+
+<SECTION>
+<FILE>refcount</FILE>
+grefcount
+g_ref_count_init
+g_ref_count_inc
+g_ref_count_dec
+g_ref_count_compare
+<SUBSECTION>
+gatomicrefcount
+g_atomic_ref_count_init
+g_atomic_ref_count_inc
+g_atomic_ref_count_dec
+g_atomic_ref_count_compare
+</SECTION>
+
+<SECTION>
+<FILE>rcbox</FILE>
+g_rc_box_alloc
+g_rc_box_alloc0
+g_rc_box_new
+g_rc_box_new0
+g_rc_box_dup
+g_rc_box_acquire
+g_rc_box_release
+g_rc_box_release_full
+g_rc_box_get_size
+</SECTION>
+
+<SECTION>
+<FILE>arcbox</FILE>
+g_atomic_rc_box_alloc
+g_atomic_rc_box_alloc0
+g_atomic_rc_box_new
+g_atomic_rc_box_new0
+g_atomic_rc_box_dup
+g_atomic_rc_box_acquire
+g_atomic_rc_box_release
+g_atomic_rc_box_release_full
+g_atomic_rc_box_get_size
+</SECTION>
+
+<SECTION>
+<FILE>refstring</FILE>
+g_ref_string_new
+g_ref_string_new_intern
+g_ref_string_new_len
+g_ref_string_acquire
+g_ref_string_release
+g_ref_string_length
 </SECTION>
