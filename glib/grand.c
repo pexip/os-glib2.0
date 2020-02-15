@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -388,7 +388,7 @@ g_rand_set_seed_array (GRand         *rand,
                        const guint32 *seed,
                        guint          seed_length)
 {
-  int i, j, k;
+  guint i, j, k;
 
   g_return_if_fail (rand != NULL);
   g_return_if_fail (seed_length >= 1);

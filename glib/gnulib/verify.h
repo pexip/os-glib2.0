@@ -1,18 +1,18 @@
 /* Compile-time assert-like macros.
 
-   Copyright (C) 2005-2006, 2009-2015 Free Software Foundation, Inc.
+   Copyright (C) 2005-2006, 2009-2016 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   it under the terms of the GNU Lesser General Public License as published by
+   the Free Software Foundation; either version 2.1 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+   GNU Lesser General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
+   You should have received a copy of the GNU Lesser General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 /* Written by Paul Eggert, Bruno Haible, and Jim Meyering.  */
@@ -250,21 +250,23 @@ template <int w>
 
 #define verify(R) _GL_VERIFY (R, "verify (" #R ")")
 
-#ifndef __has_builtin
-# define __has_builtin(x) 0
+#ifdef __has_builtin
+# define _GL_MACRO__has_builtin __has_builtin
+#else
+# define _GL_MACRO__has_builtin(x) 0
 #endif
 
 /* Assume that R always holds.  This lets the compiler optimize
    accordingly.  R should not have side-effects; it may or may not be
    evaluated.  Behavior is undefined if R is false.  */
 
-#if (__has_builtin (__builtin_unreachable) \
+#if (_GL_MACRO__has_builtin (__builtin_unreachable) \
      || 4 < __GNUC__ + (5 <= __GNUC_MINOR__))
 # define assume(R) ((R) ? (void) 0 : __builtin_unreachable ())
 #elif 1200 <= _MSC_VER
 # define assume(R) __assume (R)
 #elif (defined lint \
-       && (__has_builtin (__builtin_trap) \
+       && (_GL_MACRO__has_builtin (__builtin_trap) \
            || 3 < __GNUC__ + (3 < __GNUC_MINOR__ + (4 <= __GNUC_PATCHLEVEL__))))
   /* Doing it this way helps various packages when configured with
      --enable-gcc-warnings, which compiles with -Dlint.  It's nicer

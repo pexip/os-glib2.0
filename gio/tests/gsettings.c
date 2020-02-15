@@ -8,6 +8,8 @@
 
 #include "testenum.h"
 
+static const gchar *locale_dir = ".";
+
 static gboolean backend_set;
 
 /* These tests rely on the schemas in org.gtk.test.gschema.xml
@@ -732,22 +734,25 @@ test_l10n (void)
   gchar *str;
   gchar *locale;
 
-  bindtextdomain ("test", ".");
+  bindtextdomain ("test", locale_dir);
   bind_textdomain_codeset ("test", "UTF-8");
 
   locale = g_strdup (setlocale (LC_MESSAGES, NULL));
 
   settings = g_settings_new ("org.gtk.test.localized");
 
+  g_setenv ("LC_MESSAGES", "C", TRUE);
   setlocale (LC_MESSAGES, "C");
   str = g_settings_get_string (settings, "error-message");
+  g_setenv ("LC_MESSAGES", locale, TRUE);
   setlocale (LC_MESSAGES, locale);
 
   g_assert_cmpstr (str, ==, "Unnamed");
   g_free (str);
   str = NULL;
 
-  setlocale (LC_MESSAGES, "de_DE");
+  g_setenv ("LC_MESSAGES", "de_DE.UTF-8", TRUE);
+  setlocale (LC_MESSAGES, "de_DE.UTF-8");
   /* Only do the test if translation is actually working... */
   if (g_str_equal (dgettext ("test", "\"Unnamed\""), "\"Unbenannt\""))
     {
@@ -760,6 +765,7 @@ test_l10n (void)
   else
     g_printerr ("warning: translation is not working... skipping test. ");
 
+  g_setenv ("LC_MESSAGES", locale, TRUE);
   setlocale (LC_MESSAGES, locale);
   g_free (locale);
   g_object_unref (settings);
@@ -779,22 +785,25 @@ test_l10n_context (void)
   gchar *str;
   gchar *locale;
 
-  bindtextdomain ("test", ".");
+  bindtextdomain ("test", locale_dir);
   bind_textdomain_codeset ("test", "UTF-8");
 
   locale = g_strdup (setlocale (LC_MESSAGES, NULL));
 
   settings = g_settings_new ("org.gtk.test.localized");
 
+  g_setenv ("LC_MESSAGES", "C", TRUE);
   setlocale (LC_MESSAGES, "C");
   g_settings_get (settings, "backspace", "s", &str);
+  g_setenv ("LC_MESSAGES", locale, TRUE);
   setlocale (LC_MESSAGES, locale);
 
   g_assert_cmpstr (str, ==, "BackSpace");
   g_free (str);
   str = NULL;
 
-  setlocale (LC_MESSAGES, "de_DE");
+  g_setenv ("LC_MESSAGES", "de_DE.UTF-8", TRUE);
+  setlocale (LC_MESSAGES, "de_DE.UTF-8");
   /* Only do the test if translation is actually working... */
   if (g_str_equal (dgettext ("test", "\"Unnamed\""), "\"Unbenannt\""))
     {
@@ -807,6 +816,7 @@ test_l10n_context (void)
   else
     g_printerr ("warning: translation is not working... skipping test.  ");
 
+  g_setenv ("LC_MESSAGES", locale, TRUE);
   setlocale (LC_MESSAGES, locale);
   g_free (locale);
   g_object_unref (settings);
@@ -1322,6 +1332,33 @@ test_simple_binding (void)
   g_object_get (obj, "flags", &i, NULL);
   g_assert_cmpint (i, ==, TEST_FLAGS_MOURNING | TEST_FLAGS_WALKING);
 
+  g_settings_bind (settings, "uint", obj, "uint", G_SETTINGS_BIND_DEFAULT);
+
+  g_object_set (obj, "uint", 12345, NULL);
+  g_assert_cmpuint (g_settings_get_uint (settings, "uint"), ==, 12345);
+
+  g_settings_set_uint (settings, "uint", 54321);
+  u = 1111;
+  g_object_get (obj, "uint", &u, NULL);
+  g_assert_cmpuint (u, ==, 54321);
+
+  g_settings_bind (settings, "range", obj, "uint", G_SETTINGS_BIND_DEFAULT);
+  g_object_set (obj, "uint", 22, NULL);
+  u = 1111;
+  g_assert_cmpuint (g_settings_get_uint (settings, "range"), ==, 22);
+  g_object_get (obj, "uint", &u, NULL);
+  g_assert_cmpuint (u, ==, 22);
+
+  g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                         "* is out of schema-specified range for*");
+  g_object_set (obj, "uint", 45, NULL);
+  g_test_assert_expected_messages ();
+  u = 1111;
+  g_object_get (obj, "uint", &u, NULL);
+  g_assert_cmpuint (g_settings_get_uint (settings, "range"), ==, 22);
+  /* The value of the object is currently not reset back to its initial value
+  g_assert_cmpuint (u, ==, 22); */
+
   g_object_unref (obj);
   g_object_unref (settings);
 }
@@ -1470,6 +1507,14 @@ bool_to_string (const GValue       *value,
     return g_variant_new_string ("false");
 }
 
+static GVariant *
+bool_to_bool (const GValue       *value,
+              const GVariantType *expected_type,
+              gpointer            user_data)
+{
+  return g_variant_new_boolean (g_value_get_boolean (value));
+}
+
 /* Test custom bindings.
  * Translate strings to booleans and back
  */
@@ -1505,6 +1550,17 @@ test_custom_binding (void)
   s = g_settings_get_string (settings, "string");
   g_assert_cmpstr (s, ==, "true");
   g_free (s);
+
+  g_settings_bind_with_mapping (settings, "string",
+                                obj, "bool",
+                                G_SETTINGS_BIND_DEFAULT,
+                                string_to_bool, bool_to_bool,
+                                NULL, NULL);
+  g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                         "*binding mapping function for key 'string' returned"
+                         " GVariant of type 'b' when type 's' was requested*");
+  g_object_set (obj, "bool", FALSE, NULL);
+  g_test_assert_expected_messages ();
 
   g_object_unref (obj);
   g_object_unref (settings);
@@ -2190,6 +2246,7 @@ G_GNUC_END_IGNORE_DEPRECATIONS
                             "org.gtk.test.range.direct",
                             "org.gtk.test.mapped",
                             "org.gtk.test.descriptions",
+                            "org.gtk.test.per-desktop",
                             NULL));
 }
 
@@ -2296,6 +2353,18 @@ test_schema_source (void)
   g_assert_error (error, G_FILE_ERROR, G_FILE_ERROR_NOENT);
   g_clear_error (&error);
 
+  /* Test error handling of corrupt compiled files. */
+  source = g_settings_schema_source_new_from_directory ("schema-source-corrupt", parent, TRUE, &error);
+  g_assert_error (error, G_FILE_ERROR, G_FILE_ERROR_INVAL);
+  g_assert_null (source);
+  g_clear_error (&error);
+
+  /* Test error handling of empty compiled files. */
+  source = g_settings_schema_source_new_from_directory ("schema-source-empty", parent, TRUE, &error);
+  g_assert_error (error, G_FILE_ERROR, G_FILE_ERROR_INVAL);
+  g_assert_null (source);
+  g_clear_error (&error);
+
   /* create a source with the parent */
   source = g_settings_schema_source_new_from_directory ("schema-source", parent, TRUE, &error);
   g_assert_no_error (error);
@@ -2373,10 +2442,8 @@ test_schema_list_keys (void)
                             "farewell",
                             NULL));
 
-
   g_strfreev (keys);
   g_settings_schema_unref (schema);
-  g_settings_schema_source_unref (src);
 }
 
 static void
@@ -2440,6 +2507,8 @@ test_actions (void)
   g_assert_cmpstr (g_variant_get_string (state, NULL), ==, "kthxbye");
 
   g_free (name);
+  g_variant_type_free (param_type);
+  g_variant_type_free (state_type);
   g_variant_unref (state);
 
   g_object_unref (string);
@@ -2581,6 +2650,100 @@ test_default_value (void)
   g_object_unref (settings);
 }
 
+static gboolean
+string_map_func (GVariant *value,
+                 gpointer *result,
+                 gpointer  user_data)
+{
+  const gchar *str;
+
+  str = g_variant_get_string (value, NULL);
+  *result = g_variant_new_string (str);
+
+  return TRUE;
+}
+
+/* Test that per-desktop values from org.gtk.test.gschema.override
+ * does not change default value if current desktop is not listed in
+ * $XDG_CURRENT_DESKTOP.
+ */
+static void
+test_per_desktop (void)
+{
+  GSettings *settings;
+  TestObject *obj;
+  gpointer p;
+  gchar *str;
+
+  settings = g_settings_new ("org.gtk.test.per-desktop");
+  obj = test_object_new ();
+
+  if (!g_test_subprocess ())
+    {
+      g_test_trap_subprocess ("/gsettings/per-desktop/subprocess", 0, 0);
+      g_test_trap_assert_passed ();
+    }
+
+  str = g_settings_get_string (settings, "desktop");
+  g_assert_cmpstr (str, ==, "GNOME");
+  g_free (str);
+
+  p = g_settings_get_mapped (settings, "desktop", string_map_func, NULL);
+
+  str = g_variant_dup_string (p, NULL);
+  g_assert_cmpstr (str, ==, "GNOME");
+  g_free (str);
+
+  g_variant_unref (p);
+
+  g_settings_bind (settings, "desktop", obj, "string", G_SETTINGS_BIND_DEFAULT);
+
+  g_object_get (obj, "string", &str, NULL);
+  g_assert_cmpstr (str, ==, "GNOME");
+  g_free (str);
+
+  g_object_unref (settings);
+  g_object_unref (obj);
+}
+
+/* Test that per-desktop values from org.gtk.test.gschema.override
+ * are successfully loaded based on the value of $XDG_CURRENT_DESKTOP.
+ */
+static void
+test_per_desktop_subprocess (void)
+{
+  GSettings *settings;
+  TestObject *obj;
+  gpointer p;
+  gchar *str;
+
+  g_setenv ("XDG_CURRENT_DESKTOP", "GNOME-Classic:GNOME", TRUE);
+
+  settings = g_settings_new ("org.gtk.test.per-desktop");
+  obj = test_object_new ();
+
+  str = g_settings_get_string (settings, "desktop");
+  g_assert_cmpstr (str, ==, "GNOME Classic");
+  g_free (str);
+
+  p = g_settings_get_mapped (settings, "desktop", string_map_func, NULL);
+
+  str = g_variant_dup_string (p, NULL);
+  g_assert_cmpstr (str, ==, "GNOME Classic");
+  g_free (str);
+
+  g_variant_unref (p);
+
+  g_settings_bind (settings, "desktop", obj, "string", G_SETTINGS_BIND_DEFAULT);
+
+  g_object_get (obj, "string", &str, NULL);
+  g_assert_cmpstr (str, ==, "GNOME Classic");
+  g_free (str);
+
+  g_object_unref (settings);
+  g_object_unref (obj);
+}
+
 static void
 test_extended_schema (void)
 {
@@ -2601,8 +2764,17 @@ int
 main (int argc, char *argv[])
 {
   gchar *schema_text;
+  gchar *override_text;
   gchar *enums;
   gint result;
+
+/* Meson build sets this */
+#ifdef TEST_LOCALE_PATH
+  if (g_str_has_suffix (TEST_LOCALE_PATH, "LC_MESSAGES"))
+    {
+      locale_dir = TEST_LOCALE_PATH G_DIR_SEPARATOR_S ".." G_DIR_SEPARATOR_S "..";
+    }
+#endif
 
   setlocale (LC_ALL, "");
 
@@ -2610,16 +2782,29 @@ main (int argc, char *argv[])
 
   if (!g_test_subprocess ())
     {
+      GError *local_error = NULL;
+      /* A GVDB header is 6 guint32s, and requires a magic number in the first
+       * two guint32s. A set of zero bytes of a greater length is considered
+       * corrupt. */
+      const guint8 gschemas_compiled_corrupt[sizeof (guint32) * 7] = { 0, };
+
       backend_set = g_getenv ("GSETTINGS_BACKEND") != NULL;
 
       g_setenv ("XDG_DATA_DIRS", ".", TRUE);
+      g_setenv ("XDG_DATA_HOME", ".", TRUE);
       g_setenv ("GSETTINGS_SCHEMA_DIR", ".", TRUE);
+      g_setenv ("XDG_CURRENT_DESKTOP", "", TRUE);
 
       if (!backend_set)
         g_setenv ("GSETTINGS_BACKEND", "memory", TRUE);
 
+/* Meson build defines this, autotools build does not */
+#ifndef GLIB_MKENUMS
+#define GLIB_MKENUMS "../../gobject/glib-mkenums"
+#endif
+
       g_remove ("org.gtk.test.enums.xml");
-      g_assert (g_spawn_command_line_sync ("../../gobject/glib-mkenums "
+      g_assert (g_spawn_command_line_sync (GLIB_MKENUMS " "
                                            "--template " SRCDIR "/enums.xml.template "
                                            SRCDIR "/testenum.h",
                                            &enums, NULL, &result, NULL));
@@ -2629,20 +2814,46 @@ main (int argc, char *argv[])
 
       g_assert (g_file_get_contents (SRCDIR "/org.gtk.test.gschema.xml.orig", &schema_text, NULL, NULL));
       g_assert (g_file_set_contents ("org.gtk.test.gschema.xml", schema_text, -1, NULL));
+      g_free (schema_text);
+
+      g_assert (g_file_get_contents (SRCDIR "/org.gtk.test.gschema.override.orig", &override_text, NULL, NULL));
+      g_assert (g_file_set_contents ("org.gtk.test.gschema.override", override_text, -1, NULL));
+      g_free (override_text);
+
+/* Meson build defines this, autotools build does not */
+#ifndef GLIB_COMPILE_SCHEMAS
+#define GLIB_COMPILE_SCHEMAS "../glib-compile-schemas"
+#endif
 
       g_remove ("gschemas.compiled");
-      g_assert (g_spawn_command_line_sync ("../glib-compile-schemas --targetdir=. "
+      g_assert (g_spawn_command_line_sync (GLIB_COMPILE_SCHEMAS " --targetdir=. "
                                            "--schema-file=org.gtk.test.enums.xml "
-                                           "--schema-file=org.gtk.test.gschema.xml",
+                                           "--schema-file=org.gtk.test.gschema.xml "
+                                           "--override-file=org.gtk.test.gschema.override",
                                            NULL, NULL, &result, NULL));
       g_assert (result == 0);
 
       g_remove ("schema-source/gschemas.compiled");
       g_mkdir ("schema-source", 0777);
-      g_assert (g_spawn_command_line_sync ("../glib-compile-schemas --targetdir=schema-source "
+      g_assert (g_spawn_command_line_sync (GLIB_COMPILE_SCHEMAS " --targetdir=schema-source "
                                            "--schema-file=" SRCDIR "/org.gtk.schemasourcecheck.gschema.xml",
                                            NULL, NULL, &result, NULL));
       g_assert (result == 0);
+
+      g_remove ("schema-source-corrupt/gschemas.compiled");
+      g_mkdir ("schema-source-corrupt", 0777);
+      g_file_set_contents ("schema-source-corrupt/gschemas.compiled",
+                           (const gchar *) gschemas_compiled_corrupt,
+                           sizeof (gschemas_compiled_corrupt),
+                           &local_error);
+      g_assert_no_error (local_error);
+
+      g_remove ("schema-source-empty/gschemas.compiled");
+      g_mkdir ("schema-source-empty", 0777);
+      g_file_set_contents ("schema-source-empty/gschemas.compiled",
+                           "", 0,
+                           &local_error);
+      g_assert_no_error (local_error);
    }
 
   g_test_add_func ("/gsettings/basic", test_basic);
@@ -2714,6 +2925,8 @@ main (int argc, char *argv[])
   g_test_add_func ("/gsettings/read-descriptions", test_read_descriptions);
   g_test_add_func ("/gsettings/test-extended-schema", test_extended_schema);
   g_test_add_func ("/gsettings/default-value", test_default_value);
+  g_test_add_func ("/gsettings/per-desktop", test_per_desktop);
+  g_test_add_func ("/gsettings/per-desktop/subprocess", test_per_desktop_subprocess);
 
   result = g_test_run ();
 

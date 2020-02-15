@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -22,7 +22,7 @@
 
 #include "config.h"
 
-#include "../glib/valgrind.h"
+#include "../glib/gvalgrind.h"
 #include <string.h>
 
 #include <ffi.h>
@@ -52,9 +52,11 @@
  * to a function and maybe a data argument, and the marshaller
  * converts between #GValue and native C types. The GObject
  * library provides the #GCClosure type for this purpose. Bindings for
- * other languages need marshallers which convert between #GValue<!--
- * -->s and suitable representations in the runtime of the language in
- * order to use functions written in that languages as callbacks.
+ * other languages need marshallers which convert between #GValues
+ * and suitable representations in the runtime of the language in
+ * order to use functions written in that language as callbacks. Use
+ * g_closure_set_marshal() to set the marshaller on such a custom
+ * closure implementation.
  *
  * Within GObject, closures play an important role in the
  * implementation of signals. When a signal is registered, the
@@ -184,7 +186,7 @@ enum {
  * }
  * ]|
  *
- * Returns: (transfer full): a newly allocated #GClosure
+ * Returns: (transfer none): a floating reference to a new #GClosure
  */
 GClosure*
 g_closure_new_simple (guint           sizeof_closure,
@@ -198,6 +200,7 @@ g_closure_new_simple (guint           sizeof_closure,
 
   private_size = sizeof (GRealClosure) - sizeof (GClosure);
 
+#ifdef ENABLE_VALGRIND
   /* See comments in gtype.c about what's going on here... */
   if (RUNNING_ON_VALGRIND)
     {
@@ -211,6 +214,7 @@ g_closure_new_simple (guint           sizeof_closure,
       VALGRIND_MALLOCLIKE_BLOCK (allocated + sizeof (gpointer), private_size - sizeof (gpointer), 0, TRUE);
     }
   else
+#endif
     allocated = g_malloc0 (private_size + sizeof_closure);
 
   closure = (GClosure *) (allocated + private_size);
@@ -611,6 +615,7 @@ g_closure_unref (GClosure *closure)
       closure_invoke_notifiers (closure, FNOTIFY);
       g_free (closure->notifiers);
 
+#ifdef ENABLE_VALGRIND
       /* See comments in gtype.c about what's going on here... */
       if (RUNNING_ON_VALGRIND)
         {
@@ -625,6 +630,7 @@ g_closure_unref (GClosure *closure)
           VALGRIND_FREELIKE_BLOCK (closure, 0);
         }
       else
+#endif
         g_free (G_REAL_CLOSURE (closure));
     }
 }
@@ -762,7 +768,7 @@ g_closure_remove_finalize_notifier (GClosure      *closure,
  * @param_values: (array length=n_param_values): an array of
  *                #GValues holding the arguments on which to
  *                invoke the callback of @closure
- * @invocation_hint: (allow-none): a context-dependent invocation hint
+ * @invocation_hint: (nullable): a context-dependent invocation hint
  *
  * Invokes the closure, i.e. executes the callback represented by the @closure.
  */
@@ -930,7 +936,7 @@ _g_closure_set_va_marshal (GClosure       *closure,
  * Creates a new closure which invokes @callback_func with @user_data as
  * the last parameter.
  *
- * Returns: a new #GCClosure
+ * Returns: (transfer none): a floating reference to a new #GCClosure
  */
 GClosure*
 g_cclosure_new (GCallback      callback_func,
@@ -958,7 +964,7 @@ g_cclosure_new (GCallback      callback_func,
  * Creates a new closure which invokes @callback_func with @user_data as
  * the first parameter.
  *
- * Returns: (transfer full): a new #GCClosure
+ * Returns: (transfer none): a floating reference to a new #GCClosure
  */
 GClosure*
 g_cclosure_new_swap (GCallback      callback_func,
@@ -1126,7 +1132,7 @@ g_type_iface_meta_marshalv (GClosure *closure,
  * @struct_offset in the class structure of the interface or classed type
  * identified by @itype.
  *
- * Returns: a new #GCClosure
+ * Returns: (transfer none): a floating reference to a new #GCClosure
  */
 GClosure*
 g_signal_type_cclosure_new (GType    itype,
@@ -1496,13 +1502,13 @@ g_cclosure_marshal_generic (GClosure     *closure,
 /**
  * g_cclosure_marshal_generic_va:
  * @closure: the #GClosure to which the marshaller belongs
- * @return_value: (allow-none): a #GValue to store the return
+ * @return_value: (nullable): a #GValue to store the return
  *  value. May be %NULL if the callback of @closure doesn't return a
  *  value.
  * @instance: (type GObject.TypeInstance): the instance on which the closure is
  *  invoked.
  * @args_list: va_list of arguments to be passed to the closure.
- * @marshal_data: (allow-none): additional data specified when
+ * @marshal_data: (nullable): additional data specified when
  *  registering the marshaller, see g_closure_set_marshal() and
  *  g_closure_set_meta_marshal()
  * @n_params: the length of the @param_types array

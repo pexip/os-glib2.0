@@ -7,7 +7,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -113,7 +113,7 @@ do_lookup_by_name (GTask         *task,
           g_task_return_new_error (task,
                                    G_RESOLVER_ERROR,
                                    G_RESOLVER_ERROR_NOT_FOUND,
-                                   _("Error resolving '%s': %s"),
+                                   _("Error resolving “%s”: %s"),
                                    hostname,
                                    _("No valid addresses were found"));
         }
@@ -123,7 +123,7 @@ do_lookup_by_name (GTask         *task,
       g_task_return_new_error (task,
                                G_RESOLVER_ERROR,
                                g_resolver_error_from_addrinfo_error (retval),
-                               _("Error resolving '%s': %s"),
+                               _("Error resolving “%s”: %s"),
                                hostname, gai_strerror (retval));
     }
 
@@ -210,7 +210,7 @@ do_lookup_by_address (GTask         *task,
       g_task_return_new_error (task,
                                G_RESOLVER_ERROR,
                                g_resolver_error_from_addrinfo_error (retval),
-                               _("Error reverse-resolving '%s': %s"),
+                               _("Error reverse-resolving “%s”: %s"),
                                phys ? phys : "(unknown)",
                                gai_strerror (retval));
       g_free (phys);
@@ -537,7 +537,6 @@ g_resolver_records_from_res_query (const gchar      *rrname,
   gchar namebuf[1024];
   guchar *end, *p;
   guint16 type, qclass, rdlength;
-  guint32 ttl;
   HEADER *header;
   GList *records;
   GVariant *record;
@@ -547,17 +546,17 @@ g_resolver_records_from_res_query (const gchar      *rrname,
       if (len == 0 || herr == HOST_NOT_FOUND || herr == NO_DATA)
         {
           g_set_error (error, G_RESOLVER_ERROR, G_RESOLVER_ERROR_NOT_FOUND,
-                       _("No DNS record of the requested type for '%s'"), rrname);
+                       _("No DNS record of the requested type for “%s”"), rrname);
         }
       else if (herr == TRY_AGAIN)
         {
           g_set_error (error, G_RESOLVER_ERROR, G_RESOLVER_ERROR_TEMPORARY_FAILURE,
-                       _("Temporarily unable to resolve '%s'"), rrname);
+                       _("Temporarily unable to resolve “%s”"), rrname);
         }
       else
         {
           g_set_error (error, G_RESOLVER_ERROR, G_RESOLVER_ERROR_INTERNAL,
-                       _("Error resolving '%s'"), rrname);
+                       _("Error resolving “%s”"), rrname);
         }
 
       return NULL;
@@ -587,8 +586,7 @@ g_resolver_records_from_res_query (const gchar      *rrname,
       p += dn_expand (answer, end, p, namebuf, sizeof (namebuf));
       GETSHORT (type, p);
       GETSHORT (qclass, p);
-      GETLONG  (ttl, p);
-      ttl = ttl; /* To avoid -Wunused-but-set-variable */
+      p += 4; /* ignore the ttl (type=long) value */
       GETSHORT (rdlength, p);
 
       if (type != rrtype || qclass != C_IN)
@@ -627,7 +625,7 @@ g_resolver_records_from_res_query (const gchar      *rrname,
   if (records == NULL)
     {
       g_set_error (error, G_RESOLVER_ERROR, G_RESOLVER_ERROR_NOT_FOUND,
-                   _("No DNS record of the requested type for '%s'"), rrname);
+                   _("No DNS record of the requested type for “%s”"), rrname);
 
       return NULL;
     }
@@ -725,17 +723,17 @@ g_resolver_records_from_DnsQuery (const gchar  *rrname,
       if (status == DNS_ERROR_RCODE_NAME_ERROR)
         {
           g_set_error (error, G_RESOLVER_ERROR, G_RESOLVER_ERROR_NOT_FOUND,
-                       _("No DNS record of the requested type for '%s'"), rrname);
+                       _("No DNS record of the requested type for “%s”"), rrname);
         }
       else if (status == DNS_ERROR_RCODE_SERVER_FAILURE)
         {
           g_set_error (error, G_RESOLVER_ERROR, G_RESOLVER_ERROR_TEMPORARY_FAILURE,
-                       _("Temporarily unable to resolve '%s'"), rrname);
+                       _("Temporarily unable to resolve “%s”"), rrname);
         }
       else
         {
           g_set_error (error, G_RESOLVER_ERROR, G_RESOLVER_ERROR_INTERNAL,
-                       _("Error resolving '%s'"), rrname);
+                       _("Error resolving “%s”"), rrname);
         }
 
       return NULL;
@@ -775,7 +773,7 @@ g_resolver_records_from_DnsQuery (const gchar  *rrname,
   if (records == NULL)
     {
       g_set_error (error, G_RESOLVER_ERROR, G_RESOLVER_ERROR_NOT_FOUND,
-                   _("No DNS record of the requested type for '%s'"), rrname);
+                   _("No DNS record of the requested type for “%s”"), rrname);
 
       return NULL;
     }
@@ -805,7 +803,9 @@ free_records (GList *records)
 
 #if defined(G_OS_UNIX)
 #ifdef __BIONIC__
+#ifndef C_IN
 #define C_IN 1
+#endif
 int res_query(const char *, int, int, u_char *, int);
 #endif
 #endif
@@ -826,12 +826,36 @@ do_lookup_records (GTask         *task,
   GByteArray *answer;
   gint rrtype;
 
+#ifdef HAVE_RES_NQUERY
+  /* Load the resolver state. This is done once per worker thread, and the
+   * #GResolver::reload signal is ignored (since we always reload). This could
+   * be improved by having an explicit worker thread pool, with each thread
+   * containing some state which is initialised at thread creation time and
+   * updated in response to #GResolver::reload.
+   *
+   * What we have currently is not particularly worse than using res_query() in
+   * worker threads, since it would transparently call res_init() for each new
+   * worker thread. (Although the workers would get reused by the
+   * #GThreadPool.) */
+  struct __res_state res;
+  if (res_ninit (&res) != 0)
+    {
+      g_task_return_new_error (task, G_RESOLVER_ERROR, G_RESOLVER_ERROR_INTERNAL,
+                               _("Error resolving “%s”"), lrd->rrname);
+      return;
+    }
+#endif
+
   rrtype = g_resolver_record_type_to_rrtype (lrd->record_type);
   answer = g_byte_array_new ();
   for (;;)
     {
       g_byte_array_set_size (answer, len * 2);
+#if defined(HAVE_RES_NQUERY)
+      len = res_nquery (&res, lrd->rrname, C_IN, rrtype, answer->data, answer->len);
+#else
       len = res_query (lrd->rrname, C_IN, rrtype, answer->data, answer->len);
+#endif
 
       /* If answer fit in the buffer then we're done */
       if (len < 0 || len < (gint)answer->len)
@@ -846,6 +870,18 @@ do_lookup_records (GTask         *task,
   herr = h_errno;
   records = g_resolver_records_from_res_query (lrd->rrname, rrtype, answer->data, len, herr, &error);
   g_byte_array_free (answer, TRUE);
+
+#ifdef HAVE_RES_NQUERY
+
+#if defined(HAVE_RES_NDESTROY)
+  res_ndestroy (&res);
+#elif defined(HAVE_RES_NCLOSE)
+  res_nclose (&res);
+#elif defined(HAVE_RES_NINIT)
+#error "Your platform has res_ninit() but not res_nclose() or res_ndestroy(). Please file a bug at https://gitlab.gnome.org/GNOME/glib/issues/new"
+#endif
+
+#endif  /* HAVE_RES_NQUERY */
 
 #else
 
