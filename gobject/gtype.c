@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -21,7 +21,7 @@
 
 #include "config.h"
 
-#include "../glib/valgrind.h"
+#include "../glib/gvalgrind.h"
 #include <string.h>
 
 #include "gtype.h"
@@ -76,7 +76,7 @@
  *
  * Type instance and class structs are limited to a total of 64 KiB,
  * including all parent types. Similarly, type instances' private data
- * (as created by g_type_class_add_private()) are limited to a total of
+ * (as created by G_ADD_PRIVATE()) are limited to a total of
  * 64 KiB. If a type instance needs a large static buffer, allocate it
  * separately (typically by using #GArray or #GPtrArray) and put a pointer
  * to the buffer in the structure.
@@ -1132,11 +1132,7 @@ type_data_make_W (TypeNode              *node,
       data->instance.class_private_size = 0;
       if (pnode)
         data->instance.class_private_size = pnode->data->instance.class_private_size;
-#ifdef	DISABLE_MEM_POOLS
-      data->instance.n_preallocs = 0;
-#else	/* !DISABLE_MEM_POOLS */
       data->instance.n_preallocs = MIN (info->n_preallocs, 1024);
-#endif	/* !DISABLE_MEM_POOLS */
       data->instance.instance_init = info->instance_init;
     }
   else if (node->is_classed) /* only classed */
@@ -1632,7 +1628,7 @@ g_type_interface_add_prerequisite (GType interface_type,
 /**
  * g_type_interface_prerequisites:
  * @interface_type: an interface type
- * @n_prerequisites: (out) (allow-none): location to return the number
+ * @n_prerequisites: (out) (optional): location to return the number
  *     of prerequisites, or %NULL
  *
  * Returns the prerequisites of an interfaces type.
@@ -1831,6 +1827,7 @@ g_type_create_instance (GType type)
   private_size = node->data->instance.private_size;
   ivar_size = node->data->instance.instance_size;
 
+#ifdef ENABLE_VALGRIND
   if (private_size && RUNNING_ON_VALGRIND)
     {
       private_size += ALIGN_STRUCT (1);
@@ -1845,6 +1842,7 @@ g_type_create_instance (GType type)
       VALGRIND_MALLOCLIKE_BLOCK (allocated + ALIGN_STRUCT (1), private_size - ALIGN_STRUCT (1), 0, TRUE);
     }
   else
+#endif
     allocated = g_slice_alloc0 (private_size + ivar_size);
 
   instance = (GTypeInstance *) (allocated + private_size);
@@ -1923,6 +1921,7 @@ g_type_free_instance (GTypeInstance *instance)
   memset (allocated, 0xaa, ivar_size + private_size);
 #endif
 
+#ifdef ENABLE_VALGRIND
   /* See comment in g_type_create_instance() about what's going on here.
    * We're basically unwinding what we put into motion there.
    */
@@ -1940,6 +1939,7 @@ g_type_free_instance (GTypeInstance *instance)
       VALGRIND_FREELIKE_BLOCK (instance, 0);
     }
   else
+#endif
     g_slice_free1 (private_size + ivar_size, allocated);
 
 #ifdef	G_ENABLE_DEBUG
@@ -3528,7 +3528,7 @@ g_type_is_a (GType type,
 /**
  * g_type_children:
  * @type: the parent type
- * @n_children: (out) (allow-none): location to store the length of
+ * @n_children: (out) (optional): location to store the length of
  *     the returned array, or %NULL
  *
  * Return a newly allocated and 0-terminated array of type IDs, listing
@@ -3550,7 +3550,8 @@ g_type_children (GType  type,
       
       G_READ_LOCK (&type_rw_lock);	/* ->children is relocatable */
       children = g_new (GType, node->n_children + 1);
-      memcpy (children, node->children, sizeof (GType) * node->n_children);
+      if (node->n_children != 0)
+        memcpy (children, node->children, sizeof (GType) * node->n_children);
       children[node->n_children] = 0;
       
       if (n_children)
@@ -3571,7 +3572,7 @@ g_type_children (GType  type,
 /**
  * g_type_interfaces:
  * @type: the type to list interface types for
- * @n_interfaces: (out) (allow-none): location to store the length of
+ * @n_interfaces: (out) (optional): location to store the length of
  *     the returned array, or %NULL
  *
  * Return a newly allocated and 0-terminated array of type IDs, listing
@@ -4192,14 +4193,14 @@ g_type_check_is_value_type (GType type)
 }
 
 gboolean
-g_type_check_value (GValue *value)
+g_type_check_value (const GValue *value)
 {
   return value && type_check_is_value_type_U (value->g_type);
 }
 
 gboolean
-g_type_check_value_holds (GValue *value,
-			  GType   type)
+g_type_check_value_holds (const GValue *value,
+			  GType         type)
 {
   return value && type_check_is_value_type_U (value->g_type) && g_type_is_a (value->g_type, type);
 }
@@ -4561,6 +4562,8 @@ gobject_init_ctor (void)
  * ]|
  *
  * Since: 2.4
+ * Deprecated: 2.58: Use the G_ADD_PRIVATE() macro with the `G_DEFINE_*`
+ *   family of macros to add instance private data to a type
  */
 void
 g_type_class_add_private (gpointer g_class,

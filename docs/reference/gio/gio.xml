@@ -374,7 +374,7 @@
               </varlistentry>
               <varlistentry>
                 <term><option>-D</option>, <option>--direct=<replaceable>LOCATION</replaceable></option></term>
-                <listitem><para>Monitor the file directly. This allows to capture changes made via hardlinks.</para></listitem>
+                <listitem><para>Monitor the file directly. This allows changes made via hardlinks to be captured.</para></listitem>
               </varlistentry>
               <varlistentry>
                 <term><option>-s</option>, <option>--silent=<replaceable>LOCATION</replaceable></option></term>
@@ -453,6 +453,21 @@
               <varlistentry>
                 <term><option>-i</option>, <option>--detail</option></term>
                 <listitem><para>Show extra information.</para>
+                </listitem>
+              </varlistentry>
+              <varlistentry>
+                <term><option>--tcrypt-pim</option></term>
+                <listitem><para>The numeric PIM when unlocking a VeraCrypt volume.</para>
+                </listitem>
+              </varlistentry>
+              <varlistentry>
+                <term><option>--tcrypt-hidden</option></term>
+                <listitem><para>Mount a TCRYPT hidden volume.</para>
+                </listitem>
+              </varlistentry>
+              <varlistentry>
+                <term><option>--tcrypt-system</option></term>
+                <listitem><para>Mount a TCRYPT system volume.</para>
                 </listitem>
               </varlistentry>
             </variablelist>
@@ -584,7 +599,7 @@
           <arg choice="plain" rep="repeat"><replaceable>VALUE</replaceable></arg>
         </term>
         <listitem>
-          <para>Allows to set a file attribute on a file.</para>
+          <para>Sets a file attribute on a file.</para>
           <para>File attributes can be specified with their GIO name, e.g
             standard::icon. Note that not all GIO file attributes are writable.
             Use the --query-writable option of the info command to list
@@ -660,10 +675,6 @@
           <refsect3>
             <title>Options</title>
             <variablelist>
-              <varlistentry>
-                <term><option>-h</option>, <option>--hidden</option></term>
-                <listitem><para>Show hidden files.</para></listitem>
-              </varlistentry>
               <varlistentry>
                 <term><option>-h</option>, <option>--hidden</option></term>
                 <listitem><para>Show hidden files.</para></listitem>

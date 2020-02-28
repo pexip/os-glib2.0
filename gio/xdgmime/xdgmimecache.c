@@ -11,7 +11,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -22,9 +22,7 @@
  * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifdef HAVE_CONFIG_H
 #include "config.h"
-#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -762,12 +760,11 @@ cache_get_mime_type_for_data (const void *data,
 
   for (n = 0; n < n_mime_types; n++)
     {
-      
       if (mime_types[n])
 	return mime_types[n];
     }
 
-  return XDG_MIME_TYPE_UNKNOWN;
+  return NULL;
 }
 
 const char *
@@ -814,6 +811,9 @@ _xdg_mime_cache_get_mime_type_for_file (const char  *file_name,
       statbuf = &buf;
     }
 
+  if (statbuf->st_size == 0)
+    return XDG_MIME_TYPE_EMPTY;
+
   if (!S_ISREG (statbuf->st_mode))
     return XDG_MIME_TYPE_UNKNOWN;
 
@@ -842,6 +842,9 @@ _xdg_mime_cache_get_mime_type_for_file (const char  *file_name,
 
   mime_type = cache_get_mime_type_for_data (data, bytes_read, NULL,
 					    mime_types, n);
+
+  if (!mime_type)
+    mime_type = _xdg_binary_or_text_fallback(data, bytes_read);
 
   free (data);
   fclose (file);
@@ -925,7 +928,8 @@ _xdg_mime_cache_mime_type_subclass (const char *mime,
       strncmp (umime, "text/", 5) == 0)
     return 1;
 
-  if (strcmp (ubase, "application/octet-stream") == 0)
+  if (strcmp (ubase, "application/octet-stream") == 0 &&
+      strncmp (umime, "inode/", 6) != 0)
     return 1;
  
   for (i = 0; _caches[i]; i++)

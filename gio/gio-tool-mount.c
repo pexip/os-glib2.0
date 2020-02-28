@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the licence, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -39,6 +39,7 @@ typedef enum {
 
 static int outstanding_mounts = 0;
 static GMainLoop *main_loop;
+static GVolumeMonitor *volume_monitor;
 
 static gboolean mount_mountable = FALSE;
 static gboolean mount_unmount = FALSE;
@@ -48,8 +49,12 @@ static gboolean anonymous = FALSE;
 static gboolean mount_list = FALSE;
 static gboolean extra_detail = FALSE;
 static gboolean mount_monitor = FALSE;
+static gboolean tcrypt_hidden = FALSE;
+static gboolean tcrypt_system = FALSE;
+static guint tcrypt_pim = 0;
 static const char *unmount_scheme = NULL;
 static const char *mount_device_file = NULL;
+static const char *stop_device_file = NULL;
 static gboolean success = TRUE;
 
 
@@ -59,6 +64,7 @@ static const GOptionEntry entries[] =
   { "device", 'd', 0, G_OPTION_ARG_STRING, &mount_device_file, N_("Mount volume with device file"), N_("DEVICE") },
   { "unmount", 'u', 0, G_OPTION_ARG_NONE, &mount_unmount, N_("Unmount"), NULL},
   { "eject", 'e', 0, G_OPTION_ARG_NONE, &mount_eject, N_("Eject"), NULL},
+  { "stop", 't', 0, G_OPTION_ARG_STRING, &stop_device_file, N_("Stop drive with device file"), N_("DEVICE") },
   { "unmount-scheme", 's', 0, G_OPTION_ARG_STRING, &unmount_scheme, N_("Unmount all mounts with the given scheme"), N_("SCHEME") },
   { "force", 'f', 0, G_OPTION_ARG_NONE, &force, N_("Ignore outstanding file operations when unmounting or ejecting"), NULL },
   { "anonymous", 'a', 0, G_OPTION_ARG_NONE, &anonymous, N_("Use an anonymous user when authenticating"), NULL },
@@ -66,6 +72,9 @@ static const GOptionEntry entries[] =
   { "list", 'l', 0, G_OPTION_ARG_NONE, &mount_list, N_("List"), NULL},
   { "monitor", 'o', 0, G_OPTION_ARG_NONE, &mount_monitor, N_("Monitor events"), NULL},
   { "detail", 'i', 0, G_OPTION_ARG_NONE, &extra_detail, N_("Show extra information"), NULL},
+  { "tcrypt-pim", 0, 0, G_OPTION_ARG_INT, &tcrypt_pim, N_("The numeric PIM when unlocking a VeraCrypt volume"), N_("PIM")},
+  { "tcrypt-hidden", 0, 0, G_OPTION_ARG_NONE, &tcrypt_hidden, N_("Mount a TCRYPT hidden volume"), NULL},
+  { "tcrypt-system", 0, 0, G_OPTION_ARG_NONE, &tcrypt_system, N_("Mount a TCRYPT system volume"), NULL},
   { NULL }
 };
 
@@ -172,6 +181,16 @@ ask_password_cb (GMountOperation *op,
         }
     }
 
+  if (flags & G_ASK_PASSWORD_TCRYPT)
+    {
+      if (tcrypt_pim)
+        g_mount_operation_set_pim (op, tcrypt_pim);
+      if (tcrypt_hidden)
+        g_mount_operation_set_is_tcrypt_hidden_volume (op, TRUE);
+      if (tcrypt_system)
+        g_mount_operation_set_is_tcrypt_system_volume (op, TRUE);
+    }
+
   /* Only try anonymous access once. */
   if (anonymous &&
       GPOINTER_TO_INT (g_object_get_data (G_OBJECT (op), "state")) == MOUNT_OP_ASKED)
@@ -243,14 +262,16 @@ mount_mountable_done_cb (GObject *object,
     {
       success = FALSE;
       if (GPOINTER_TO_INT (g_object_get_data (G_OBJECT (op), "state")) == MOUNT_OP_ABORTED)
-        g_printerr (_("Error mounting location: Anonymous access denied\n"));
+        print_file_error (G_FILE (object), _("Anonymous access denied"));
       else if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_FAILED_HANDLED))
-        g_printerr (_("Error mounting location: %s\n"), error->message);
+        print_file_error (G_FILE (object), error->message);
 
       g_error_free (error);
     }
   else
     g_object_unref (target);
+
+  g_object_unref (op);
 
   outstanding_mounts--;
 
@@ -273,12 +294,14 @@ mount_done_cb (GObject *object,
     {
       success = FALSE;
       if (GPOINTER_TO_INT (g_object_get_data (G_OBJECT (op), "state")) == MOUNT_OP_ABORTED)
-        g_printerr (_("Error mounting location: Anonymous access denied\n"));
+        print_file_error (G_FILE (object), _("Anonymous access denied"));
       else if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_FAILED_HANDLED))
-        g_printerr (_("Error mounting location: %s\n"), error->message);
+        print_file_error (G_FILE (object), error->message);
 
       g_error_free (error);
     }
+
+  g_object_unref (op);
 
   outstanding_mounts--;
 
@@ -331,6 +354,7 @@ unmount_done_cb (GObject *object,
 {
   gboolean succeeded;
   GError *error = NULL;
+  GFile *file = G_FILE (user_data);
 
   succeeded = g_mount_unmount_with_operation_finish (G_MOUNT (object), res, &error);
 
@@ -338,10 +362,12 @@ unmount_done_cb (GObject *object,
 
   if (!succeeded)
     {
-      g_printerr (_("Error unmounting mount: %s\n"), error->message);
+      print_file_error (file, error->message);
       success = FALSE;
       g_error_free (error);
     }
+
+  g_object_unref (file);
 
   outstanding_mounts--;
 
@@ -363,7 +389,7 @@ unmount (GFile *file)
   mount = g_file_find_enclosing_mount (file, NULL, &error);
   if (mount == NULL)
     {
-      g_printerr (_("Error finding enclosing mount: %s\n"), error->message);
+      print_file_error (file, error->message);
       success = FALSE;
       g_error_free (error);
       return;
@@ -371,7 +397,7 @@ unmount (GFile *file)
 
   mount_op = new_mount_op ();
   flags = force ? G_MOUNT_UNMOUNT_FORCE : G_MOUNT_UNMOUNT_NONE;
-  g_mount_unmount_with_operation (mount, flags, mount_op, NULL, unmount_done_cb, NULL);
+  g_mount_unmount_with_operation (mount, flags, mount_op, NULL, unmount_done_cb, g_object_ref (file));
   g_object_unref (mount_op);
 
   outstanding_mounts++;
@@ -384,6 +410,7 @@ eject_done_cb (GObject *object,
 {
   gboolean succeeded;
   GError *error = NULL;
+  GFile *file = G_FILE (user_data);
 
   succeeded = g_mount_eject_with_operation_finish (G_MOUNT (object), res, &error);
 
@@ -391,10 +418,12 @@ eject_done_cb (GObject *object,
 
   if (!succeeded)
     {
-      g_printerr (_("Error ejecting mount: %s\n"), error->message);
+      print_file_error (file, error->message);
       success = FALSE;
       g_error_free (error);
     }
+
+  g_object_unref (file);
 
   outstanding_mounts--;
 
@@ -416,7 +445,7 @@ eject (GFile *file)
   mount = g_file_find_enclosing_mount (file, NULL, &error);
   if (mount == NULL)
     {
-      g_printerr (_("Error finding enclosing mount: %s\n"), error->message);
+      print_file_error (file, error->message);
       success = FALSE;
       g_error_free (error);
       return;
@@ -424,10 +453,75 @@ eject (GFile *file)
 
   mount_op = new_mount_op ();
   flags = force ? G_MOUNT_UNMOUNT_FORCE : G_MOUNT_UNMOUNT_NONE;
-  g_mount_eject_with_operation (mount, flags, mount_op, NULL, eject_done_cb, NULL);
+  g_mount_eject_with_operation (mount, flags, mount_op, NULL, eject_done_cb, g_object_ref (file));
   g_object_unref (mount_op);
 
   outstanding_mounts++;
+}
+
+static void
+stop_with_device_file_cb (GObject *object,
+                          GAsyncResult *res,
+                          gpointer user_data)
+{
+  GError *error = NULL;
+  gchar *device_path = user_data;
+
+  if (!g_drive_stop_finish (G_DRIVE (object), res, &error))
+    {
+      print_error ("%s: %s", device_path, error->message);
+      g_error_free (error);
+      success = FALSE;
+    }
+
+  g_free (device_path);
+
+  outstanding_mounts--;
+
+  if (outstanding_mounts == 0)
+    g_main_loop_quit (main_loop);
+}
+
+static void
+stop_with_device_file (const char *device_file)
+{
+  GList *drives;
+  GList *l;
+
+  drives = g_volume_monitor_get_connected_drives (volume_monitor);
+  for (l = drives; l != NULL; l = l->next)
+    {
+      GDrive *drive = G_DRIVE (l->data);
+      gchar *id;
+
+      id = g_drive_get_identifier (drive, G_VOLUME_IDENTIFIER_KIND_UNIX_DEVICE);
+      if (g_strcmp0 (id, device_file) == 0)
+        {
+          GMountOperation *op;
+          GMountUnmountFlags flags;
+
+          op = new_mount_op ();
+          flags = force ? G_MOUNT_UNMOUNT_FORCE : G_MOUNT_UNMOUNT_NONE;
+          g_drive_stop (drive,
+                        flags,
+                        op,
+                        NULL,
+                        stop_with_device_file_cb,
+                        g_steal_pointer (&id));
+          g_object_unref (op);
+
+          outstanding_mounts++;
+        }
+
+      g_free (id);
+    }
+  g_list_free_full (drives, g_object_unref);
+
+  if (outstanding_mounts == 0)
+    {
+      print_error ("%s: %s", device_file, _("No drive for device file"));
+      success = FALSE;
+    }
 }
 
 static gboolean
@@ -774,6 +868,7 @@ list_drives (GList *drives,
               g_object_unref (icon);
             }
 
+          g_print ("%*sis_removable=%d\n", indent + 2, "", g_drive_is_removable (drive));
           g_print ("%*sis_media_removable=%d\n", indent + 2, "", g_drive_is_media_removable (drive));
           g_print ("%*shas_media=%d\n", indent + 2, "", g_drive_has_media (drive));
           g_print ("%*sis_media_check_automatic=%d\n", indent + 2, "", g_drive_is_media_check_automatic (drive));
@@ -806,10 +901,7 @@ list_drives (GList *drives,
 static void
 list_monitor_items (void)
 {
-  GVolumeMonitor *volume_monitor;
   GList *drives, *volumes, *mounts;
-
-  volume_monitor = g_volume_monitor_get();
 
   /* populate gvfs network mounts */
   iterate_gmain();
@@ -825,18 +917,13 @@ list_monitor_items (void)
   mounts = g_volume_monitor_get_mounts (volume_monitor);
   list_mounts (mounts, 0, TRUE);
   g_list_free_full (mounts, g_object_unref);
-
-  g_object_unref (volume_monitor);
 }
 
 static void
 unmount_all_with_scheme (const char *scheme)
 {
-  GVolumeMonitor *volume_monitor;
   GList *mounts;
   GList *l;
-
-  volume_monitor = g_volume_monitor_get();
 
   /* populate gvfs network mounts */
   iterate_gmain();
@@ -853,8 +940,6 @@ unmount_all_with_scheme (const char *scheme)
     g_object_unref (root);
   }
   g_list_free_full (mounts, g_object_unref);
-
-  g_object_unref (volume_monitor);
 }
 
 static void
@@ -865,6 +950,7 @@ mount_with_device_file_cb (GObject *object,
   GVolume *volume;
   gboolean succeeded;
   GError *error = NULL;
+  gchar *device_path = (gchar *)user_data;
 
   volume = G_VOLUME (object);
 
@@ -872,9 +958,7 @@ mount_with_device_file_cb (GObject *object,
 
   if (!succeeded)
     {
-      g_printerr (_("Error mounting %s: %s\n"),
-                  g_volume_get_identifier (volume, G_VOLUME_IDENTIFIER_KIND_UNIX_DEVICE),
-                  error->message);
+      print_error ("%s: %s", device_path, error->message);
       g_error_free (error);
       success = FALSE;
     }
@@ -888,14 +972,14 @@ mount_with_device_file_cb (GObject *object,
       root = g_mount_get_root (mount);
       mount_path = g_file_get_path (root);
 
-      g_print (_("Mounted %s at %s\n"),
-               g_volume_get_identifier (volume, G_VOLUME_IDENTIFIER_KIND_UNIX_DEVICE),
-               mount_path);
+      g_print (_("Mounted %s at %s\n"), device_path, mount_path);
 
       g_object_unref (mount);
       g_object_unref (root);
       g_free (mount_path);
     }
+
+  g_free (device_path);
 
   outstanding_mounts--;
 
@@ -906,19 +990,17 @@ mount_with_device_file_cb (GObject *object,
 static void
 mount_with_device_file (const char *device_file)
 {
-  GVolumeMonitor *volume_monitor;
   GList *volumes;
   GList *l;
-
-  volume_monitor = g_volume_monitor_get();
 
   volumes = g_volume_monitor_get_volumes (volume_monitor);
   for (l = volumes; l != NULL; l = l->next)
     {
       GVolume *volume = G_VOLUME (l->data);
+      gchar *id;
 
-      if (g_strcmp0 (g_volume_get_identifier (volume,
-                                              G_VOLUME_IDENTIFIER_KIND_UNIX_DEVICE), device_file) == 0)
+      id = g_volume_get_identifier (volume, G_VOLUME_IDENTIFIER_KIND_UNIX_DEVICE);
+      if (g_strcmp0 (id, device_file) == 0)
         {
           GMountOperation *op;
 
@@ -929,20 +1011,22 @@ mount_with_device_file (const char *device_file)
                           op,
                           NULL,
                           mount_with_device_file_cb,
-                          op);
+                          id);
+
+          g_object_unref (op);
 
           outstanding_mounts++;
         }
+      else
+        g_free (id);
     }
   g_list_free_full (volumes, g_object_unref);
 
   if (outstanding_mounts == 0)
     {
-      g_print (_("No volume for device file %s\n"), device_file);
-      return;
+      print_error ("%s: %s", device_file, _("No volume for device file"));
+      success = FALSE;
     }
-
-  g_object_unref (volume_monitor);
 }
 
 static void
@@ -989,7 +1073,7 @@ monitor_mount_added (GVolumeMonitor *volume_monitor, GMount *mount)
 {
   char *name;
   name = g_mount_get_name (mount);
-  g_print ("Mount added: '%s'\n", name);
+  g_print ("Mount added:        '%s'\n", name);
   g_free (name);
   monitor_print_mount (mount);
 }
@@ -999,7 +1083,7 @@ monitor_mount_removed (GVolumeMonitor *volume_monitor, GMount *mount)
 {
   char *name;
   name = g_mount_get_name (mount);
-  g_print ("Mount removed: '%s'\n", name);
+  g_print ("Mount removed:      '%s'\n", name);
   g_free (name);
   monitor_print_mount (mount);
 }
@@ -1009,7 +1093,7 @@ monitor_mount_changed (GVolumeMonitor *volume_monitor, GMount *mount)
 {
   char *name;
   name = g_mount_get_name (mount);
-  g_print ("Mount changed: '%s'\n", name);
+  g_print ("Mount changed:      '%s'\n", name);
   g_free (name);
   monitor_print_mount (mount);
 }
@@ -1096,10 +1180,6 @@ monitor_drive_eject_button (GVolumeMonitor *volume_monitor, GDrive *drive)
 static void
 monitor (void)
 {
-  GVolumeMonitor *volume_monitor;
-
-  volume_monitor = g_volume_monitor_get ();
-
   g_signal_connect (volume_monitor, "mount-added", (GCallback) monitor_mount_added, NULL);
   g_signal_connect (volume_monitor, "mount-removed", (GCallback) monitor_mount_removed, NULL);
   g_signal_connect (volume_monitor, "mount-changed", (GCallback) monitor_mount_changed, NULL);
@@ -1129,7 +1209,7 @@ handle_mount (int argc, char *argv[], gboolean do_help)
   g_set_prgname ("gio mount");
 
   /* Translators: commandline placeholder */
-  param = g_strdup_printf ("[%s...]", _("LOCATION"));
+  param = g_strdup_printf ("[%s…]", _("LOCATION"));
   context = g_option_context_new (param);
   g_free (param);
   g_option_context_set_help_enabled (context, FALSE);
@@ -1139,6 +1219,7 @@ handle_mount (int argc, char *argv[], gboolean do_help)
   if (do_help)
     {
       show_help (context, NULL);
+      g_option_context_free (context);
       return 0;
     }
 
@@ -1146,17 +1227,19 @@ handle_mount (int argc, char *argv[], gboolean do_help)
     {
       show_help (context, error->message);
       g_error_free (error);
+      g_option_context_free (context);
       return 1;
     }
 
-  g_option_context_free (context);
-
   main_loop = g_main_loop_new (NULL, FALSE);
+  volume_monitor = g_volume_monitor_get ();
 
   if (mount_list)
     list_monitor_items ();
   else if (mount_device_file != NULL)
     mount_with_device_file (mount_device_file);
+  else if (stop_device_file)
+    stop_with_device_file (stop_device_file);
   else if (unmount_scheme != NULL)
     unmount_all_with_scheme (unmount_scheme);
   else if (mount_monitor)
@@ -1175,9 +1258,20 @@ handle_mount (int argc, char *argv[], gboolean do_help)
           g_object_unref (file);
         }
     }
+  else
+    {
+      show_help (context, _("No locations given"));
+      g_option_context_free (context);
+      g_object_unref (volume_monitor);
+      return 1;
+    }
+
+  g_option_context_free (context);
 
   if (outstanding_mounts > 0)
     g_main_loop_run (main_loop);
+
+  g_object_unref (volume_monitor);
 
   return success ? 0 : 2;
 }
