@@ -1,8 +1,9 @@
 Source: glib2.0
 Section: libs
 Priority: optional
-Maintainer: Debian GNOME Maintainers <pkg-gnome-maintainers@lists.alioth.debian.org>
-Uploaders: @GNOME_TEAM@
+Maintainer: Pexip AS <packaging@pexip.com>
+XSBC-Pexip-Original-Maintainer: Debian GNOME Maintainers <pkg-gnome-maintainers@lists.alioth.debian.org>
+XSBC-Pexip-Original-Uploaders: @GNOME_TEAM@
 Build-Depends: dbus <!nocheck>,
                debhelper (>= 11),
                desktop-file-utils <!nocheck>,
@@ -39,6 +40,7 @@ Standards-Version: 4.3.0
 Homepage: http://www.gtk.org/
 Vcs-Browser: https://salsa.debian.org/gnome-team/glib
 Vcs-Git: https://salsa.debian.org/gnome-team/glib.git -b debian/buster
+XS-Pexip-Upstream: http://ftp.debian.org/debian/ buster
 
 Package: libglib2.0-0
 Architecture: any

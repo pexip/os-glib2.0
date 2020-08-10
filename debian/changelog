@@ -1,3 +1,9 @@
+glib2.0 (2.58.3-2+deb10u2pexip3) pexip; urgency=medium
+
+  * Undo maintainer breakage - modify debian/control.in for our changes too
+
+ -- Steve McIntyre <steve.mcintyre@pexip.com>  Mon, 10 Aug 2020 16:48:25 +0100
+
 glib2.0 (2.58.3-2+deb10u2pexip2) pexip; urgency=medium
 
   * Rebuild in buster environment
