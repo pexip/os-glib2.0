@@ -10,50 +10,15 @@ environment variable]
 Co-authored-by: Simon McVittie <smcv@debian.org>
 Forwarded: no
 ---
- gio/tests/socket.c    |  8 ++++++++
- glib/tests/mainloop.c | 24 ++++++++++++++++++++++++
+ glib/tests/mainloop.c | 16 ++++++++++++++++
  glib/tests/timeout.c  |  9 +++++++++
- 3 files changed, 41 insertions(+)
+ 2 files changed, 25 insertions(+)
 
-diff --git a/gio/tests/socket.c b/gio/tests/socket.c
-index 9b3adb4..e34b0d0 100644
---- a/gio/tests/socket.c
-+++ b/gio/tests/socket.c
-@@ -1111,6 +1111,14 @@ test_timed_wait (void)
-   gint64 start_time;
-   gint poll_duration;
- 
-+#if defined(__arm__)
-+  if (g_getenv ("DEB_ALLOW_FLAKY_TESTS") == NULL)
-+    {
-+      g_test_skip ("Not reliable on older ARM hardware");
-+      return;
-+    }
-+#endif
-+
-   data = create_server (G_SOCKET_FAMILY_IPV4, echo_server_thread, FALSE, &error);
-   if (error != NULL)
-     {
 diff --git a/glib/tests/mainloop.c b/glib/tests/mainloop.c
-index cf114fd..9beefd3 100644
+index a46e79c..b0de640 100644
 --- a/glib/tests/mainloop.c
 +++ b/glib/tests/mainloop.c
-@@ -168,6 +168,14 @@ test_timeouts (void)
-   GMainLoop *loop;
-   GSource *source;
- 
-+#if defined(__arm__)
-+  if (g_getenv ("DEB_ALLOW_FLAKY_TESTS") == NULL)
-+    {
-+      g_test_skip ("Not reliable on older ARM hardware");
-+      return;
-+    }
-+#endif
-+
-   a = b = c = 0;
- 
-   ctx = g_main_context_new ();
-@@ -451,6 +459,14 @@ test_child_sources (void)
+@@ -461,6 +461,14 @@ test_child_sources (void)
    GMainLoop *loop;
    GSource *parent, *child_b, *child_c, *end;
  
@@ -68,7 +33,7 @@ index cf114fd..9beefd3 100644
    ctx = g_main_context_new ();
    loop = g_main_loop_new (ctx, FALSE);
  
-@@ -529,6 +545,14 @@ test_recursive_child_sources (void)
+@@ -539,6 +547,14 @@ test_recursive_child_sources (void)
    GMainLoop *loop;
    GSource *parent, *child_b, *child_c, *end;
  
@@ -84,10 +49,10 @@ index cf114fd..9beefd3 100644
    loop = g_main_loop_new (ctx, FALSE);
  
 diff --git a/glib/tests/timeout.c b/glib/tests/timeout.c
-index ce7dd09..d2729ae 100644
+index 47f00ba..d6fad36 100644
 --- a/glib/tests/timeout.c
 +++ b/glib/tests/timeout.c
-@@ -89,6 +89,15 @@ test_func (gpointer data)
+@@ -175,6 +175,15 @@ test_func (gpointer data)
  static void
  test_rounding (void)
  {

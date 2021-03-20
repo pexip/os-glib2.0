@@ -69,6 +69,29 @@ def print_info(msg):
     print_color(msg, color=Color.GREEN, prefix='INFO')
 
 
+def get_rspfile_args(rspfile):
+    '''
+    Response files are useful on Windows where there is a command-line character
+    limit of 8191 because when passing sources as arguments to glib-mkenums this
+    limit can be exceeded in large codebases.
+
+    There is no specification for response files and each tool that supports it
+    generally writes them out in slightly different ways, but some sources are:
+    https://docs.microsoft.com/en-us/visualstudio/msbuild/msbuild-response-files
+    https://docs.microsoft.com/en-us/windows/desktop/midl/the-response-file-command
+    '''
+    import shlex
+    if not os.path.isfile(rspfile):
+        sys.exit('Response file {!r} does not exist'.format(rspfile))
+    try:
+        with open(rspfile, 'r') as f:
+            cmdline = f.read()
+    except OSError as e:
+        sys.exit('Response file {!r} could not be read: {}'
+                 .format(rspfile, e.strerror))
+    return shlex.split(cmdline)
+
+
 def write_output(output):
     global output_stream
     print(output, file=output_stream)
@@ -107,6 +130,7 @@ option_lowercase_name = ''  # DEPRECATED.  A lower case name to use as part
                             # one that we guess. For instance, when an enum
                             # uses abnormal capitalization and we can not
                             # guess where to put the underscores.
+option_since = ''           # User provided version info for the enum.
 seenbitshift = 0        # Have we seen bitshift operators?
 enum_prefix = None        # Prefix for this enumeration
 enumname = ''            # Name for this enumeration
@@ -233,6 +257,7 @@ help_epilog = '''Production text substitutions:
   \u0040ENUMNAME\u0040            PREFIX_THE_XENUM
   \u0040ENUMSHORT\u0040           THE_XENUM
   \u0040ENUMPREFIX\u0040          PREFIX
+  \u0040enumsince\u0040           the user-provided since value given
   \u0040VALUENAME\u0040           PREFIX_THE_XVALUE
   \u0040valuenick\u0040           the-xvalue
   \u0040valuenum\u0040            the integer value (limited support, Since: 2.26)
@@ -326,9 +351,17 @@ parser.add_argument('--output', default=None, dest='output')
 parser.add_argument('--version', '-v', default=False, action='store_true', dest='version',
                     help='Print version information')
 parser.add_argument('args', nargs='*',
-                    help='Input files')
+                    help='One or more input files, or a single argument @rspfile_path '
+                    'pointing to a file that contains the actual arguments')
 
-options = parser.parse_args()
+# Support reading an rspfile of the form @filename which contains the args
+# to be parsed
+if len(sys.argv) == 2 and sys.argv[1].startswith('@'):
+    args = get_rspfile_args(sys.argv[1][1:])
+else:
+    args = sys.argv[1:]
+
+options = parser.parse_args(args)
 
 if options.version:
     print(VERSION_STR)
@@ -484,11 +517,13 @@ def process_file(curfilename):
                         flags = int(flags)
                 option_lowercase_name = options.get('lowercase_name', None)
                 option_underscore_name = options.get('underscore_name', None)
+                option_since = options.get('since', None)
             else:
                 enum_prefix = None
                 flags = None
                 option_lowercase_name = None
                 option_underscore_name = None
+                option_since = None
 
             if option_lowercase_name is not None:
                 if option_underscore_name is not None:
@@ -589,6 +624,11 @@ def process_file(curfilename):
                 enumlong = enumname_prefix + "_" + enumshort
                 enumsym = enumlong.lower()
 
+            if option_since is not None:
+                enumsince = option_since
+            else:
+                enumsince = ""
+
             if firstenum:
                 firstenum = False
 
@@ -610,6 +650,7 @@ def process_file(curfilename):
                 prod = prod.replace('\u0040ENUMSHORT\u0040', enumshort)
                 prod = prod.replace('\u0040ENUMNAME\u0040', enumlong)
                 prod = prod.replace('\u0040ENUMPREFIX\u0040', enumname_prefix)
+                prod = prod.replace('\u0040enumsince\u0040', enumsince)
                 if flags:
                     prod = prod.replace('\u0040type\u0040', 'flags')
                 else:
@@ -632,6 +673,7 @@ def process_file(curfilename):
                 prod = prod.replace('\u0040ENUMSHORT\u0040', enumshort)
                 prod = prod.replace('\u0040ENUMNAME\u0040', enumlong)
                 prod = prod.replace('\u0040ENUMPREFIX\u0040', enumname_prefix)
+                prod = prod.replace('\u0040enumsince\u0040', enumsince)
                 if flags:
                     prod = prod.replace('\u0040type\u0040', 'flags')
                 else:
@@ -698,6 +740,7 @@ def process_file(curfilename):
                 prod = prod.replace('\u0040ENUMSHORT\u0040', enumshort)
                 prod = prod.replace('\u0040ENUMNAME\u0040', enumlong)
                 prod = prod.replace('\u0040ENUMPREFIX\u0040', enumname_prefix)
+                prod = prod.replace('\u0040enumsince\u0040', enumsince)
                 if flags:
                     prod = prod.replace('\u0040type\u0040', 'flags')
                 else:

@@ -27,6 +27,8 @@
 #include "gdbusprivate.h"
 #include "gdbusmethodinvocation.h"
 #include "gdbusconnection.h"
+#include "gmarshal-internal.h"
+#include "gstrfuncsprivate.h"
 #include "gtask.h"
 #include "gioerror.h"
 
@@ -248,10 +250,13 @@ g_dbus_interface_skeleton_class_init (GDBusInterfaceSkeletonClass *klass)
                   G_STRUCT_OFFSET (GDBusInterfaceSkeletonClass, g_authorize_method),
                   _g_signal_accumulator_false_handled,
                   NULL,
-                  NULL,
+                  _g_cclosure_marshal_BOOLEAN__OBJECT,
                   G_TYPE_BOOLEAN,
                   1,
                   G_TYPE_DBUS_METHOD_INVOCATION);
+  g_signal_set_va_marshaller (signals[G_AUTHORIZE_METHOD_SIGNAL],
+                              G_TYPE_FROM_CLASS (klass),
+                              _g_cclosure_marshal_BOOLEAN__OBJECTv);
 }
 
 static void
@@ -628,6 +633,7 @@ g_dbus_interface_method_dispatch_helper (GDBusInterfaceSkeleton       *interface
 
       task = g_task_new (interface, NULL, NULL, NULL);
       g_task_set_source_tag (task, g_dbus_interface_method_dispatch_helper);
+      g_task_set_name (task, "[gio] D-Bus interface method dispatch");
       g_task_set_task_data (task, data, (GDestroyNotify) dispatch_data_unref);
       g_task_run_in_thread (task, dispatch_in_thread_func);
       g_object_unref (task);
@@ -697,7 +703,7 @@ add_connection_locked (GDBusInterfaceSkeleton *interface_,
        * properly before building the hooked_vtable, so we create it
        * once at the last minute.
        */
-      interface_->priv->hooked_vtable = g_memdup (g_dbus_interface_skeleton_get_vtable (interface_), sizeof (GDBusInterfaceVTable));
+      interface_->priv->hooked_vtable = g_memdup2 (g_dbus_interface_skeleton_get_vtable (interface_), sizeof (GDBusInterfaceVTable));
       interface_->priv->hooked_vtable->method_call = skeleton_intercept_handle_method_call;
     }
 

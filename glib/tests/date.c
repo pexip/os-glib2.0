@@ -2,7 +2,9 @@
 #undef G_LOG_DOMAIN
 
 /* We are testing some deprecated APIs here */
+#ifndef GLIB_DISABLE_DEPRECATION_WARNINGS
 #define GLIB_DISABLE_DEPRECATION_WARNINGS
+#endif
 
 #include "config.h"
 
@@ -183,6 +185,33 @@ test_parse (void)
 }
 
 static void
+test_parse_invalid (void)
+{
+  const gchar * const strs[] =
+    {
+      /* Incomplete UTF-8 sequence */
+      "\xfd",
+      /* Ridiculously long input */
+      "12345678901234567890123456789012345678901234567890123456789012345678901234567890"
+      "12345678901234567890123456789012345678901234567890123456789012345678901234567890"
+      "12345678901234567890123456789012345678901234567890123456789012345678901234567890",
+    };
+  gsize i;
+
+  for (i = 0; i < G_N_ELEMENTS (strs); i++)
+    {
+      GDate *d = g_date_new ();
+
+      g_test_message ("Test %" G_GSIZE_FORMAT, i);
+      g_date_set_parse (d, strs[i]);
+
+      g_assert_false (g_date_valid (d));
+
+      g_date_free (d);
+    }
+}
+
+static void
 test_parse_locale_change (void)
 {
   /* Checks that g_date_set_parse correctly changes locale specific data as
@@ -239,6 +268,7 @@ test_month_substring (void)
 
   setlocale (LC_ALL, "");
 }
+
 
 static void
 test_month_names (void)
@@ -387,7 +417,7 @@ test_month_names (void)
       TEST_DATE ( 1,  4, 2018,   "%OB %Y",       "Απρίλιος 2018");
       TEST_DATE ( 1,  5, 2018,   "%OB %Y",          "Μάιος 2018");
       TEST_DATE ( 1,  6, 2018,   "%OB %Y",        "Ιούνιος 2018");
-      TEST_DATE (16,  7, 2018, "%e %b %Y",        "16 Ιούλ 2018");
+      TEST_DATE (16,  7, 2018, "%e %b %Y",        "16 Ιουλ 2018");
       TEST_DATE ( 1,  8, 2018,   "%Ob %Y",            "Αύγ 2018");
     }
   else
@@ -734,7 +764,7 @@ int
 main (int argc, char** argv)
 {
   gchar *path;
-  gint i;
+  gsize i;
 
   /* Try to get all the leap year cases. */
   int check_years[] = {
@@ -767,6 +797,7 @@ main (int argc, char** argv)
   g_test_add_func ("/date/julian", test_julian_constructor);
   g_test_add_func ("/date/dates", test_dates);
   g_test_add_func ("/date/parse", test_parse);
+  g_test_add_func ("/date/parse/invalid", test_parse_invalid);
   g_test_add_func ("/date/parse_locale_change", test_parse_locale_change);
   g_test_add_func ("/date/month_substring", test_month_substring);
   g_test_add_func ("/date/month_names", test_month_names);
@@ -783,5 +814,3 @@ main (int argc, char** argv)
 
   return g_test_run ();
 }
-
-

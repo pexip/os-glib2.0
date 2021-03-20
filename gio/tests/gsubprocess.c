@@ -8,12 +8,20 @@
 #include <gio/gfiledescriptorbased.h>
 #endif
 
+/* We write 2^1 + 2^2 ... + 2^10 or 2047 copies of "Hello World!\n"
+ * ultimately
+ */
+#define TOTAL_HELLOS 2047
+#define HELLO_WORLD "hello world!\n"
+
 #ifdef G_OS_WIN32
 #define LINEEND "\r\n"
 #define EXEEXT ".exe"
+#define SPLICELEN (TOTAL_HELLOS * (strlen (HELLO_WORLD) + 1)) /* because \r */
 #else
 #define LINEEND "\n"
 #define EXEEXT
+#define SPLICELEN (TOTAL_HELLOS * strlen (HELLO_WORLD))
 #endif
 
 static GPtrArray *
@@ -58,18 +66,15 @@ test_noop (void)
   GError **error = &local_error;
   GPtrArray *args;
   GSubprocess *proc;
-  const gchar *id;
 
   args = get_test_subprocess_args ("noop", NULL);
   proc = g_subprocess_newv ((const gchar * const *) args->pdata, G_SUBPROCESS_FLAGS_NONE, error);
   g_ptr_array_free (args, TRUE);
   g_assert_no_error (local_error);
-  id = g_subprocess_get_identifier (proc);
-  g_assert (id != NULL);
 
   g_subprocess_wait_check (proc, NULL, error);
   g_assert_no_error (local_error);
-  g_assert (g_subprocess_get_successful (proc));
+  g_assert_true (g_subprocess_get_successful (proc));
 
   g_object_unref (proc);
 }
@@ -85,7 +90,7 @@ check_ready (GObject      *source,
   ret = g_subprocess_wait_check_finish (G_SUBPROCESS (source),
                                         res,
                                         &error);
-  g_assert (ret);
+  g_assert_true (ret);
   g_assert_no_error (error);
 
   g_object_unref (source);
@@ -210,7 +215,7 @@ test_exit1_cancel_wait_check_cb (GObject      *source,
   data->cb_called = TRUE;
 
   ret = g_subprocess_wait_check_finish (subprocess, result, &error);
-  g_assert (!ret);
+  g_assert_false (ret);
   g_assert_error (error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
   g_clear_error (&error);
 
@@ -263,7 +268,7 @@ test_exit1_cancel_in_cb_wait_check_cb (GObject      *source,
   data->cb_called = TRUE;
 
   ret = g_subprocess_wait_check_finish (subprocess, result, &error);
-  g_assert (!ret);
+  g_assert_false (ret);
   g_assert_error (error, G_SPAWN_EXIT_ERROR, 1);
   g_clear_error (&error);
 
@@ -493,7 +498,7 @@ test_cat_eof (void)
   /* Spawn 'cat' */
   cat = g_subprocess_new (G_SUBPROCESS_FLAGS_STDIN_PIPE | G_SUBPROCESS_FLAGS_STDOUT_PIPE, &error, "cat", NULL);
   g_assert_no_error (error);
-  g_assert (cat);
+  g_assert_nonnull (cat);
 
   /* Make sure that reading stdout blocks (until we cancel) */
   cancellable = g_cancellable_new ();
@@ -507,19 +512,19 @@ test_cat_eof (void)
   /* Close the stream (EOF on cat's stdin) */
   result = g_output_stream_close (g_subprocess_get_stdin_pipe (cat), NULL, &error);
   g_assert_no_error (error);
-  g_assert (result);
+  g_assert_true (result);
 
   /* Now check that reading cat's stdout gets us an EOF (since it quit) */
   s = g_input_stream_read (g_subprocess_get_stdout_pipe (cat), &buffer, sizeof buffer, NULL, &error);
   g_assert_no_error (error);
-  g_assert (!s);
+  g_assert_false (s);
 
   /* Check that the process has exited as a result of the EOF */
   result = g_subprocess_wait (cat, NULL, &error);
   g_assert_no_error (error);
-  g_assert (g_subprocess_get_if_exited (cat));
+  g_assert_true (g_subprocess_get_if_exited (cat));
   g_assert_cmpint (g_subprocess_get_exit_status (cat), ==, 0);
-  g_assert (result);
+  g_assert_true (result);
 
   g_object_unref (cat);
 }
@@ -557,10 +562,7 @@ on_idle_multisplice (gpointer     user_data)
 {
   TestMultiSpliceData *data = user_data;
 
-  /* We write 2^1 + 2^2 ... + 2^10 or 2047 copies of "Hello World!\n"
-   * ultimately
-   */
-  if (data->counter >= 2047 || data->caught_error)
+  if (data->counter >= TOTAL_HELLOS || data->caught_error)
     {
       if (!g_output_stream_close (data->first_stdin, NULL, &data->error))
         data->caught_error = TRUE;
@@ -577,8 +579,8 @@ on_idle_multisplice (gpointer     user_data)
       for (i = 0; i < data->counter; i++)
         {
           gsize bytes_written;
-          if (!g_output_stream_write_all (data->first_stdin, "hello world!\n",
-                                          strlen ("hello world!\n"), &bytes_written,
+          if (!g_output_stream_write_all (data->first_stdin, HELLO_WORLD,
+                                          strlen (HELLO_WORLD), &bytes_written,
                                           NULL, &data->error))
             {
               data->caught_error = TRUE;
@@ -681,10 +683,10 @@ test_multi_1 (void)
 
   g_main_loop_run (data.loop);
 
-  g_assert (!data.caught_error);
+  g_assert_false (data.caught_error);
   g_assert_no_error (data.error);
 
-  g_assert_cmpint (g_memory_output_stream_get_data_size ((GMemoryOutputStream*)membuf), ==, 26611);
+  g_assert_cmpint (g_memory_output_stream_get_data_size ((GMemoryOutputStream*)membuf), ==, SPLICELEN);
 
   g_main_loop_unref (data.loop);
   g_object_unref (membuf);
@@ -732,7 +734,7 @@ on_communicate_complete (GObject               *proc,
       else
         stdout_data = g_bytes_get_data (stdout_bytes, &stdout_len);
 
-      g_assert_cmpmem (stdout_data, stdout_len, "# hello world\n", 14);
+      g_assert_cmpmem (stdout_data, stdout_len, "# hello world" LINEEND, 13 + strlen (LINEEND));
     }
   else
     {
@@ -834,7 +836,7 @@ test_communicate (gconstpointer test_data)
   if (flags & G_SUBPROCESS_FLAGS_STDOUT_PIPE)
     {
       stdout_data = g_bytes_get_data (stdout_bytes, &stdout_len);
-      g_assert_cmpmem (stdout_data, stdout_len, "# hello world\n", 14);
+      g_assert_cmpmem (stdout_data, stdout_len, "# hello world" LINEEND, 13 + strlen (LINEEND));
     }
   else
     g_assert_null (stdout_bytes);
@@ -1044,7 +1046,7 @@ test_communicate_utf8_async (gconstpointer test_data)
   g_object_unref (proc);
 }
 
-/* Test g_subprocess_communicate_utf8_async() can be cancelled correclty. */
+/* Test g_subprocess_communicate_utf8_async() can be cancelled correctly. */
 static void
 test_communicate_utf8_cancelled_async (gconstpointer test_data)
 {
@@ -1110,7 +1112,7 @@ test_communicate_utf8 (gconstpointer test_data)
   g_assert_no_error (error);
 
   if (flags & G_SUBPROCESS_FLAGS_STDOUT_PIPE)
-    g_assert_cmpstr (stdout_buf, ==, "# hello world\n");
+    g_assert_cmpstr (stdout_buf, ==, "# hello world" LINEEND);
   else
     g_assert_null (stdout_buf);
   if (flags & G_SUBPROCESS_FLAGS_STDERR_PIPE)
@@ -1190,7 +1192,7 @@ test_communicate_nothing (void)
 }
 
 static void
-test_communicate_utf8_invalid (void)
+test_communicate_utf8_async_invalid (void)
 {
   GSubprocessFlags flags = G_SUBPROCESS_FLAGS_STDOUT_PIPE;
   GError *error = NULL;
@@ -1222,6 +1224,37 @@ test_communicate_utf8_invalid (void)
   g_object_unref (proc);
 }
 
+/* Test that invalid UTF-8 received using g_subprocess_communicate_utf8()
+ * results in an error. */
+static void
+test_communicate_utf8_invalid (void)
+{
+  GSubprocessFlags flags = G_SUBPROCESS_FLAGS_STDOUT_PIPE;
+  GError *local_error = NULL;
+  gboolean ret;
+  GPtrArray *args;
+  gchar *stdout_str = NULL, *stderr_str = NULL;
+  GSubprocess *proc;
+
+  args = get_test_subprocess_args ("cat", NULL);
+  proc = g_subprocess_newv ((const gchar* const*)args->pdata,
+                            G_SUBPROCESS_FLAGS_STDIN_PIPE | flags,
+                            &local_error);
+  g_assert_no_error (local_error);
+  g_ptr_array_free (args, TRUE);
+
+  ret = g_subprocess_communicate_utf8 (proc, "\xFF\xFF", NULL,
+                                       &stdout_str, &stderr_str, &local_error);
+  g_assert_error (local_error, G_IO_ERROR, G_IO_ERROR_FAILED);
+  g_error_free (local_error);
+  g_assert_false (ret);
+
+  g_assert_null (stdout_str);
+  g_assert_null (stderr_str);
+
+  g_object_unref (proc);
+}
+
 static gboolean
 send_terminate (gpointer   user_data)
 {
@@ -1243,11 +1276,11 @@ on_request_quit_exited (GObject        *object,
   g_subprocess_wait_finish (subprocess, result, &error);
   g_assert_no_error (error);
 #ifdef G_OS_UNIX
-  g_assert (g_subprocess_get_if_signaled (subprocess));
-  g_assert (g_subprocess_get_term_sig (subprocess) == 9);
+  g_assert_true (g_subprocess_get_if_signaled (subprocess));
+  g_assert_cmpint (g_subprocess_get_term_sig (subprocess), ==, 9);
 #endif
   g_spawn_check_exit_status (g_subprocess_get_status (subprocess), &error);
-  g_assert (error != NULL);
+  g_assert_nonnull (error);
   g_clear_error (&error);
 
   g_main_loop_quit ((GMainLoop*)user_data);
@@ -1261,11 +1294,15 @@ test_terminate (void)
   GSubprocess *proc;
   GPtrArray *args;
   GMainLoop *loop;
+  const gchar *id;
 
   args = get_test_subprocess_args ("sleep-forever", NULL);
   proc = g_subprocess_newv ((const gchar * const *) args->pdata, G_SUBPROCESS_FLAGS_NONE, error);
   g_ptr_array_free (args, TRUE);
   g_assert_no_error (local_error);
+
+  id = g_subprocess_get_identifier (proc);
+  g_assert_nonnull (id);
 
   loop = g_main_loop_new (NULL, TRUE);
 
@@ -1327,9 +1364,10 @@ test_env (void)
   GPtrArray *args;
   GInputStream *stdout_stream;
   gchar *result;
-  gchar *envp[] = { "ONE=1", "TWO=1", "THREE=3", "FOUR=1", NULL };
+  gchar *envp[] = { NULL, "ONE=1", "TWO=1", "THREE=3", "FOUR=1", NULL };
   gchar **split;
 
+  envp[0] = g_strdup_printf ("PATH=%s", g_getenv ("PATH"));
   args = get_test_subprocess_args ("env", NULL);
   launcher = g_subprocess_launcher_new (G_SUBPROCESS_FLAGS_NONE);
   g_subprocess_launcher_set_flags (launcher, G_SUBPROCESS_FLAGS_STDOUT_PIPE);
@@ -1343,11 +1381,12 @@ test_env (void)
   proc = g_subprocess_launcher_spawn (launcher, error, args->pdata[0], "env", NULL);
   g_ptr_array_free (args, TRUE);
   g_assert_no_error (local_error);
+  g_free (envp[0]);
 
   stdout_stream = g_subprocess_get_stdout_pipe (proc);
 
   result = splice_to_string (stdout_stream, error);
-  split = g_strsplit (result, "\n", -1);
+  split = g_strsplit (result, LINEEND, -1);
   g_assert_cmpstr (g_environ_getenv (split, "ONE"), ==, "1");
   g_assert_cmpstr (g_environ_getenv (split, "TWO"), ==, "2");
   g_assert_cmpstr (g_environ_getenv (split, "THREE"), ==, "3");
@@ -1394,7 +1433,7 @@ test_env_inherit (void)
   stdout_stream = g_subprocess_get_stdout_pipe (proc);
 
   result = splice_to_string (stdout_stream, error);
-  split = g_strsplit (result, "\n", -1);
+  split = g_strsplit (result, LINEEND, -1);
   g_assert_null (g_environ_getenv (split, "TEST_ENV_INHERIT1"));
   g_assert_cmpstr (g_environ_getenv (split, "TEST_ENV_INHERIT2"), ==, "2");
   g_assert_cmpstr (g_environ_getenv (split, "TWO"), ==, "2");
@@ -1416,11 +1455,15 @@ test_cwd (void)
   GInputStream *stdout_stream;
   gchar *result;
   const char *basename;
+  gchar *tmp_lineend;
+  const gchar *tmp_lineend_basename;
 
   args = get_test_subprocess_args ("cwd", NULL);
   launcher = g_subprocess_launcher_new (G_SUBPROCESS_FLAGS_STDOUT_PIPE);
   g_subprocess_launcher_set_flags (launcher, G_SUBPROCESS_FLAGS_STDOUT_PIPE);
-  g_subprocess_launcher_set_cwd (launcher, "/tmp");
+  g_subprocess_launcher_set_cwd (launcher, g_get_tmp_dir ());
+  tmp_lineend = g_strdup_printf ("%s%s", g_get_tmp_dir (), LINEEND);
+  tmp_lineend_basename = g_strrstr (tmp_lineend, G_DIR_SEPARATOR_S);
 
   proc = g_subprocess_launcher_spawnv (launcher, (const char * const *)args->pdata, error);
   g_ptr_array_free (args, TRUE);
@@ -1430,9 +1473,10 @@ test_cwd (void)
 
   result = splice_to_string (stdout_stream, error);
 
-  basename = g_strrstr (result, "/");
-  g_assert (basename != NULL);
-  g_assert_cmpstr (basename, ==, "/tmp" LINEEND);
+  basename = g_strrstr (result, G_DIR_SEPARATOR_S);
+  g_assert_nonnull (basename);
+  g_assert_cmpstr (basename, ==, tmp_lineend_basename);
+  g_free (tmp_lineend);
 
   g_free (result);
   g_object_unref (proc);
@@ -1677,18 +1721,18 @@ test_launcher_environment (void)
   /* unset a variable */
   g_subprocess_launcher_unsetenv (launcher, "A");
 
-  /* and set a diffferent one */
+  /* and set a different one */
   g_subprocess_launcher_setenv (launcher, "E", "F", TRUE);
 
   args = get_test_subprocess_args ("printenv", "A", "C", "E", NULL);
   proc = g_subprocess_launcher_spawnv (launcher, (const gchar **) args->pdata, &error);
   g_assert_no_error (error);
-  g_assert (proc);
+  g_assert_nonnull (proc);
 
   g_subprocess_communicate_utf8 (proc, NULL, NULL, &out, NULL, &error);
   g_assert_no_error (error);
 
-  g_assert_cmpstr (out, ==, "C=D\nE=F\n");
+  g_assert_cmpstr (out, ==, "C=D" LINEEND "E=F" LINEEND);
   g_free (out);
 
   g_object_unref (proc);
@@ -1783,6 +1827,7 @@ main (int argc, char **argv)
       g_free (test_path);
     }
 
+  g_test_add_func ("/gsubprocess/communicate/utf8/async/invalid", test_communicate_utf8_async_invalid);
   g_test_add_func ("/gsubprocess/communicate/utf8/invalid", test_communicate_utf8_invalid);
   g_test_add_func ("/gsubprocess/communicate/nothing", test_communicate_nothing);
   g_test_add_func ("/gsubprocess/terminate", test_terminate);

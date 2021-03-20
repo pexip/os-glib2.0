@@ -35,9 +35,24 @@ handle_triggers () {
     done
 }
 
+cleanup () {
+    /usr/share/glib-2.0/clean-up-unmanaged-libraries \
+        --bug-ref=896019 \
+        "$@" \
+        "#MULTIARCH#" \
+        libglib-2.0.so.0
+}
+
 if [ "$1" = triggered ]; then
     handle_triggers $2
     exit 0
+fi
+
+# Clean up stale shared libraries if necessary. Do this before running
+# glib-compile-schemas, gio-querymodules.
+if ! cleanup; then
+    echo "$0: Trying cleanup again with more logging..."
+    cleanup --verbose
 fi
 
 #DEBHELPER#
