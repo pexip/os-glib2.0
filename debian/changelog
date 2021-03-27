@@ -1,3 +1,23 @@
+glib2.0 (2.58.3-2+deb10u3) buster; urgency=medium
+
+  * d/patches: Resolve integer overflows, including CVE-2021-27219.
+    These backported patches resolve an integer overflow that is known to
+    be attacker-triggerable for denial of service in polkit (policykit-1),
+    as well as replacing other simple uses of g_memdup() with g_memdup2().
+    Overflows in most of these places would not be attacker-triggerable,
+    but replacing them is simpler than assessing whether they are
+    attacker-triggerable.
+    The more complicated changes from 2.66.7 have not been backported,
+    to avoid regressions in Debian 10; overflows in those locations are
+    not believed to be attacker-triggerable. (Closes: #982778)
+  * d/patches: Fix integer overflow CVE-2021-27218.
+    This is not known to be exploitable in any particular program, but
+    might be. (Closes: #982779)
+  * d/patches: Fix a symlink attack affecting file-roller, CVE-2021-28153
+    (Closes: #984969)
+
+ -- Simon McVittie <smcv@debian.org>  Sat, 27 Mar 2021 11:34:13 +0000
+
 glib2.0 (2.58.3-2+deb10u2) buster; urgency=medium
 
   * Team upload
