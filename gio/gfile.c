@@ -60,6 +60,7 @@
 #include "gasyncresult.h"
 #include "gioerror.h"
 #include "glibintl.h"
+#include "gstrfuncsprivate.h"
 
 
 /**
@@ -534,37 +535,6 @@ g_file_get_path (GFile *file)
   return (* iface->get_path) (file);
 }
 
-/* Original commit introducing this in libgsystem:
- *
- *  fileutil: Handle recent: and trash: URIs
- *
- *  The gs_file_get_path_cached() was rather brittle in its handling
- *  of URIs. It would assert() when a GFile didn't have a backing path
- *  (such as when handling trash: or recent: URIs), and didn't know
- *  how to get the target URI for those items either.
- *
- *  Make sure that we do not assert() when a backing path cannot be
- *  found, and handle recent: and trash: URIs.
- *
- *  https://bugzilla.gnome.org/show_bug.cgi?id=708435
- */
-static char *
-file_get_target_path (GFile *file)
-{
-  GFileInfo *info;
-  const char *target;
-  char *path;
-
-  info = g_file_query_info (file, G_FILE_ATTRIBUTE_STANDARD_TARGET_URI, G_FILE_QUERY_INFO_NONE, NULL, NULL);
-  if (info == NULL)
-    return NULL;
-  target = g_file_info_get_attribute_string (info, G_FILE_ATTRIBUTE_STANDARD_TARGET_URI);
-  path = g_filename_from_uri (target, NULL, NULL);
-  g_object_unref (info);
-
-  return path;
-}
-
 static const char *
 file_peek_path_generic (GFile *file)
 {
@@ -591,11 +561,7 @@ file_peek_path_generic (GFile *file)
       if (path != NULL)
         break;
 
-      if (g_file_has_uri_scheme (file, "trash") ||
-          g_file_has_uri_scheme (file, "recent"))
-        new_path = file_get_target_path (file);
-      else
-        new_path = g_file_get_path (file);
+      new_path = g_file_get_path (file);
       if (new_path == NULL)
         return NULL;
 
@@ -603,7 +569,10 @@ file_peek_path_generic (GFile *file)
       if (g_object_replace_qdata ((GObject *) file, _file_path_quark,
                                   NULL, (gpointer) new_path,
                                   (GDestroyNotify) g_free, NULL))
-        break;
+        {
+          path = new_path;
+          break;
+        }
       else
         g_free (new_path);
     }
@@ -936,7 +905,7 @@ g_file_get_child_for_display_name (GFile      *file,
  * of @prefix.
  *
  * Virtual: prefix_matches
- * Returns:  %TRUE if the @files's parent, grandparent, etc is @prefix,
+ * Returns:  %TRUE if the @file's parent, grandparent, etc is @prefix,
  *     %FALSE otherwise.
  */
 gboolean
@@ -1539,9 +1508,9 @@ g_file_query_filesystem_info_finish (GFile         *file,
  *
  * Gets a #GMount for the #GFile.
  *
- * If the #GFileIface for @file does not have a mount (e.g.
- * possibly a remote share), @error will be set to %G_IO_ERROR_NOT_FOUND
- * and %NULL will be returned.
+ * #GMount is returned only for user interesting locations, see
+ * #GVolumeMonitor. If the #GFileIface for @file does not have a #mount,
+ * @error will be set to %G_IO_ERROR_NOT_FOUND and %NULL #will be returned.
  *
  * If @cancellable is not %NULL, then the operation can be cancelled by
  * triggering the cancellable object from another thread. If the operation
@@ -3188,6 +3157,7 @@ file_copy_fallback (GFile                  *source,
   const char *target;
   char *attrs_to_read;
   gboolean do_set_attributes = FALSE;
+  GFileCreateFlags create_flags;
 
   /* need to know the file type */
   info = g_file_query_info (source,
@@ -3277,19 +3247,38 @@ file_copy_fallback (GFile                  *source,
    *
    * If a future API like g_file_replace_with_info() is added, switch
    * this code to use that.
+   *
+   * Use %G_FILE_CREATE_PRIVATE unless
+   *  - we were told to create the file with default permissions (i.e. the
+   *    process’ umask),
+   *  - or if the source file is on a file system which doesn’t support
+   *    `unix::mode` (in which case it probably also makes sense to create the
+   *    destination with default permissions because the source cannot be
+   *    private),
+   *  - or if the destination file is a `GLocalFile`, in which case we can
+   *    directly open() it with the permissions from the source file.
    */
+  create_flags = G_FILE_CREATE_NONE;
+  if (!(flags & G_FILE_COPY_TARGET_DEFAULT_PERMS) &&
+      g_file_info_has_attribute (info, G_FILE_ATTRIBUTE_UNIX_MODE) &&
+      !G_IS_LOCAL_FILE (destination))
+    create_flags |= G_FILE_CREATE_PRIVATE;
+  if (flags & G_FILE_COPY_OVERWRITE)
+    create_flags |= G_FILE_CREATE_REPLACE_DESTINATION;
+
   if (G_IS_LOCAL_FILE (destination))
     {
       if (flags & G_FILE_COPY_OVERWRITE)
         out = (GOutputStream*)_g_local_file_output_stream_replace (_g_local_file_get_filename (G_LOCAL_FILE (destination)),
                                                                    FALSE, NULL,
                                                                    flags & G_FILE_COPY_BACKUP,
-                                                                   G_FILE_CREATE_REPLACE_DESTINATION,
-                                                                   info,
+                                                                   create_flags,
+                                                                   (flags & G_FILE_COPY_TARGET_DEFAULT_PERMS) ? NULL : info,
                                                                    cancellable, error);
       else
         out = (GOutputStream*)_g_local_file_output_stream_create (_g_local_file_get_filename (G_LOCAL_FILE (destination)),
-                                                                  FALSE, 0, info,
+                                                                  FALSE, create_flags,
+                                                                  (flags & G_FILE_COPY_TARGET_DEFAULT_PERMS) ? NULL : info,
                                                                   cancellable, error);
     }
   else if (flags & G_FILE_COPY_OVERWRITE)
@@ -3297,12 +3286,12 @@ file_copy_fallback (GFile                  *source,
       out = (GOutputStream *)g_file_replace (destination,
                                              NULL,
                                              flags & G_FILE_COPY_BACKUP,
-                                             G_FILE_CREATE_REPLACE_DESTINATION,
+                                             create_flags,
                                              cancellable, error);
     }
   else
     {
-      out = (GOutputStream *)g_file_create (destination, 0, cancellable, error);
+      out = (GOutputStream *)g_file_create (destination, create_flags, cancellable, error);
     }
 
   if (!out)
@@ -3632,10 +3621,6 @@ g_file_copy_finish (GFile         *file,
  * If the flag #G_FILE_COPY_OVERWRITE is specified an already
  * existing @destination file is overwritten.
  *
- * If the flag #G_FILE_COPY_NOFOLLOW_SYMLINKS is specified then symlinks
- * will be copied as symlinks, otherwise the target of the
- * @source symlink will be copied.
- *
  * If @cancellable is not %NULL, then the operation can be cancelled by
  * triggering the cancellable object from another thread. If the operation
  * was cancelled, the error %G_IO_ERROR_CANCELLED will be returned.
@@ -3739,7 +3724,7 @@ g_file_move (GFile                  *source,
       return FALSE;
     }
 
-  flags |= G_FILE_COPY_ALL_METADATA;
+  flags |= G_FILE_COPY_ALL_METADATA | G_FILE_COPY_NOFOLLOW_SYMLINKS;
   if (!g_file_copy (source, destination, flags, cancellable,
                     progress_callback, progress_callback_data,
                     error))
@@ -4026,7 +4011,7 @@ g_file_make_symbolic_link (GFile         *file,
     {
       g_set_error_literal (error, G_IO_ERROR,
                            G_IO_ERROR_NOT_SUPPORTED,
-                           _("Operation not supported"));
+                           _("Symbolic links not supported"));
       return FALSE;
     }
 
@@ -4042,6 +4027,21 @@ g_file_make_symbolic_link (GFile         *file,
  *
  * Deletes a file. If the @file is a directory, it will only be
  * deleted if it is empty. This has the same semantics as g_unlink().
+ *
+ * If @file doesn’t exist, %G_IO_ERROR_NOT_FOUND will be returned. This allows
+ * for deletion to be implemented avoiding
+ * [time-of-check to time-of-use races](https://en.wikipedia.org/wiki/Time-of-check_to_time-of-use):
+ * |[
+ * g_autoptr(GError) local_error = NULL;
+ * if (!g_file_delete (my_file, my_cancellable, &local_error) &&
+ *     !g_error_matches (local_error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND))
+ *   {
+ *     // deletion failed for some reason other than the file not existing:
+ *     // so report the error
+ *     g_warning ("Failed to delete %s: %s",
+ *                g_file_peek_path (my_file), local_error->message);
+ *   }
+ * ]|
  *
  * If @cancellable is not %NULL, then the operation can be cancelled by
  * triggering the cancellable object from another thread. If the operation
@@ -4150,7 +4150,9 @@ g_file_delete_finish (GFile         *file,
  * Sends @file to the "Trashcan", if possible. This is similar to
  * deleting it, but the user can recover it before emptying the trashcan.
  * Not all file systems support trashing, so this call can return the
- * %G_IO_ERROR_NOT_SUPPORTED error.
+ * %G_IO_ERROR_NOT_SUPPORTED error. Since GLib 2.66, the `x-gvfs-notrash` unix
+ * mount option can be used to disable g_file_trash() support for certain
+ * mounts, the %G_IO_ERROR_NOT_SUPPORTED error will be returned in that case.
  *
  * If @cancellable is not %NULL, then the operation can be cancelled by
  * triggering the cancellable object from another thread. If the operation
@@ -4502,7 +4504,7 @@ g_file_query_writable_namespaces (GFile         *file,
  *     %NULL to ignore
  * @error: a #GError, or %NULL
  *
- * Sets an attribute in the file with attribute name @attribute to @value.
+ * Sets an attribute in the file with attribute name @attribute to @value_p.
  *
  * Some attributes can be unset by setting @type to
  * %G_FILE_ATTRIBUTE_TYPE_INVALID and @value_p to %NULL.
@@ -6851,9 +6853,12 @@ g_file_query_default_handler (GFile         *file,
       if (appinfo != NULL)
         return appinfo;
     }
+  else
+    g_free (uri_scheme);
 
   info = g_file_query_info (file,
-                            G_FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE,
+                            G_FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE ","
+                            G_FILE_ATTRIBUTE_STANDARD_FAST_CONTENT_TYPE,
                             0,
                             cancellable,
                             error);
@@ -6863,6 +6868,8 @@ g_file_query_default_handler (GFile         *file,
   appinfo = NULL;
 
   content_type = g_file_info_get_content_type (info);
+  if (content_type == NULL)
+    content_type = g_file_info_get_attribute_string (info, G_FILE_ATTRIBUTE_STANDARD_FAST_CONTENT_TYPE);
   if (content_type)
     {
       /* Don't use is_native(), as we want to support fuse paths if available */
@@ -6883,6 +6890,133 @@ g_file_query_default_handler (GFile         *file,
   return NULL;
 }
 
+static void
+query_default_handler_query_info_cb (GObject      *object,
+                                     GAsyncResult *result,
+                                     gpointer      user_data)
+{
+  GFile *file = G_FILE (object);
+  GTask *task = G_TASK (user_data);
+  GError *error = NULL;
+  GFileInfo *info;
+  const char *content_type;
+  GAppInfo *appinfo = NULL;
+
+  info = g_file_query_info_finish (file, result, &error);
+  if (info == NULL)
+    {
+      g_task_return_error (task, g_steal_pointer (&error));
+      g_object_unref (task);
+      return;
+    }
+
+  content_type = g_file_info_get_content_type (info);
+  if (content_type == NULL)
+    content_type = g_file_info_get_attribute_string (info, G_FILE_ATTRIBUTE_STANDARD_FAST_CONTENT_TYPE);
+  if (content_type)
+    {
+      char *path;
+
+      /* Don't use is_native(), as we want to support fuse paths if available */
+      path = g_file_get_path (file);
+
+      /* FIXME: The following still uses blocking calls. */
+      appinfo = g_app_info_get_default_for_type (content_type,
+                                                 path == NULL);
+      g_free (path);
+    }
+
+  g_object_unref (info);
+
+  if (appinfo != NULL)
+    g_task_return_pointer (task, g_steal_pointer (&appinfo), g_object_unref);
+  else
+    g_task_return_new_error (task,
+                             G_IO_ERROR,
+                             G_IO_ERROR_NOT_SUPPORTED,
+                             _("No application is registered as handling this file"));
+  g_object_unref (task);
+}
+
+/**
+ * g_file_query_default_handler_async:
+ * @file: a #GFile to open
+ * @io_priority: the [I/O priority][io-priority] of the request
+ * @cancellable: optional #GCancellable object, %NULL to ignore
+ * @callback: (nullable): a #GAsyncReadyCallback to call when the request is done
+ * @user_data: (nullable): data to pass to @callback
+ *
+ * Async version of g_file_query_default_handler().
+ *
+ * Since: 2.60
+ */
+void
+g_file_query_default_handler_async (GFile              *file,
+                                    int                 io_priority,
+                                    GCancellable       *cancellable,
+                                    GAsyncReadyCallback callback,
+                                    gpointer            user_data)
+{
+  GTask *task;
+  char *uri_scheme;
+
+  task = g_task_new (file, cancellable, callback, user_data);
+  g_task_set_source_tag (task, g_file_query_default_handler_async);
+
+  uri_scheme = g_file_get_uri_scheme (file);
+  if (uri_scheme && uri_scheme[0] != '\0')
+    {
+      GAppInfo *appinfo;
+
+      /* FIXME: The following still uses blocking calls. */
+      appinfo = g_app_info_get_default_for_uri_scheme (uri_scheme);
+      g_free (uri_scheme);
+
+      if (appinfo != NULL)
+        {
+          g_task_return_pointer (task, g_steal_pointer (&appinfo), g_object_unref);
+          g_object_unref (task);
+          return;
+        }
+    }
+  else
+    g_free (uri_scheme);
+
+  g_file_query_info_async (file,
+                           G_FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE ","
+                           G_FILE_ATTRIBUTE_STANDARD_FAST_CONTENT_TYPE,
+                           0,
+                           io_priority,
+                           cancellable,
+                           query_default_handler_query_info_cb,
+                           g_steal_pointer (&task));
+}
+
+/**
+ * g_file_query_default_handler_finish:
+ * @file: a #GFile to open
+ * @result: a #GAsyncResult
+ * @error: (nullable): a #GError
+ *
+ * Finishes a g_file_query_default_handler_async() operation.
+ *
+ * Returns: (transfer full): a #GAppInfo if the handle was found,
+ *     %NULL if there were errors.
+ *     When you are done with it, release it with g_object_unref()
+ *
+ * Since: 2.60
+ */
+GAppInfo *
+g_file_query_default_handler_finish (GFile        *file,
+                                     GAsyncResult *result,
+                                     GError      **error)
+{
+  g_return_val_if_fail (G_IS_FILE (file), NULL);
+  g_return_val_if_fail (g_task_is_valid (result, file), NULL);
+
+  return g_task_propagate_pointer (G_TASK (result), error);
+}
+
 #define GET_CONTENT_BLOCK_SIZE 8192
 
 /**
@@ -6898,7 +7032,7 @@ g_file_query_default_handler (GFile         *file,
  *
  * Loads the content of the file into memory. The data is always
  * zero-terminated, but this is not included in the resultant @length.
- * The returned @content should be freed with g_free() when no longer
+ * The returned @contents should be freed with g_free() when no longer
  * needed.
  *
  * If @cancellable is not %NULL, then the operation can be cancelled by
@@ -7187,7 +7321,7 @@ g_file_load_partial_contents_async (GFile                 *file,
  * Finishes an asynchronous partial load operation that was started
  * with g_file_load_partial_contents_async(). The data is always
  * zero-terminated, but this is not included in the resultant @length.
- * The returned @content should be freed with g_free() when no longer
+ * The returned @contents should be freed with g_free() when no longer
  * needed.
  *
  * Returns: %TRUE if the load was successful. If %FALSE and @error is
@@ -7284,7 +7418,7 @@ g_file_load_contents_async (GFile               *file,
  *
  * Finishes an asynchronous load of the @file's contents.
  * The contents are placed in @contents, and @length is set to the
- * size of the @contents string. The @content should be freed with
+ * size of the @contents string. The @contents should be freed with
  * g_free() when no longer needed. If @etag_out is present, it will be
  * set to the new entity tag for the @file.
  *
@@ -7541,7 +7675,7 @@ replace_contents_open_callback (GObject      *obj,
  * If @make_backup is %TRUE, this function will attempt to
  * make a backup of @file.
  *
- * Note that no copy of @content will be made, so it must stay valid
+ * Note that no copy of @contents will be made, so it must stay valid
  * until @callback is called. See g_file_replace_contents_bytes_async()
  * for a #GBytes version that will automatically hold a reference to the
  * contents (without copying) for the duration of the call.
@@ -7738,7 +7872,7 @@ measure_disk_usage_progress (gboolean reporting,
   g_main_context_invoke_full (g_task_get_context (task),
                               g_task_get_priority (task),
                               measure_disk_usage_invoke_progress,
-                              g_memdup (&progress, sizeof progress),
+                              g_memdup2 (&progress, sizeof progress),
                               g_free);
 }
 
@@ -7756,7 +7890,7 @@ measure_disk_usage_thread (GTask        *task,
                                  data->progress_callback ? measure_disk_usage_progress : NULL, task,
                                  &result.disk_usage, &result.num_dirs, &result.num_files,
                                  &error))
-    g_task_return_pointer (task, g_memdup (&result, sizeof result), g_free);
+    g_task_return_pointer (task, g_memdup2 (&result, sizeof result), g_free);
   else
     g_task_return_error (task, error);
 }
@@ -7780,7 +7914,7 @@ g_file_real_measure_disk_usage_async (GFile                        *file,
 
   task = g_task_new (file, cancellable, callback, user_data);
   g_task_set_source_tag (task, g_file_real_measure_disk_usage_async);
-  g_task_set_task_data (task, g_memdup (&data, sizeof data), g_free);
+  g_task_set_task_data (task, g_memdup2 (&data, sizeof data), g_free);
   g_task_set_priority (task, io_priority);
 
   g_task_run_in_thread (task, measure_disk_usage_thread);
@@ -7838,7 +7972,7 @@ g_file_real_measure_disk_usage_finish (GFile         *file,
  *
  * By default, errors are only reported against the toplevel file
  * itself.  Errors found while recursing are silently ignored, unless
- * %G_FILE_DISK_USAGE_REPORT_ALL_ERRORS is given in @flags.
+ * %G_FILE_MEASURE_REPORT_ANY_ERROR is given in @flags.
  *
  * The returned size, @disk_usage, is in bytes and should be formatted
  * with g_format_size() in order to get something reasonable for showing
@@ -8093,7 +8227,7 @@ g_file_stop_mountable (GFile               *file,
  * @result: a #GAsyncResult
  * @error: a #GError, or %NULL
  *
- * Finishes an stop operation, see g_file_stop_mountable() for details.
+ * Finishes a stop operation, see g_file_stop_mountable() for details.
  *
  * Finish an asynchronous stop operation that was started
  * with g_file_stop_mountable().

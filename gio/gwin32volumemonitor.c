@@ -105,13 +105,13 @@ get_viewable_logical_drives (void)
   return viewable_drives; 
 }
 
-/* deliver accesible (aka 'mounted') volumes */
+/* deliver accessible (aka 'mounted') volumes */
 static GList *
 get_mounts (GVolumeMonitor *volume_monitor)
 {
   DWORD   drives;
   gchar   drive[4] = "A:\\";
-  GList *list = NULL;
+  GQueue  queue = G_QUEUE_INIT;
   
   drives = get_viewable_logical_drives ();
 
@@ -121,13 +121,13 @@ get_mounts (GVolumeMonitor *volume_monitor)
   while (drives && drive[0] <= 'Z')
     {
       if (drives & 1)
-      {
-	list = g_list_prepend (list, _g_win32_mount_new (volume_monitor, drive, NULL));
-      }
+        g_queue_push_tail (&queue, _g_win32_mount_new (volume_monitor, drive, NULL));
+
       drives >>= 1;
       drive[0]++;
     }
-  return list;
+
+  return g_steal_pointer (&queue.head);
 }
 
 /* actually 'mounting' volumes is out of GIOs business on win32, so no volumes are delivered either */
@@ -237,7 +237,7 @@ g_win32_volume_monitor_class_init (GWin32VolumeMonitorClass *klass)
 static void
 g_win32_volume_monitor_init (GWin32VolumeMonitor *win32_monitor)
 {
-  /* maybe we shoud setup a callback window to listern for WM_DEVICECHANGE ? */
+  /* maybe we should setup a callback window to listen for WM_DEVICECHANGE ? */
 #if 0
   unix_monitor->mount_monitor = g_win32_mount_monitor_new ();
 

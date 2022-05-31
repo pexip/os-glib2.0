@@ -166,7 +166,7 @@ test_spawn_async (void)
  * Routine if the file descriptor does not exist.
  */
 static void
-sane_close (int fd)
+safe_close (int fd)
 {
   if (fd >= 0)
     close (fd);
@@ -252,10 +252,10 @@ test_spawn_async_with_fds (void)
 			      test_pipe[0][0], test_pipe[1][1], test_pipe[2][1],
 			      &error);
       g_assert_no_error (error);
-      sane_close (test_pipe[0][0]);
-      sane_close (test_pipe[1][1]);
+      safe_close (test_pipe[0][0]);
+      safe_close (test_pipe[1][1]);
       if (fd_info[2] != STDOUT_PIPE)
-        sane_close (test_pipe[2][1]);
+        safe_close (test_pipe[2][1]);
 
       data.loop = loop;
       data.stdout_done = FALSE;
@@ -297,10 +297,10 @@ test_spawn_async_with_fds (void)
 
       g_main_context_unref (context);
       g_main_loop_unref (loop);
-      sane_close (test_pipe[0][1]);
-      sane_close (test_pipe[1][0]);
+      safe_close (test_pipe[0][1]);
+      safe_close (test_pipe[1][0]);
       if (fd_info[2] != STDOUT_PIPE)
-        sane_close (test_pipe[2][0]);
+        safe_close (test_pipe[2][0]);
     }
 
   g_ptr_array_free (argv, TRUE);
@@ -312,24 +312,40 @@ test_spawn_sync (void)
 {
   int tnum = 1;
   GError *error = NULL;
-  GPtrArray *argv;
-  char *arg;
+  char *arg = g_strdup_printf ("thread %d", tnum);
+  /* Include arguments with special symbols to test that they are correctly passed to child.
+   * This is tested on all platforms, but the most prone to failure is win32,
+   * where args are specially escaped during spawning.
+   */
+  const char * const argv[] = {
+    echo_prog_path,
+    arg,
+    "doublequotes\\\"after\\\\\"\"backslashes", /* this would be special escaped on win32 */
+    "\\\"\"doublequotes spaced after backslashes\\\\\"", /* this would be special escaped on win32 */
+    "even$$dollars",
+    "even%%percents",
+    "even\"\"doublequotes",
+    "even''singlequotes",
+    "even\\\\backslashes",
+    "even//slashes",
+    "$odd spaced$dollars$",
+    "%odd spaced%spercents%",
+    "\"odd spaced\"doublequotes\"",
+    "'odd spaced'singlequotes'",
+    "\\odd spaced\\backslashes\\", /* this wasn't handled correctly on win32 in glib <=2.58 */
+    "/odd spaced/slashes/",
+    NULL
+  };
+  char *joined_args_str = g_strjoinv ("", (char**)argv + 1);
   char *stdout_str;
   int estatus;
 
-  arg = g_strdup_printf ("thread %d", tnum);
-
-  argv = g_ptr_array_new ();
-  g_ptr_array_add (argv, echo_prog_path);
-  g_ptr_array_add (argv, arg);
-  g_ptr_array_add (argv, NULL);
-
-  g_spawn_sync (NULL, (char**)argv->pdata, NULL, 0, NULL, NULL, &stdout_str, NULL, &estatus, &error);
+  g_spawn_sync (NULL, (char**)argv, NULL, 0, NULL, NULL, &stdout_str, NULL, &estatus, &error);
   g_assert_no_error (error);
-  g_assert_cmpstr (arg, ==, stdout_str);
+  g_assert_cmpstr (joined_args_str, ==, stdout_str);
   g_free (arg);
   g_free (stdout_str);
-  g_ptr_array_free (argv, TRUE);
+  g_free (joined_args_str);
 }
 
 /* Like test_spawn_sync but uses spawn flags that trigger the optimized
