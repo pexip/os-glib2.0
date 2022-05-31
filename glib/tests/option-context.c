@@ -27,6 +27,8 @@
 #include <string.h>
 #include <locale.h>
 
+#include "gstrfuncsprivate.h"
+
 static GOptionEntry main_entries[] = {
   { "main-switch", 0, 0,
     G_OPTION_ARG_NONE, NULL,
@@ -256,7 +258,7 @@ join_stringv (int argc, char **argv)
 static char **
 copy_stringv (char **argv, int argc)
 {
-  return g_memdup (argv, sizeof (char *) * (argc + 1));
+  return g_memdup2 (argv, sizeof (char *) * (argc + 1));
 }
 
 static void
@@ -1186,7 +1188,7 @@ callback_returns_false (void)
   g_strfreev (argv_copy);
   g_free (argv);
 
-  /* And again, this time with a optional arg variant, with argument */
+  /* And again, this time with an optional arg variant, with argument */
   context = g_option_context_new (NULL);
   g_option_context_add_main_entries (context, entries, NULL);
 
@@ -1203,7 +1205,7 @@ callback_returns_false (void)
   g_strfreev (argv_copy);
   g_free (argv);
 
-  /* And again, this time with a optional arg variant, without argument */
+  /* And again, this time with an optional arg variant, without argument */
   context = g_option_context_new (NULL);
   g_option_context_add_main_entries (context, entries, NULL);
 
@@ -1912,6 +1914,11 @@ missing_arg_test (void)
   g_strfreev (argv_copy);
   g_free (argv);
   g_option_context_free (context);
+
+  /* Checking g_option_context_parse_strv on NULL args */
+  context = g_option_context_new (NULL);
+  g_assert_true (g_option_context_parse_strv (context, NULL, NULL));
+  g_option_context_free (context);
 }
 
 static gchar *test_arg;
@@ -2318,7 +2325,7 @@ test_group_parse (void)
   g_option_context_add_group (context, group);
 
   argv = split_string ("program --test arg1 -f arg2 --group-test arg3 --frob arg4 -z arg5", &argc);
-  orig_argv = g_memdup (argv, (argc + 1) * sizeof (char *));
+  orig_argv = g_memdup2 (argv, (argc + 1) * sizeof (char *));
 
   retval = g_option_context_parse (context, &argc, &argv, &error);
 

@@ -83,8 +83,8 @@
  *
  * #GDate is simple to use. First you need a "blank" date; you can get a
  * dynamically allocated date from g_date_new(), or you can declare an
- * automatic variable or array and initialize it to a sane state by
- * calling g_date_clear(). A cleared date is sane; it's safe to call
+ * automatic variable or array and initialize it by
+ * calling g_date_clear(). A cleared date is safe; it's safe to call
  * g_date_set_dmy() and the other mutator functions to initialize the
  * value of a cleared date. However, a cleared date is initially
  * invalid, meaning that it doesn't represent a day that exists.
@@ -118,11 +118,13 @@
  * Similar to the struct timeval returned by the gettimeofday()
  * UNIX system call.
  *
- * GLib is attempting to unify around the use of 64bit integers to
+ * GLib is attempting to unify around the use of 64-bit integers to
  * represent microsecond-precision time. As such, this type will be
  * removed from a future version of GLib. A consequence of using `glong` for
  * `tv_sec` is that on 32-bit systems `GTimeVal` is subject to the year 2038
  * problem.
+ *
+ * Deprecated: 2.62: Use #GDateTime or #guint64 instead.
  */
 
 /**
@@ -144,7 +146,7 @@
  *
  * If it's declared on the stack, it will contain garbage so must be
  * initialized with g_date_clear(). g_date_clear() makes the date invalid
- * but sane. An invalid date doesn't represent a day, it's "empty." A date
+ * but safe. An invalid date doesn't represent a day, it's "empty." A date
  * becomes valid after you set it to a Julian day or you set a day, month,
  * and year.
  */
@@ -152,12 +154,12 @@
 /**
  * GTime:
  *
- * Simply a replacement for time_t. It has been deprecated
- * since it is not equivalent to time_t on 64-bit platforms
- * with a 64-bit time_t. Unrelated to #GTimer.
+ * Simply a replacement for `time_t`. It has been deprecated
+ * since it is not equivalent to `time_t` on 64-bit platforms
+ * with a 64-bit `time_t`. Unrelated to #GTimer.
  *
  * Note that #GTime is defined to always be a 32-bit integer,
- * unlike time_t which may be 64-bit on some systems. Therefore,
+ * unlike `time_t` which may be 64-bit on some systems. Therefore,
  * #GTime will overflow in the year 2038, and you cannot use the
  * address of a #GTime variable as argument to the UNIX time()
  * function.
@@ -170,6 +172,9 @@
  * time (&ttime);
  * gtime = (GTime)ttime;
  * ]|
+ *
+ * Deprecated: 2.62: This is not [Y2038-safe](https://en.wikipedia.org/wiki/Year_2038_problem).
+ *    Use #GDateTime or #time_t instead.
  */
 
 /**
@@ -254,7 +259,7 @@
  * g_date_new:
  *
  * Allocates a #GDate and initializes
- * it to a sane state. The new date will
+ * it to a safe state. The new date will
  * be cleared (as if you'd called g_date_clear()) but invalid (it won't
  * represent an existing day). Free the return value with g_date_free().
  *
@@ -415,7 +420,7 @@ static const guint16 days_in_year[2][14] =
 gboolean     
 g_date_valid_month (GDateMonth m)
 { 
-  return ( (m > G_DATE_BAD_MONTH) && (m < 13) );
+  return (((gint) m > G_DATE_BAD_MONTH) && ((gint) m < 13));
 }
 
 /**
@@ -461,7 +466,7 @@ g_date_valid_day (GDateDay d)
 gboolean     
 g_date_valid_weekday (GDateWeekday w)
 {
-  return ( (w > G_DATE_BAD_WEEKDAY) && (w < 8) );
+  return (((gint) w > G_DATE_BAD_WEEKDAY) && ((gint) w < 8));
 }
 
 /**
@@ -857,7 +862,7 @@ g_date_days_between (const GDate *d1,
  * @date: pointer to one or more dates to clear
  * @n_dates: number of dates to clear
  *
- * Initializes one or more #GDate structs to a sane but invalid
+ * Initializes one or more #GDate structs to a safe but invalid
  * state. The cleared dates will not represent an existing date, but will
  * not contain garbage. Useful to init a date declared on the stack.
  * Validity can be tested with g_date_valid().
@@ -1137,7 +1142,8 @@ g_date_prepare_to_parse (const gchar      *str,
               dmy_order[i] = G_DATE_DAY;
               break;
             case 76:
-              using_twodigit_years = TRUE; /* FALL THRU */
+              using_twodigit_years = TRUE;
+              G_GNUC_FALLTHROUGH;
             case 1976:
               dmy_order[i] = G_DATE_YEAR;
               break;
@@ -1223,12 +1229,23 @@ g_date_set_parse (GDate       *d,
 {
   GDateParseTokens pt;
   guint m = G_DATE_BAD_MONTH, day = G_DATE_BAD_DAY, y = G_DATE_BAD_YEAR;
+  gsize str_len;
   
   g_return_if_fail (d != NULL);
   
   /* set invalid */
   g_date_clear (d, 1);
-  
+
+  /* Anything longer than this is ridiculous and could take a while to normalize.
+   * This limit is chosen arbitrarily. */
+  str_len = strlen (str);
+  if (str_len > 200)
+    return;
+
+  /* The input has to be valid UTF-8. */
+  if (!g_utf8_validate_len (str, str_len, NULL))
+    return;
+
   G_LOCK (g_date_global);
 
   g_date_prepare_to_parse (str, &pt);
@@ -1444,12 +1461,14 @@ g_date_set_time_t (GDate *date,
  *
  * Deprecated: 2.10: Use g_date_set_time_t() instead.
  */
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 void
 g_date_set_time (GDate *date,
 		 GTime  time_)
 {
   g_date_set_time_t (date, (time_t) time_);
 }
+G_GNUC_END_IGNORE_DEPRECATIONS
 
 /**
  * g_date_set_time_val:
@@ -1463,13 +1482,17 @@ g_date_set_time (GDate *date,
  * The time to date conversion is done using the user's current timezone.
  *
  * Since: 2.10
+ * Deprecated: 2.62: #GTimeVal is not year-2038-safe. Use g_date_set_time_t()
+ *    instead.
  */
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 void
 g_date_set_time_val (GDate    *date,
 		     GTimeVal *timeval)
 {
   g_date_set_time_t (date, (time_t) timeval->tv_sec);
 }
+G_GNUC_END_IGNORE_DEPRECATIONS
 
 /**
  * g_date_set_month:
@@ -1729,7 +1752,7 @@ g_date_add_months (GDate *d,
   years  = nmonths/12;
   months = nmonths%12;
 
-  g_return_if_fail (years <= G_MAXUINT16 - d->year);
+  g_return_if_fail (years <= (guint) (G_MAXUINT16 - d->year));
 
   d->month = months + 1;
   d->year  += years;
@@ -1813,7 +1836,7 @@ g_date_add_years (GDate *d,
     g_date_update_dmy (d);
 
   g_return_if_fail (d->dmy != 0);
-  g_return_if_fail (nyears <= G_MAXUINT16 - d->year);
+  g_return_if_fail (nyears <= (guint) (G_MAXUINT16 - d->year));
 
   d->year += nyears;
   
@@ -2044,7 +2067,7 @@ g_date_compare (const GDate *lhs,
  * @tm: (not nullable): struct tm to fill
  *
  * Fills in the date-related bits of a struct tm using the @date value.
- * Initializes the non-date parts with something sane but meaningless.
+ * Initializes the non-date parts with something safe but meaningless.
  */
 void        
 g_date_to_struct_tm (const GDate *d, 
@@ -2142,7 +2165,7 @@ g_date_order (GDate *date1,
 }
 
 #ifdef G_OS_WIN32
-static void
+static gboolean
 append_month_name (GArray     *result,
 		   LCID        lcid,
 		   SYSTEMTIME *systemtime,
@@ -2157,9 +2180,14 @@ append_month_name (GArray     *result,
     {
       base = abbreviated ? LOCALE_SABBREVMONTHNAME1 : LOCALE_SMONTHNAME1;
       n = GetLocaleInfoW (lcid, base + systemtime->wMonth - 1, NULL, 0);
+      if (n == 0)
+        return FALSE;
+
       g_array_set_size (result, result->len + n);
-      GetLocaleInfoW (lcid, base + systemtime->wMonth - 1,
-		      ((wchar_t *) result->data) + result->len - n, n);
+      if (GetLocaleInfoW (lcid, base + systemtime->wMonth - 1,
+                          ((wchar_t *) result->data) + result->len - n, n) != n)
+        return FALSE;
+
       g_array_set_size (result, result->len - 1);
     }
   else
@@ -2167,12 +2195,20 @@ append_month_name (GArray     *result,
       /* According to MSDN, this is the correct method to obtain
        * the form of the month name used when formatting a full
        * date; it must be a genitive case in some languages.
+       *
+       * (n == 0) indicates an error, whereas (n < 2) is something we’d never
+       * expect from the given format string, and would break the subsequent code.
        */
       lpFormat = abbreviated ? L"ddMMM" : L"ddMMMM";
       n = GetDateFormatW (lcid, 0, systemtime, lpFormat, NULL, 0);
+      if (n < 2)
+        return FALSE;
+
       g_array_set_size (result, result->len + n);
-      GetDateFormatW (lcid, 0, systemtime, lpFormat,
-		      ((wchar_t *) result->data) + result->len - n, n);
+      if (GetDateFormatW (lcid, 0, systemtime, lpFormat,
+                          ((wchar_t *) result->data) + result->len - n, n) != n)
+        return FALSE;
+
       /* We have obtained a day number as two digits and the month name.
        * Now let's get rid of those two digits: overwrite them with the
        * month name.
@@ -2182,6 +2218,8 @@ append_month_name (GArray     *result,
 	       (n - 2) * sizeof (wchar_t));
       g_array_set_size (result, result->len - 3);
     }
+
+  return TRUE;
 }
 
 static gsize
@@ -2274,12 +2312,16 @@ win32_strftime_helper (const GDate     *d,
 	      break;
 	    case 'b':
 	    case 'h':
-	      append_month_name (result, lcid, &systemtime, TRUE,
-				 modifier == 'O');
+              if (!append_month_name (result, lcid, &systemtime, TRUE, modifier == 'O'))
+                {
+                  /* Ignore the error; this placeholder will be replaced with nothing */
+                }
 	      break;
 	    case 'B':
-	      append_month_name (result, lcid, &systemtime, FALSE,
-				 modifier == 'O');
+              if (!append_month_name (result, lcid, &systemtime, FALSE, modifier == 'O'))
+                {
+                  /* Ignore the error; this placeholder will be replaced with nothing */
+                }
 	      break;
 	    case 'c':
 	      n = GetDateFormatW (lcid, 0, &systemtime, NULL, NULL, 0);

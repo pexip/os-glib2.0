@@ -37,17 +37,19 @@ endif
 
 export DH_MESON_CROSS_FILE = debian/cross.txt
 
-# We use our own copy of debcrossgen to work around unimplemented feature
+# We edit the debcrossgen output to work around unimplemented feature
 # request https://bugs.debian.org/912559
 override_dh_auto_configure:
 ifneq ($(DEB_HOST_ARCH),$(DEB_BUILD_ARCH))
-	debian/debcrossgen \
-		--set have_c99_snprintf=true \
-		--set have_c99_vsnprintf=true \
-		--set have_strlcpy=false \
-		--set have_unix98_printf=true \
-		--set growing_stack=$(stack_grows_up) \
-		-o debian/cross.txt
+	/usr/share/meson/debcrossgen \
+		-o debian/cross.txt.in
+	debian/set-cross-properties \
+		have_c99_snprintf=true \
+		have_c99_vsnprintf=true \
+		have_strlcpy=false \
+		have_unix98_printf=true \
+		growing_stack=$(stack_grows_up) \
+		< debian/cross.txt.in > debian/cross.txt
 endif
 	dh_auto_configure \
 		--builddirectory=debian/build/deb \
@@ -73,10 +75,7 @@ override_dh_clean:
 
 override_dh_makeshlibs:
 	dh_makeshlibs -plibglib2.0-tests -n
-	dh_makeshlibs --remaining-packages -V --add-udeb=libglib2.0-udeb -- -c4
-
-override_dh_strip:
-	dh_strip --dbgsym-migration='libglib2.0-0-dbg (<< 2.51.4-1~)'
+	dh_makeshlibs --remaining-packages --add-udeb=libglib2.0-udeb -Xlibgiofam.so -- -c4
 
 # (Ubuntu-specific)
 # Don't strip translations from the installed tests; makes them environment dependent.
@@ -125,6 +124,7 @@ endif
 override_dh_auto_test-arch:
 ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 	# Remove LD_PRELOAD so we don't run with fakeroot, which makes dbus-related tests fail
+	# First run the non-flaky tests, and fail the build if they fail (on linux)
 	env -u LD_PRELOAD \
 		DEB_BUILD_TIME_TESTS=1 \
 		LC_ALL=C.UTF-8 \
@@ -133,14 +133,35 @@ ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 		--no-rebuild \
 		--num-processes 1 \
 		--timeout-multiplier $(test_timeout_multiplier) \
+		--no-suite flaky \
 		--verbose \
 	|| $(handle_test_failure)
+	# and then run the flaky ones, but ignore them failing
+	env -u LD_PRELOAD \
+		DEB_BUILD_TIME_TESTS=1 \
+		LC_ALL=C.UTF-8 \
+		MESON_TESTTHREADS=1 \
+	meson test -C debian/build/deb \
+		--no-rebuild \
+		--num-processes 1 \
+		--timeout-multiplier $(test_timeout_multiplier) \
+		--suite flaky \
+		--verbose \
+	|| true
 endif
 
-# Skip build-time tests if all we are building is documentation; running
-# them once per architecture is plenty
+# Skip most build-time tests if all we are building is documentation;
+# running them once per architecture is plenty. As an exception, do run the
+# documentation completeness checks, which won't normally be run on
+# architecture-specific buildds (except in Ubuntu).
 override_dh_auto_test-indep:
-	@:
+	meson test -C debian/build/deb \
+		--no-rebuild \
+		--num-processes 1 \
+		--timeout-multiplier $(test_timeout_multiplier) \
+		--verbose \
+		gio-doc-check glib-doc-check gobject-doc-check \
+	|| $(handle_test_failure)
 
 # The tests assume this directory exists and is writable
 export XDG_RUNTIME_DIR=$(CURDIR)/debian/tmp-xdg-runtime-dir
@@ -149,12 +170,14 @@ export XDG_RUNTIME_DIR=$(CURDIR)/debian/tmp-xdg-runtime-dir
 export VERBOSE=1
 
 ifeq ($(DEB_HOST_ARCH_OS),linux)
-is_linux := true
+enable_libmount := enabled
+enable_selinux := enabled
 else
-is_linux := false
+enable_libmount := disabled
+enable_selinux := disabled
 endif
 
-ifneq ($(filter hurd kfreebsd,$(DEB_HOST_ARCH_OS)),)
+ifneq ($(filter hurd,$(DEB_HOST_ARCH_OS)),)
 use_fam := true
 else
 use_fam := false
@@ -162,7 +185,6 @@ endif
 
 # configure flags
 DEB_CONFIGURE_EXTRA_FLAGS := \
-	--libexecdir=lib/glib2.0 \
 	-Dinternal_pcre=false \
 	$(NULL)
 
@@ -170,9 +192,9 @@ DEB_CONFIGURE_FLAGS_deb := \
 	--default-library both \
 	-Dfam=$(use_fam) \
 	-Dinstalled_tests=true \
-	-Dlibmount=$(is_linux) \
+	-Dlibmount=$(enable_libmount) \
 	-Dman=true \
-	-Dselinux=$(is_linux) \
+	-Dselinux=$(enable_selinux) \
 	-Dsystemtap=true \
 	-Dxattr=$(have_non_stub_xattr) \
 	$(NULL)
@@ -187,8 +209,8 @@ DEB_CONFIGURE_FLAGS_udeb := \
 	--default-library shared \
 	-Dgtk_doc=false \
 	-Dinstalled_tests=false \
-	-Dlibmount=false \
-	-Dselinux=false \
+	-Dlibmount=disabled \
+	-Dselinux=disabled \
 	-Dxattr=$(have_non_stub_xattr) \
 	$(NULL)
 
@@ -215,16 +237,12 @@ override_dh_python3:
 	# dh_python3 can't process both a private directory and /usr/bin
 	# in the same invocation
 	dh_python3 -plibglib2.0-dev-bin /usr/share/glib-2.0/codegen
-	dh_python3 -plibglib2.0-dev-bin
+	dh_python3 -plibglib2.0-tests --no-ext-rename /usr/libexec/installed-tests/glib
+	dh_python3
 
 override_dh_install:
 	# Unwanted bits from the .deb build
 	rm -fr debian/install/deb/usr/share/glib-2.0/codegen/__pycache__
-	# https://gitlab.gnome.org/GNOME/glib/issues/1539
-	chmod -v 0644 debian/install/deb/usr/lib/glib2.0/installed-tests/glib/desktop-files/usr/applications/org.gnome.clocks.desktop
-	chmod -v 0644 debian/install/deb/usr/lib/glib2.0/installed-tests/glib/echo-script.bat
-	chmod -v 0644 debian/install/deb/usr/share/bash-completion/completions/gio
-	chmod -v 0644 debian/install/deb/usr/share/glib-2.0/codegen/codegen_main.py
 ifneq ($(filter %-udeb,$(binaries)),)
 	# Unwanted bits from the .udeb build
 	rm -f debian/install/udeb/usr/lib/*/*.so
@@ -237,6 +255,11 @@ ifneq ($(filter %-udeb,$(binaries)),)
 	dh_install -plibglib2.0-udeb --sourcedir=debian/install/udeb
 endif
 	dh_install --remaining-packages --sourcedir=debian/install/deb
+	install -D -t debian/libglib2.0-0/usr/share/glib-2.0/ debian/clean-up-unmanaged-libraries
+	install -D -t debian/libglib2.0-0/usr/lib/${DEB_HOST_MULTIARCH}/glib-2.0/ debian/gio-launch-desktop
+
+override_dh_dwz:
+	dh_dwz -Nlibglib2.0-udeb
 
 override_dh_missing:
 	dh_missing --sourcedir=debian/install/deb --fail-missing

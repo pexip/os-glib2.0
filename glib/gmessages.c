@@ -1313,7 +1313,7 @@ g_logv (const gchar   *log_domain,
     {
       GLogLevelFlags test_level;
 
-      test_level = 1 << i;
+      test_level = 1L << i;
       if (log_level & test_level)
 	{
 	  GLogDomain *domain;
@@ -1358,7 +1358,9 @@ g_logv (const gchar   *log_domain,
 
           if ((test_level & G_LOG_FLAG_FATAL) && !masquerade_fatal)
             {
-#ifdef G_OS_WIN32
+              /* MessageBox is allowed on UWP apps only when building against
+               * the debug CRT, which will set -D_DEBUG */
+#if defined(G_OS_WIN32) && (defined(_DEBUG) || !defined(G_WINAPI_ONLY_APP))
               if (win32_keep_fatal_message)
                 {
                   gchar *locale_msg = g_locale_from_utf8 (fatal_msg_buf, -1, NULL, NULL, NULL);
@@ -1366,7 +1368,7 @@ g_logv (const gchar   *log_domain,
                   MessageBox (NULL, locale_msg, NULL,
                               MB_ICONERROR|MB_SETFOREGROUND);
                 }
-#endif /* !G_OS_WIN32 */
+#endif
 
               _g_log_abort (!(test_level & G_LOG_FLAG_RECURSION));
 	    }
@@ -2165,31 +2167,24 @@ g_log_writer_is_journald (gint output_fd)
   /* FIXME: Use the new journal API for detecting whether we’re writing to the
    * journal. See: https://github.com/systemd/systemd/issues/2473
    */
-  static gsize initialized;
-  static gboolean fd_is_journal = FALSE;
+  union {
+    struct sockaddr_storage storage;
+    struct sockaddr sa;
+    struct sockaddr_un un;
+  } addr;
+  socklen_t addr_len;
+  int err;
 
   if (output_fd < 0)
     return FALSE;
 
-  if (g_once_init_enter (&initialized))
-    {
-      union {
-        struct sockaddr_storage storage;
-        struct sockaddr sa;
-        struct sockaddr_un un;
-      } addr;
-      socklen_t addr_len = sizeof(addr);
-      int err = getpeername (output_fd, &addr.sa, &addr_len);
-      if (err == 0 && addr.storage.ss_family == AF_UNIX)
-        fd_is_journal = g_str_has_prefix (addr.un.sun_path, "/run/systemd/journal/");
-
-      g_once_init_leave (&initialized, TRUE);
-    }
-
-  return fd_is_journal;
-#else
-  return FALSE;
+  addr_len = sizeof(addr);
+  err = getpeername (output_fd, &addr.sa, &addr_len);
+  if (err == 0 && addr.storage.ss_family == AF_UNIX)
+    return g_str_has_prefix (addr.un.sun_path, "/run/systemd/journal/");
 #endif
+
+  return FALSE;
 }
 
 static void escape_string (GString *string);
@@ -2298,7 +2293,7 @@ g_log_writer_format_fields (GLogLevelFlags   log_level,
       msg = g_string_new (message);
       escape_string (msg);
 
-      if (g_get_charset (&charset))
+      if (g_get_console_charset (&charset))
         {
           /* charset is UTF-8 already */
           g_string_append (gstring, msg->str);
@@ -2620,6 +2615,9 @@ g_log_writer_default (GLogLevelFlags   log_level,
                       gsize            n_fields,
                       gpointer         user_data)
 {
+  static gsize initialized = 0;
+  static gboolean stderr_is_journal = FALSE;
+
   g_return_val_if_fail (fields != NULL, G_LOG_WRITER_UNHANDLED);
   g_return_val_if_fail (n_fields > 0, G_LOG_WRITER_UNHANDLED);
 
@@ -2656,7 +2654,13 @@ g_log_writer_default (GLogLevelFlags   log_level,
     log_level |= G_LOG_FLAG_FATAL;
 
   /* Try logging to the systemd journal as first choice. */
-  if (g_log_writer_is_journald (fileno (stderr)) &&
+  if (g_once_init_enter (&initialized))
+    {
+      stderr_is_journal = g_log_writer_is_journald (fileno (stderr));
+      g_once_init_leave (&initialized, TRUE);
+    }
+
+  if (stderr_is_journal &&
       g_log_writer_journald (log_level, fields, n_fields, user_data) ==
       G_LOG_WRITER_HANDLED)
     goto handled;
@@ -2673,7 +2677,9 @@ handled:
   /* Abort if the message was fatal. */
   if (log_level & G_LOG_FLAG_FATAL)
     {
-#ifdef G_OS_WIN32
+      /* MessageBox is allowed on UWP apps only when building against
+       * the debug CRT, which will set -D_DEBUG */
+#if defined(G_OS_WIN32) && (defined(_DEBUG) || !defined(G_WINAPI_ONLY_APP))
       if (!g_test_initialized ())
         {
           gchar *locale_msg = NULL;
@@ -2750,9 +2756,12 @@ _g_log_writer_fallback (GLogLevelFlags   log_level,
 
 /**
  * g_return_if_fail_warning: (skip)
- * @log_domain: (nullable):
- * @pretty_function:
- * @expression: (nullable):
+ * @log_domain: (nullable): log domain
+ * @pretty_function: function containing the assertion
+ * @expression: (nullable): expression which failed
+ *
+ * Internal function used to print messages from the public g_return_if_fail()
+ * and g_return_val_if_fail() macros.
  */
 void
 g_return_if_fail_warning (const char *log_domain,
@@ -2768,11 +2777,14 @@ g_return_if_fail_warning (const char *log_domain,
 
 /**
  * g_warn_message: (skip)
- * @domain: (nullable):
- * @file:
- * @line:
- * @func:
- * @warnexpr: (nullable):
+ * @domain: (nullable): log domain
+ * @file: file containing the warning
+ * @line: line number of the warning
+ * @func: function containing the warning
+ * @warnexpr: (nullable): expression which failed
+ *
+ * Internal function used to print messages from the public g_warn_if_reached()
+ * and g_warn_if_fail() macros.
  */
 void
 g_warn_message (const char     *domain,
@@ -3051,7 +3063,7 @@ escape_string (GString *string)
  *
  * - `G_MESSAGES_PREFIXED`: A :-separated list of log levels for which
  *   messages should be prefixed by the program name and PID of the
- *   aplication.
+ *   application.
  *
  * - `G_MESSAGES_DEBUG`: A space-separated list of log domains for
  *   which debug and informational messages are printed. By default
@@ -3178,7 +3190,7 @@ g_print (const gchar *format,
     {
       const gchar *charset;
 
-      if (g_get_charset (&charset))
+      if (g_get_console_charset (&charset))
         fputs (string, stdout); /* charset is UTF-8 already */
       else
         {
@@ -3257,7 +3269,7 @@ g_printerr (const gchar *format,
     {
       const gchar *charset;
 
-      if (g_get_charset (&charset))
+      if (g_get_console_charset (&charset))
         fputs (string, stderr); /* charset is UTF-8 already */
       else
         {
