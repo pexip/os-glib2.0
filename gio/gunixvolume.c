@@ -305,8 +305,7 @@ eject_mount_do (GVolume              *volume,
                 GCancellable         *cancellable,
                 GAsyncReadyCallback   callback,
                 gpointer              user_data,
-                const gchar * const  *argv,
-                const gchar          *task_name)
+                const gchar * const  *argv)
 {
   GSubprocess *subprocess;
   GError *error = NULL;
@@ -314,7 +313,6 @@ eject_mount_do (GVolume              *volume,
 
   task = g_task_new (volume, cancellable, callback, user_data);
   g_task_set_source_tag (task, eject_mount_do);
-  g_task_set_name (task, task_name);
 
   if (g_task_return_error_if_cancelled (task))
     {
@@ -346,7 +344,7 @@ g_unix_volume_mount (GVolume            *volume,
   else
     argv[1] = unix_volume->device_path;
 
-  eject_mount_do (volume, cancellable, callback, user_data, argv, "[gio] mount volume");
+  eject_mount_do (volume, cancellable, callback, user_data, argv);
 }
 
 static gboolean
@@ -371,7 +369,7 @@ g_unix_volume_eject (GVolume             *volume,
 
   argv[1] = unix_volume->device_path;
 
-  eject_mount_do (volume, cancellable, callback, user_data, argv, "[gio] eject volume");
+  eject_mount_do (volume, cancellable, callback, user_data, argv);
 }
 
 static gboolean

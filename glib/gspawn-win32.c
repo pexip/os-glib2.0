@@ -72,7 +72,7 @@
       {							\
 	if (debug == -1)				\
 	  {						\
-	    if (g_getenv ("G_SPAWN_WIN32_DEBUG") != NULL)	\
+	    if (getenv ("G_SPAWN_WIN32_DEBUG") != NULL)	\
 	      debug = 1;				\
 	    else					\
 	      debug = 0;				\
@@ -105,8 +105,8 @@ enum {
 };
 
 static int
-reopen_noninherited (int fd,
-		     int mode)
+dup_noninherited (int fd,
+		  int mode)
 {
   HANDLE filehandle;
 
@@ -125,24 +125,28 @@ reopen_noninherited (int fd,
 #define HELPER_PROCESS "gspawn-win32-helper"
 #endif
 
-/* This logic has a copy for wchar_t in gspawn-win32-helper.c, protect_wargv() */
 static gchar *
 protect_argv_string (const gchar *string)
 {
   const gchar *p = string;
   gchar *retval, *q;
   gint len = 0;
-  gint pre_bslash = 0;
   gboolean need_dblquotes = FALSE;
   while (*p)
     {
       if (*p == ' ' || *p == '\t')
 	need_dblquotes = TRUE;
-      /* estimate max len, assuming that all escapable characters will be escaped */
-      if (*p == '"' || *p == '\\')
-	len += 2;
-      else
-	len += 1;
+      else if (*p == '"')
+	len++;
+      else if (*p == '\\')
+	{
+	  const gchar *pp = p;
+	  while (*pp && *pp == '\\')
+	    pp++;
+	  if (*pp == '"')
+	    len++;
+	}
+      len++;
       p++;
     }
   
@@ -151,40 +155,25 @@ protect_argv_string (const gchar *string)
 
   if (need_dblquotes)
     *q++ = '"';
-  /* Only quotes and backslashes preceding quotes are escaped:
-   * see "Parsing C Command-Line Arguments" at
-   * https://docs.microsoft.com/en-us/cpp/c-language/parsing-c-command-line-arguments
-   */
+  
   while (*p)
     {
       if (*p == '"')
+	*q++ = '\\';
+      else if (*p == '\\')
 	{
-	  /* Add backslash for escaping quote itself */
-	  *q++ = '\\';
-	  /* Add backslash for every preceding backslash for escaping it */
-	  for (;pre_bslash > 0; --pre_bslash)
+	  const gchar *pp = p;
+	  while (*pp && *pp == '\\')
+	    pp++;
+	  if (*pp == '"')
 	    *q++ = '\\';
 	}
-
-      /* Count length of continuous sequence of preceding backslashes. */
-      if (*p == '\\')
-	++pre_bslash;
-      else
-	pre_bslash = 0;
-
       *q++ = *p;
       p++;
     }
   
   if (need_dblquotes)
-    {
-      /* Add backslash for every preceding backslash for escaping it,
-       * do NOT escape quote itself.
-       */
-      for (;pre_bslash > 0; --pre_bslash)
-	*q++ = '\\';
-      *q++ = '"';
-    }
+    *q++ = '"';
   *q++ = '\0';
 
   return retval;
@@ -207,7 +196,7 @@ protect_argv (gchar  **argv,
    * rather different than what Unix shells do. See stdargv.c in the C
    * runtime sources (in the Platform SDK, in src/crt).
    *
-   * Note that a new_argv[0] constructed by this function should
+   * Note that an new_argv[0] constructed by this function should
    * *not* be passed as the filename argument to a spawn* or exec*
    * family function. That argument should be the real file name
    * without any quoting.
@@ -617,7 +606,7 @@ do_spawn_with_fds (gint                 *exit_status,
    * helper process, and the started actual user process. As such that
    * shouldn't harm, but it is unnecessary.
    */
-  child_err_report_pipe[0] = reopen_noninherited (child_err_report_pipe[0], _O_RDONLY);
+  child_err_report_pipe[0] = dup_noninherited (child_err_report_pipe[0], _O_RDONLY);
 
   if (flags & G_SPAWN_FILE_AND_ARGV_ZERO)
     {
@@ -636,7 +625,7 @@ do_spawn_with_fds (gint                 *exit_status,
    * process won't read but won't get any EOF either, as it has the
    * write end open itself.
    */
-  helper_sync_pipe[1] = reopen_noninherited (helper_sync_pipe[1], _O_WRONLY);
+  helper_sync_pipe[1] = dup_noninherited (helper_sync_pipe[1], _O_WRONLY);
 
   if (stdin_fd != -1)
     {
@@ -668,7 +657,7 @@ do_spawn_with_fds (gint                 *exit_status,
       new_argv[ARG_STDOUT] = "-";
     }
   
-  if (stderr_fd != -1)
+  if (stdout_fd != -1)
     {
       _g_sprintf (args[ARG_STDERR], "%d", stderr_fd);
       new_argv[ARG_STDERR] = args[ARG_STDERR];

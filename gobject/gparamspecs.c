@@ -24,9 +24,7 @@
 
 #include <string.h>
 
-#ifndef GLIB_DISABLE_DEPRECATION_WARNINGS
 #define GLIB_DISABLE_DEPRECATION_WARNINGS
-#endif
 
 #include "gparamspecs.h"
 #include "gtype-private.h"
@@ -914,11 +912,8 @@ param_value_array_validate (GParamSpec *pspec,
 		  g_param_value_set_default (element_spec, element);
 		  changed++;
 		}
-              else
-                {
-	          /* validate array value against element_spec */
-	          changed += g_param_value_validate (element_spec, element);
-                }
+	      /* validate array value against element_spec */
+	      changed += g_param_value_validate (element_spec, element);
 	    }
 	}
     }
@@ -1196,16 +1191,11 @@ void
 _g_param_spec_types_init (void)	
 {
   const guint n_types = 23;
-  GType type, *spec_types;
-#ifndef G_DISABLE_ASSERT
-  GType *spec_types_bound;
-#endif
+  GType type, *spec_types, *spec_types_bound;
 
   g_param_spec_types = g_new0 (GType, n_types);
   spec_types = g_param_spec_types;
-#ifndef G_DISABLE_ASSERT
   spec_types_bound = g_param_spec_types + n_types;
-#endif
   
   /* G_TYPE_PARAM_CHAR
    */
@@ -2097,10 +2087,7 @@ g_param_spec_enum (const gchar *name,
 				 blurb,
 				 flags);
   if (espec == NULL)
-    {
-      g_type_class_unref (enum_class);
-      return NULL;
-    }
+    return NULL;
   
   espec->enum_class = enum_class;
   espec->default_value = default_value;
@@ -2148,10 +2135,7 @@ g_param_spec_flags (const gchar *name,
 				 blurb,
 				 flags);
   if (fspec == NULL)
-    {
-      g_type_class_unref (flags_class);
-      return NULL;
-    }
+    return NULL;
   
   fspec->flags_class = flags_class;
   fspec->default_value = default_value;

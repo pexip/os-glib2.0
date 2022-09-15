@@ -39,7 +39,7 @@
 #include <sys/cygwin.h>
 #endif
 
-static void G_GNUC_PRINTF (1, 2)
+static void
 set_error (const gchar *format,
 	   ...)
 {
@@ -84,15 +84,7 @@ _g_module_open (const gchar *file_name,
   success = SetThreadErrorMode (SEM_NOOPENFILEERRORBOX | SEM_FAILCRITICALERRORS, &old_mode);
   if (!success)
     set_error ("");
-
-  /* When building for UWP, load app asset DLLs instead of filesystem DLLs.
-   * Needs MSVC, Windows 8 and newer, and is only usable from apps. */
-#if _WIN32_WINNT >= 0x0602 && defined(G_WINAPI_ONLY_APP)
-  handle = LoadPackagedLibrary (wfilename, 0);
-#else
   handle = LoadLibraryW (wfilename);
-#endif
-
   if (success)
     SetThreadErrorMode (old_mode, NULL);
   g_free (wfilename);
@@ -113,7 +105,8 @@ _g_module_self (void)
 }
 
 static void
-_g_module_close (gpointer handle)
+_g_module_close (gpointer handle,
+		 gboolean is_unref)
 {
   if (handle != null_module_handle)
     if (!FreeLibrary (handle))
@@ -126,25 +119,9 @@ find_in_any_module_using_toolhelp (const gchar *symbol_name)
   HANDLE snapshot; 
   MODULEENTRY32 me32;
 
-  gpointer p = NULL;
+  gpointer p;
 
-  /* Under UWP, Module32Next and Module32First are not available since we're
-   * not allowed to search in the address space of arbitrary loaded DLLs */
-#if !defined(G_WINAPI_ONLY_APP)
-  /* https://docs.microsoft.com/en-us/windows/win32/api/tlhelp32/nf-tlhelp32-createtoolhelp32snapshot#remarks
-   * If the function fails with ERROR_BAD_LENGTH, retry the function until it succeeds. */
-  while (TRUE)
-    {
-      snapshot = CreateToolhelp32Snapshot (TH32CS_SNAPMODULE, 0);
-      if (snapshot == INVALID_HANDLE_VALUE && GetLastError () == ERROR_BAD_LENGTH)
-        {
-          g_thread_yield ();
-          continue;
-        }
-      break;
-    }
-
-  if (snapshot == INVALID_HANDLE_VALUE)
+  if ((snapshot = CreateToolhelp32Snapshot (TH32CS_SNAPMODULE, 0)) == (HANDLE) -1)
     return NULL;
 
   me32.dwSize = sizeof (me32);
@@ -158,7 +135,6 @@ find_in_any_module_using_toolhelp (const gchar *symbol_name)
     }
 
   CloseHandle (snapshot);
-#endif
 
   return p;
 }

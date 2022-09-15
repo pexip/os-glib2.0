@@ -575,26 +575,6 @@ log_warning_error_tests (void)
 }
 
 static void
-log_warning_rate_limited_tests (void)
-{
-#if defined(G_HAVE_ISO_VARARGS) || defined(G_HAVE_GNUC_VARARGS)
-  int i;
-
-  g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_WARNING,
-                         "*harmless single warning 1*");
-  g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_WARNING,
-                         "*harmless single warning 2*");
-  for (i = 0; i < 10; i++)
-    g_warning_once ("harmless single warning 1");
-  for (i = 0; i < 10; i++)
-    g_warning_once ("harmless single warning 2");
-  g_test_assert_expected_messages ();
-#else
-  g_test_skip ("Variadic macro support not available");
-#endif
-}
-
-static void
 timer_tests (void)
 {
   GTimer *timer, *timer2;
@@ -863,7 +843,6 @@ test_paths (void)
     gchar *relative_path;
     gchar *canonical_path;
   } canonicalize_filename_checks[] = {
-#ifndef G_OS_WIN32
     { "/etc", "../usr/share", "/usr/share" },
     { "/", "/foo/bar", "/foo/bar" },
     { "/usr/bin", "../../foo/bar", "/foo/bar" },
@@ -878,22 +857,7 @@ test_paths (void)
     { "///triple/slash", ".", "/triple/slash" },
     { "//double/slash", ".", "//double/slash" },
     { "/cwd/../with/./complexities/", "./hello", "/with/complexities/hello" },
-#else
-    { "/etc", "../usr/share", "\\usr\\share" },
-    { "/", "/foo/bar", "\\foo\\bar" },
-    { "/usr/bin", "../../foo/bar", "\\foo\\bar" },
-    { "/", "../../foo/bar", "\\foo\\bar" },
-    { "/double//dash", "../../foo/bar", "\\foo\\bar" },
-    { "/usr/share/foo", ".././././bar", "\\usr\\share\\bar" },
-    { "/foo/bar", "../bar/./.././bar", "\\foo\\bar" },
-    { "/test///dir", "../../././foo/bar", "\\foo\\bar" },
-    { "/test///dir", "../../././/foo///bar", "\\foo\\bar" },
-    { "/etc", "///triple/slash", "\\triple\\slash" },
-    { "/etc", "//double/slash", "//double/slash" },
-    { "///triple/slash", ".", "\\triple\\slash" },
-    { "//double/slash", ".", "//double/slash\\" },
-    { "/cwd/../with/./complexities/", "./hello", "\\with\\complexities\\hello" },
-
+#ifdef G_OS_WIN32
     { "\\etc", "..\\usr\\share", "\\usr\\share" },
     { "\\", "\\foo\\bar", "\\foo\\bar" },
     { "\\usr\\bin", "..\\..\\foo\\bar", "\\foo\\bar" },
@@ -906,8 +870,8 @@ test_paths (void)
     { "\\etc", "\\\\\\triple\\slash", "\\triple\\slash" },
     { "\\etc", "\\\\double\\slash", "\\\\double\\slash" },
     { "\\\\\\triple\\slash", ".", "\\triple\\slash" },
-    { "\\\\double\\slash", ".", "\\\\double\\slash\\" },
-    { "\\cwd\\..\\with\\.\\complexities\\", ".\\hello", "\\with\\complexities\\hello" },
+    { "\\\\double\\slash", ".", "\\\\double\\slash" },
+    { "\\cwd\\..\\with\\.\\complexities\\", ".\\hello", "\\cwd\\with\\complexities\\hello" },
 #endif
   };
   const guint n_canonicalize_filename_checks = G_N_ELEMENTS (canonicalize_filename_checks);
@@ -1189,11 +1153,10 @@ hash_table_tests (void)
   g_hash_table_destroy (hash_table);
 }
 
+#ifndef G_DISABLE_DEPRECATED
 static void
 relation_test (void)
 {
-  G_GNUC_BEGIN_IGNORE_DEPRECATIONS
-
   GRelation *relation = g_relation_new (2);
   GTuples *tuples;
   gint data [1024];
@@ -1262,9 +1225,8 @@ relation_test (void)
   g_relation_destroy (relation);
 
   relation = NULL;
-
-  G_GNUC_END_IGNORE_DEPRECATIONS
 }
+#endif
 
 static void
 gstring_tests (void)
@@ -1659,11 +1621,10 @@ various_string_tests (void)
   /* g_debug (argv[0]); */
 }
 
+#ifndef G_DISABLE_DEPRECATED
 static void
 test_mem_chunks (void)
 {
-  G_GNUC_BEGIN_IGNORE_DEPRECATIONS
-
   GMemChunk *mem_chunk = g_mem_chunk_new ("test mem chunk", 50, 100, G_ALLOC_AND_FREE);
   gchar *mem[10000];
   guint i;
@@ -1678,9 +1639,8 @@ test_mem_chunks (void)
     g_mem_chunk_free (mem_chunk, mem[i]);
 
   g_mem_chunk_destroy (mem_chunk);
-
-  G_GNUC_END_IGNORE_DEPRECATIONS
 }
+#endif
 
 int
 main (int   argc,
@@ -1698,13 +1658,16 @@ main (int   argc,
   g_test_add_func ("/testglib/GTree", binary_tree_test);
   g_test_add_func ("/testglib/Arrays", test_arrays);
   g_test_add_func ("/testglib/GHashTable", hash_table_tests);
+#ifndef G_DISABLE_DEPRECATED
   g_test_add_func ("/testglib/Relation (deprecated)", relation_test);
+#endif
   g_test_add_func ("/testglib/File Paths", test_paths);
   g_test_add_func ("/testglib/File Functions", test_file_functions);
   g_test_add_func ("/testglib/Parse Debug Strings", test_g_parse_debug_string);
+#ifndef G_DISABLE_DEPRECATED
   g_test_add_func ("/testglib/GMemChunk (deprecated)", test_mem_chunks);
+#endif
   g_test_add_func ("/testglib/Warnings & Errors", log_warning_error_tests);
-  g_test_add_func ("/testglib/Warnings (rate limited)", log_warning_rate_limited_tests);
   g_test_add_func ("/testglib/Timers (slow)", timer_tests);
 
   return g_test_run();

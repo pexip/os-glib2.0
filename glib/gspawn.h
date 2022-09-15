@@ -46,7 +46,7 @@ G_BEGIN_DECLS
  * @G_SPAWN_ERROR_ACCES: execv() returned `EACCES`
  * @G_SPAWN_ERROR_PERM: execv() returned `EPERM`
  * @G_SPAWN_ERROR_TOO_BIG: execv() returned `E2BIG`
- * @G_SPAWN_ERROR_2BIG: deprecated alias for %G_SPAWN_ERROR_TOO_BIG (deprecated since GLib 2.32)
+ * @G_SPAWN_ERROR_2BIG: deprecated alias for %G_SPAWN_ERROR_TOO_BIG
  * @G_SPAWN_ERROR_NOEXEC: execv() returned `ENOEXEC`
  * @G_SPAWN_ERROR_NAMETOOLONG: execv() returned `ENAMETOOLONG`
  * @G_SPAWN_ERROR_NOENT: execv() returned `ENOENT`
@@ -73,7 +73,9 @@ typedef enum
   G_SPAWN_ERROR_ACCES,  /* execv() returned EACCES */
   G_SPAWN_ERROR_PERM,   /* execv() returned EPERM */
   G_SPAWN_ERROR_TOO_BIG,/* execv() returned E2BIG */
-  G_SPAWN_ERROR_2BIG GLIB_DEPRECATED_ENUMERATOR_IN_2_32_FOR(G_SPAWN_ERROR_TOO_BIG) = G_SPAWN_ERROR_TOO_BIG,
+#ifndef G_DISABLE_DEPRECATED
+  G_SPAWN_ERROR_2BIG = G_SPAWN_ERROR_TOO_BIG,
+#endif
   G_SPAWN_ERROR_NOEXEC, /* execv() returned ENOEXEC */
   G_SPAWN_ERROR_NAMETOOLONG, /* ""  "" ENAMETOOLONG */
   G_SPAWN_ERROR_NOENT,       /* ""  "" ENOENT */
@@ -157,7 +159,7 @@ typedef void (* GSpawnChildSetupFunc) (gpointer user_data);
  *     execute, while the remaining elements are the actual argument vector
  *     to pass to the file. Normally g_spawn_async_with_pipes() uses `argv[0]`
  *     as the file to execute, and passes all of `argv` to the child.
- * @G_SPAWN_SEARCH_PATH_FROM_ENVP: if `argv[0]` is not an absolute path,
+ * @G_SPAWN_SEARCH_PATH_FROM_ENVP: if `argv[0]` is not an abolute path,
  *     it will be looked for in the `PATH` from the passed child environment.
  *     Since: 2.34
  * @G_SPAWN_CLOEXEC_PIPES: create all pipes with the `O_CLOEXEC` flag set.

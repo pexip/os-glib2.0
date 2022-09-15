@@ -575,7 +575,7 @@ initable_init (GInitable     *initable,
 
   {
     guint64 identifier;
-    gint s G_GNUC_UNUSED  /* when compiling with G_DISABLE_ASSERT */;
+    gint s;
 
 #ifdef G_OS_WIN32
     identifier = (guint64) GetProcessId (self->pid);
@@ -749,11 +749,6 @@ g_subprocess_newv (const gchar * const  *argv,
  *
  * On UNIX, returns the process ID as a decimal string.
  * On Windows, returns the result of GetProcessId() also as a string.
- * If the subprocess has terminated, this will return %NULL.
- *
- * Returns: (nullable): the subprocess identifier, or %NULL if the subprocess
- *    has terminated
- * Since: 2.40
  */
 const gchar *
 g_subprocess_get_identifier (GSubprocess *subprocess)
@@ -1595,23 +1590,6 @@ g_subprocess_communicate_internal (GSubprocess         *subprocess,
   if (subprocess->stdin_pipe)
     {
       g_assert (stdin_buf != NULL);
-
-#ifdef G_OS_UNIX
-      /* We're doing async writes to the pipe, and the async write mechanism assumes
-       * that streams polling as writable do SOME progress (possibly partial) and then
-       * stop, but never block.
-       *
-       * However, for blocking pipes, unix will return writable if there is *any* space left
-       * but still block until the full buffer size is available before returning from write.
-       * So, to avoid async blocking on the main loop we make this non-blocking here.
-       *
-       * It should be safe to change the fd because we're the only user at this point as
-       * per the g_subprocess_communicate() docs, and all the code called by this function
-       * properly handles non-blocking fds.
-       */
-      g_unix_set_fd_nonblocking (g_unix_output_stream_get_fd (G_UNIX_OUTPUT_STREAM (subprocess->stdin_pipe)), TRUE, NULL);
-#endif
-
       state->stdin_buf = g_memory_input_stream_new_from_bytes (stdin_buf);
       g_output_stream_splice_async (subprocess->stdin_pipe, (GInputStream*)state->stdin_buf,
                                     G_OUTPUT_STREAM_SPLICE_CLOSE_SOURCE | G_OUTPUT_STREAM_SPLICE_CLOSE_TARGET,
@@ -1806,9 +1784,6 @@ g_subprocess_communicate_finish (GSubprocess   *subprocess,
  *
  * Like g_subprocess_communicate(), but validates the output of the
  * process as UTF-8, and returns it as a regular NUL terminated string.
- *
- * On error, @stdout_buf and @stderr_buf will be set to undefined values and
- * should not be used.
  */
 gboolean
 g_subprocess_communicate_utf8 (GSubprocess   *subprocess,
@@ -1893,7 +1868,6 @@ communicate_result_validate_utf8 (const char            *stream_name,
       if (!g_utf8_validate (*return_location, -1, &end))
         {
           g_free (*return_location);
-          *return_location = NULL;
           g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
                        "Invalid UTF-8 in child %s at offset %lu",
                        stream_name,
@@ -1926,7 +1900,6 @@ g_subprocess_communicate_utf8_finish (GSubprocess   *subprocess,
 {
   gboolean ret = FALSE;
   CommunicateState *state;
-  gchar *local_stdout_buf = NULL, *local_stderr_buf = NULL;
 
   g_return_val_if_fail (G_IS_SUBPROCESS (subprocess), FALSE);
   g_return_val_if_fail (g_task_is_valid (result, subprocess), FALSE);
@@ -1940,11 +1913,11 @@ g_subprocess_communicate_utf8_finish (GSubprocess   *subprocess,
 
   /* TODO - validate UTF-8 while streaming, rather than all at once.
    */
-  if (!communicate_result_validate_utf8 ("stdout", &local_stdout_buf,
+  if (!communicate_result_validate_utf8 ("stdout", stdout_buf,
                                          state->stdout_buf,
                                          error))
     goto out;
-  if (!communicate_result_validate_utf8 ("stderr", &local_stderr_buf,
+  if (!communicate_result_validate_utf8 ("stderr", stderr_buf,
                                          state->stderr_buf,
                                          error))
     goto out;
@@ -1952,14 +1925,5 @@ g_subprocess_communicate_utf8_finish (GSubprocess   *subprocess,
   ret = TRUE;
  out:
   g_object_unref (result);
-
-  if (ret && stdout_buf != NULL)
-    *stdout_buf = g_steal_pointer (&local_stdout_buf);
-  if (ret && stderr_buf != NULL)
-    *stderr_buf = g_steal_pointer (&local_stderr_buf);
-
-  g_free (local_stderr_buf);
-  g_free (local_stdout_buf);
-
   return ret;
 }

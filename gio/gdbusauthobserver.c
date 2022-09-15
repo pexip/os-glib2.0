@@ -27,7 +27,6 @@
 #include "gdbusprivate.h"
 
 #include "glibintl.h"
-#include "gmarshal-internal.h"
 
 /**
  * SECTION:gdbusauthobserver
@@ -40,37 +39,11 @@
  * signals you are interested in. Note that new signals may be added
  * in the future
  *
- * ## Controlling Authentication Mechanisms
+ * ## Controlling Authentication # {#auth-observer}
  *
- * By default, a #GDBusServer or server-side #GDBusConnection will allow
- * any authentication mechanism to be used. If you only
- * want to allow D-Bus connections with the `EXTERNAL` mechanism,
- * which makes use of credentials passing and is the recommended
- * mechanism for modern Unix platforms such as Linux and the BSD family,
- * you would use a signal handler like this:
- *
- * |[<!-- language="C" -->
- * static gboolean
- * on_allow_mechanism (GDBusAuthObserver *observer,
- *                     const gchar       *mechanism,
- *                     gpointer           user_data)
- * {
- *   if (g_strcmp0 (mechanism, "EXTERNAL") == 0)
- *     {
- *       return TRUE;
- *     }
- *
- *   return FALSE;
- * }
- * ]|
- *
- * ## Controlling Authorization # {#auth-observer}
- *
- * By default, a #GDBusServer or server-side #GDBusConnection will accept
- * connections from any successfully authenticated user (but not from
- * anonymous connections using the `ANONYMOUS` mechanism). If you only
- * want to allow D-Bus connections from processes owned by the same uid
- * as the server, you would use a signal handler like the following:
+ * For example, if you only want to allow D-Bus connections from
+ * processes owned by the same uid as the server, you would use a
+ * signal handler like the following:
  * 
  * |[<!-- language="C" -->
  * static gboolean
@@ -199,14 +172,11 @@ g_dbus_auth_observer_class_init (GDBusAuthObserverClass *klass)
                   G_STRUCT_OFFSET (GDBusAuthObserverClass, authorize_authenticated_peer),
                   _g_signal_accumulator_false_handled,
                   NULL, /* accu_data */
-                  _g_cclosure_marshal_BOOLEAN__OBJECT_OBJECT,
+                  NULL,
                   G_TYPE_BOOLEAN,
                   2,
                   G_TYPE_IO_STREAM,
                   G_TYPE_CREDENTIALS);
-  g_signal_set_va_marshaller (signals[AUTHORIZE_AUTHENTICATED_PEER_SIGNAL],
-                              G_TYPE_FROM_CLASS (klass),
-                              _g_cclosure_marshal_BOOLEAN__OBJECT_OBJECTv);
 
   /**
    * GDBusAuthObserver::allow-mechanism:
@@ -226,13 +196,10 @@ g_dbus_auth_observer_class_init (GDBusAuthObserverClass *klass)
                   G_STRUCT_OFFSET (GDBusAuthObserverClass, allow_mechanism),
                   _g_signal_accumulator_false_handled,
                   NULL, /* accu_data */
-                  _g_cclosure_marshal_BOOLEAN__STRING,
+                  NULL,
                   G_TYPE_BOOLEAN,
                   1,
                   G_TYPE_STRING);
-  g_signal_set_va_marshaller (signals[ALLOW_MECHANISM_SIGNAL],
-                              G_TYPE_FROM_CLASS (klass),
-                              _g_cclosure_marshal_BOOLEAN__STRINGv);
 }
 
 static void
@@ -311,3 +278,4 @@ g_dbus_auth_observer_allow_mechanism (GDBusAuthObserver  *observer,
                  &ret);
   return ret;
 }
+

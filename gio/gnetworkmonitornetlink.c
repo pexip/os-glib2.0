@@ -52,11 +52,9 @@ struct _GNetworkMonitorNetlinkPrivate
   GPtrArray *dump_networks;
 };
 
-static gboolean read_netlink_messages (GNetworkMonitorNetlink  *nl,
-                                       GError                 **error);
-static gboolean read_netlink_messages_callback (GSocket             *socket,
-                                                GIOCondition         condition,
-                                                gpointer             user_data);
+static gboolean read_netlink_messages (GSocket             *socket,
+                                       GIOCondition         condition,
+                                       gpointer             user_data);
 static gboolean request_dump (GNetworkMonitorNetlink  *nl,
                               GError                 **error);
 
@@ -141,20 +139,15 @@ g_network_monitor_netlink_initable_init (GInitable     *initable,
    */
   while (nl->priv->dump_networks)
     {
-      GError *local_error = NULL;
-      if (!read_netlink_messages (nl, &local_error))
-        {
-          g_warning ("%s", local_error->message);
-          g_clear_error (&local_error);
-          break;
-        }
+      if (!read_netlink_messages (NULL, G_IO_IN, nl))
+        break;
     }
 
   g_socket_set_blocking (nl->priv->sock, FALSE);
   nl->priv->context = g_main_context_ref_thread_default ();
   nl->priv->source = g_socket_create_source (nl->priv->sock, G_IO_IN, NULL);
   g_source_set_callback (nl->priv->source,
-                         (GSourceFunc) read_netlink_messages_callback, nl, NULL);
+                         (GSourceFunc) read_netlink_messages, nl, NULL);
   g_source_attach (nl->priv->source, nl->priv->context);
 
   return initable_parent_iface->init (initable, cancellable, error);
@@ -294,13 +287,15 @@ finish_dump (GNetworkMonitorNetlink *nl)
 }
 
 static gboolean
-read_netlink_messages (GNetworkMonitorNetlink  *nl,
-                       GError                 **error)
+read_netlink_messages (GSocket      *socket,
+                       GIOCondition  condition,
+                       gpointer      user_data)
 {
+  GNetworkMonitorNetlink *nl = user_data;
   GInputVector iv;
   gssize len;
   gint flags;
-  GError *local_error = NULL;
+  GError *error = NULL;
   GSocketAddress *addr = NULL;
   struct nlmsghdr *msg;
   struct rtmsg *rtmsg;
@@ -315,9 +310,11 @@ read_netlink_messages (GNetworkMonitorNetlink  *nl,
 
   flags = MSG_PEEK | MSG_TRUNC;
   len = g_socket_receive_message (nl->priv->sock, NULL, &iv, 1,
-                                  NULL, NULL, &flags, NULL, &local_error);
+                                  NULL, NULL, &flags, NULL, &error);
   if (len < 0)
     {
+      g_warning ("Error on netlink socket: %s", error->message);
+      g_clear_error (&error);
       retval = FALSE;
       goto done;
     }
@@ -325,15 +322,19 @@ read_netlink_messages (GNetworkMonitorNetlink  *nl,
   iv.buffer = g_malloc (len);
   iv.size = len;
   len = g_socket_receive_message (nl->priv->sock, &addr, &iv, 1,
-                                  NULL, NULL, NULL, NULL, &local_error);
+                                  NULL, NULL, NULL, NULL, &error);
   if (len < 0)
     {
+      g_warning ("Error on netlink socket: %s", error->message);
+      g_clear_error (&error);
       retval = FALSE;
       goto done;
     }
 
-  if (!g_socket_address_to_native (addr, &source_sockaddr, sizeof (source_sockaddr), &local_error))
+  if (!g_socket_address_to_native (addr, &source_sockaddr, sizeof (source_sockaddr), &error))
     {
+      g_warning ("Error on netlink socket: %s", error->message);
+      g_clear_error (&error);
       retval = FALSE;
       goto done;
     }
@@ -347,10 +348,7 @@ read_netlink_messages (GNetworkMonitorNetlink  *nl,
     {
       if (!NLMSG_OK (msg, (size_t) len))
         {
-          g_set_error_literal (&local_error,
-                               G_IO_ERROR,
-                               G_IO_ERROR_PARTIAL_INPUT,
-                               "netlink message was truncated; shouldn't happen...");
+          g_warning ("netlink message was truncated; shouldn't happen...");
           retval = FALSE;
           goto done;
         }
@@ -392,7 +390,7 @@ read_netlink_messages (GNetworkMonitorNetlink  *nl,
               if (!nl->priv->dump_networks &&
                   rtmsg->rtm_family == AF_INET6 &&
                   rtmsg->rtm_dst_len != 0 &&
-                  (dest && UNALIGNED_IN6_IS_ADDR_MC_LINKLOCAL (dest)))
+                  UNALIGNED_IN6_IS_ADDR_MC_LINKLOCAL (dest))
                 continue;
 
               if (msg->nlmsg_type == RTM_NEWROUTE)
@@ -411,21 +409,13 @@ read_netlink_messages (GNetworkMonitorNetlink  *nl,
           {
             struct nlmsgerr *e = NLMSG_DATA (msg);
 
-            g_set_error (&local_error,
-                         G_IO_ERROR,
-                         g_io_error_from_errno (-e->error),
-                         "netlink error: %s",
-                         g_strerror (-e->error));
+            g_warning ("netlink error: %s", g_strerror (-e->error));
           }
           retval = FALSE;
           goto done;
 
         default:
-          g_set_error (&local_error,
-                       G_IO_ERROR,
-                       G_IO_ERROR_INVALID_DATA,
-                       "unexpected netlink message %d",
-                       msg->nlmsg_type);
+          g_warning ("unexpected netlink message %d", msg->nlmsg_type);
           retval = FALSE;
           goto done;
         }
@@ -437,10 +427,6 @@ read_netlink_messages (GNetworkMonitorNetlink  *nl,
 
   if (!retval && nl->priv->dump_networks)
     finish_dump (nl);
-
-  if (local_error)
-    g_propagate_prefixed_error (error, local_error, "Error on netlink socket: ");
-
   return retval;
 }
 
@@ -471,24 +457,6 @@ g_network_monitor_netlink_finalize (GObject *object)
   g_clear_pointer (&nl->priv->dump_networks, g_ptr_array_unref);
 
   G_OBJECT_CLASS (g_network_monitor_netlink_parent_class)->finalize (object);
-}
-
-static gboolean
-read_netlink_messages_callback (GSocket      *socket,
-                                GIOCondition  condition,
-                                gpointer      user_data)
-{
-  GError *error = NULL;
-  GNetworkMonitorNetlink *nl = G_NETWORK_MONITOR_NETLINK (user_data);
-
-  if (!read_netlink_messages (nl, &error))
-    {
-      g_warning ("Error reading netlink message: %s", error->message);
-      g_clear_error (&error);
-      return FALSE;
-    }
-
-  return TRUE;
 }
 
 static void

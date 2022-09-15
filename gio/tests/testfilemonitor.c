@@ -9,39 +9,6 @@
  * the tests, e.g. the length of timeouts
  */
 
-typedef struct
-{
-  GFile *tmp_dir;
-} Fixture;
-
-static void
-setup (Fixture       *fixture,
-       gconstpointer  user_data)
-{
-  gchar *path = NULL;
-  GError *local_error = NULL;
-
-  path = g_dir_make_tmp ("gio-test-testfilemonitor_XXXXXX", &local_error);
-  g_assert_no_error (local_error);
-
-  fixture->tmp_dir = g_file_new_for_path (path);
-
-  g_test_message ("Using temporary directory: %s", path);
-
-  g_free (path);
-}
-
-static void
-teardown (Fixture       *fixture,
-          gconstpointer  user_data)
-{
-  GError *local_error = NULL;
-
-  g_file_delete (fixture->tmp_dir, NULL, &local_error);
-  g_assert_no_error (local_error);
-  g_clear_object (&fixture->tmp_dir);
-}
-
 typedef enum {
   NONE      = 0,
   INOTIFY   = (1 << 1),
@@ -81,23 +48,35 @@ typedef struct
   GFileOutputStream *output_stream;
 } TestData;
 
+#if 0
 static void
-output_event (const RecordedEvent *event)
+output_event (RecordedEvent *event)
 {
   if (event->step >= 0)
-    g_test_message (">>>> step %d", event->step);
+    g_print (">>>> step %d\n", event->step);
   else
     {
       GTypeClass *class;
 
       class = g_type_class_ref (g_type_from_name ("GFileMonitorEvent"));
-      g_test_message ("%s file=%s other_file=%s\n",
-                      g_enum_get_value (G_ENUM_CLASS (class), event->event_type)->value_nick,
-                      event->file,
-                      event->other_file);
+      g_print ("%s file=%s other_file=%s\n",
+               g_enum_get_value (G_ENUM_CLASS (class), event->event_type)->value_nick,
+               event->file,
+               event->other_file);
       g_type_class_unref (class);
     }
 }
+
+static void
+output_events (GList *list)
+{
+  GList *l;
+
+  g_print (">>>output events\n");
+  for (l = list; l; l = l->next)
+    output_event ((RecordedEvent *)l->data);
+}
+#endif
 
 /* a placeholder for temp file names we don't want to compare */
 static const gchar DONT_CARE[] = "";
@@ -231,20 +210,9 @@ check_expected_events (RecordedEvent *expected,
               continue;
             }
           /* Run above checks under g_assert_* again to provide more useful
-           * error messages. Print the expected and actual events first. */
+           * error messages. */
           else
             {
-              GList *l;
-              gsize j;
-
-              g_test_message ("Recorded events:");
-              for (l = recorded; l != NULL; l = l->next)
-                output_event ((RecordedEvent *) l->data);
-
-              g_test_message ("Expected events:");
-              for (j = 0; j < n_expected; j++)
-                output_event (&expected[j]);
-
               g_assert_cmpint (e1->step, ==, e2->step);
               g_assert_cmpint (e1->event_type, ==, e2->event_type);
 
@@ -354,8 +322,7 @@ static RecordedEvent atomic_replace_output[] = {
 };
 
 static void
-test_atomic_replace (Fixture       *fixture,
-                     gconstpointer  user_data)
+test_atomic_replace (void)
 {
   GError *error = NULL;
   TestData data;
@@ -363,13 +330,11 @@ test_atomic_replace (Fixture       *fixture,
   data.step = 0;
   data.events = NULL;
 
-  data.file = g_file_get_child (fixture->tmp_dir, "atomic_replace_file");
+  data.file = g_file_new_for_path ("atomic_replace_file");
   g_file_delete (data.file, NULL, NULL);
 
   data.monitor = g_file_monitor_file (data.file, G_FILE_MONITOR_WATCH_MOVES, NULL, &error);
   g_assert_no_error (error);
-
-  g_test_message ("Using GFileMonitor %s", G_OBJECT_TYPE_NAME (data.monitor));
 
   g_file_monitor_set_rate_limit (data.monitor, 200);
   g_signal_connect (data.monitor, "changed", G_CALLBACK (monitor_changed), &data);
@@ -380,6 +345,7 @@ test_atomic_replace (Fixture       *fixture,
 
   g_main_loop_run (data.loop);
 
+  /*output_events (data.events);*/
   check_expected_events (atomic_replace_output,
                          G_N_ELEMENTS (atomic_replace_output),
                          data.events,
@@ -459,8 +425,7 @@ static RecordedEvent change_output[] = {
 };
 
 static void
-test_file_changes (Fixture       *fixture,
-                   gconstpointer  user_data)
+test_file_changes (void)
 {
   GError *error = NULL;
   TestData data;
@@ -468,13 +433,11 @@ test_file_changes (Fixture       *fixture,
   data.step = 0;
   data.events = NULL;
 
-  data.file = g_file_get_child (fixture->tmp_dir, "change_file");
+  data.file = g_file_new_for_path ("change_file");
   g_file_delete (data.file, NULL, NULL);
 
   data.monitor = g_file_monitor_file (data.file, G_FILE_MONITOR_WATCH_MOVES, NULL, &error);
   g_assert_no_error (error);
-
-  g_test_message ("Using GFileMonitor %s", G_OBJECT_TYPE_NAME (data.monitor));
 
   g_file_monitor_set_rate_limit (data.monitor, 200);
   g_signal_connect (data.monitor, "changed", G_CALLBACK (monitor_changed), &data);
@@ -485,6 +448,7 @@ test_file_changes (Fixture       *fixture,
 
   g_main_loop_run (data.loop);
 
+  /*output_events (data.events);*/
   check_expected_events (change_output,
                          G_N_ELEMENTS (change_output),
                          data.events,
@@ -576,8 +540,7 @@ static RecordedEvent dir_output[] = {
 };
 
 static void
-test_dir_monitor (Fixture       *fixture,
-                  gconstpointer  user_data)
+test_dir_monitor (void)
 {
   GError *error = NULL;
   TestData data;
@@ -585,14 +548,12 @@ test_dir_monitor (Fixture       *fixture,
   data.step = 0;
   data.events = NULL;
 
-  data.file = g_file_get_child (fixture->tmp_dir, "dir_monitor_test");
+  data.file = g_file_new_for_path ("dir_monitor_test");
   g_file_delete (data.file, NULL, NULL);
   g_file_make_directory (data.file, NULL, &error);
 
   data.monitor = g_file_monitor_directory (data.file, G_FILE_MONITOR_WATCH_MOVES, NULL, &error);
   g_assert_no_error (error);
-
-  g_test_message ("Using GFileMonitor %s", G_OBJECT_TYPE_NAME (data.monitor));
 
   g_file_monitor_set_rate_limit (data.monitor, 200);
   g_signal_connect (data.monitor, "changed", G_CALLBACK (monitor_changed), &data);
@@ -603,6 +564,7 @@ test_dir_monitor (Fixture       *fixture,
 
   g_main_loop_run (data.loop);
 
+  /*output_events (data.events);*/
   check_expected_events (dir_output,
                          G_N_ELEMENTS (dir_output),
                          data.events,
@@ -673,8 +635,7 @@ static RecordedEvent nodir_output[] = {
 };
 
 static void
-test_dir_non_existent (Fixture       *fixture,
-                       gconstpointer  user_data)
+test_dir_non_existent (void)
 {
   TestData data;
   GError *error = NULL;
@@ -682,11 +643,9 @@ test_dir_non_existent (Fixture       *fixture,
   data.step = 0;
   data.events = NULL;
 
-  data.file = g_file_get_child (fixture->tmp_dir, "nosuchdir/nosuchfile");
+  data.file = g_file_new_for_path ("nosuchdir/nosuchfile");
   data.monitor = g_file_monitor_file (data.file, G_FILE_MONITOR_WATCH_MOVES, NULL, &error);
   g_assert_no_error (error);
-
-  g_test_message ("Using GFileMonitor %s", G_OBJECT_TYPE_NAME (data.monitor));
 
   g_file_monitor_set_rate_limit (data.monitor, 200);
   g_signal_connect (data.monitor, "changed", G_CALLBACK (monitor_changed), &data);
@@ -700,6 +659,7 @@ test_dir_non_existent (Fixture       *fixture,
 
   g_main_loop_run (data.loop);
 
+  /*output_events (data.events);*/
   check_expected_events (nodir_output,
                          G_N_ELEMENTS (nodir_output),
                          data.events,
@@ -782,8 +742,7 @@ static RecordedEvent cross_dir_b_output[] = {
   { -1, NULL, NULL, 3, NONE },
 };
 static void
-test_cross_dir_moves (Fixture       *fixture,
-                      gconstpointer  user_data)
+test_cross_dir_moves (void)
 {
   GError *error = NULL;
   TestData data[2];
@@ -791,14 +750,12 @@ test_cross_dir_moves (Fixture       *fixture,
   data[0].step = 0;
   data[0].events = NULL;
 
-  data[0].file = g_file_get_child (fixture->tmp_dir, "cross_dir_a");
+  data[0].file = g_file_new_for_path ("cross_dir_a");
   g_file_delete (data[0].file, NULL, NULL);
   g_file_make_directory (data[0].file, NULL, &error);
 
   data[0].monitor = g_file_monitor_directory (data[0].file, 0, NULL, &error);
   g_assert_no_error (error);
-
-  g_test_message ("Using GFileMonitor 0 %s", G_OBJECT_TYPE_NAME (data[0].monitor));
 
   g_file_monitor_set_rate_limit (data[0].monitor, 200);
   g_signal_connect (data[0].monitor, "changed", G_CALLBACK (monitor_changed), &data[0]);
@@ -806,14 +763,12 @@ test_cross_dir_moves (Fixture       *fixture,
   data[1].step = 0;
   data[1].events = NULL;
 
-  data[1].file = g_file_get_child (fixture->tmp_dir, "cross_dir_b");
+  data[1].file = g_file_new_for_path ("cross_dir_b");
   g_file_delete (data[1].file, NULL, NULL);
   g_file_make_directory (data[1].file, NULL, &error);
 
   data[1].monitor = g_file_monitor_directory (data[1].file, G_FILE_MONITOR_WATCH_MOVES, NULL, &error);
   g_assert_no_error (error);
-
-  g_test_message ("Using GFileMonitor 1 %s", G_OBJECT_TYPE_NAME (data[1].monitor));
 
   g_file_monitor_set_rate_limit (data[1].monitor, 200);
   g_signal_connect (data[1].monitor, "changed", G_CALLBACK (monitor_changed), &data[1]);
@@ -823,6 +778,13 @@ test_cross_dir_moves (Fixture       *fixture,
   g_timeout_add (500, cross_dir_step, data);
 
   g_main_loop_run (data[0].loop);
+
+#if 0
+  g_print ("monitor a:\n");
+  output_events (data[0].events);
+  g_print ("monitor b:\n");
+  output_events (data[1].events);
+#endif
 
   check_expected_events (cross_dir_a_output,
                          G_N_ELEMENTS (cross_dir_a_output),
@@ -951,8 +913,7 @@ static RecordedEvent file_hard_links_output[] = {
 };
 
 static void
-test_file_hard_links (Fixture       *fixture,
-                      gconstpointer  user_data)
+test_file_hard_links (void)
 {
   GError *error = NULL;
   TestData data;
@@ -969,7 +930,7 @@ test_file_hard_links (Fixture       *fixture,
   data.events = NULL;
 
   /* Create a file which exists and is not a directory. */
-  data.file = g_file_get_child (fixture->tmp_dir, "testfilemonitor.db");
+  data.file = g_file_new_for_path ("testfilemonitor.db");
   data.output_stream = g_file_replace (data.file, NULL, FALSE,
                                        G_FILE_CREATE_NONE, NULL, &error);
   g_assert_no_error (error);
@@ -984,8 +945,6 @@ test_file_hard_links (Fixture       *fixture,
   g_assert_no_error (error);
   g_assert_nonnull (data.monitor);
 
-  g_test_message ("Using GFileMonitor %s", G_OBJECT_TYPE_NAME (data.monitor));
-
   /* Change the file a bit. */
   g_file_monitor_set_rate_limit (data.monitor, 200);
   g_signal_connect (data.monitor, "changed", (GCallback) monitor_changed, &data);
@@ -994,6 +953,7 @@ test_file_hard_links (Fixture       *fixture,
   g_timeout_add (500, file_hard_links_step, &data);
   g_main_loop_run (data.loop);
 
+  /* output_events (data.events); */
   check_expected_events (file_hard_links_output,
                          G_N_ELEMENTS (file_hard_links_output),
                          data.events,
@@ -1013,12 +973,12 @@ main (int argc, char *argv[])
 
   g_test_bug_base ("https://bugzilla.gnome.org/show_bug.cgi?id=");
 
-  g_test_add ("/monitor/atomic-replace", Fixture, NULL, setup, test_atomic_replace, teardown);
-  g_test_add ("/monitor/file-changes", Fixture, NULL, setup, test_file_changes, teardown);
-  g_test_add ("/monitor/dir-monitor", Fixture, NULL, setup, test_dir_monitor, teardown);
-  g_test_add ("/monitor/dir-not-existent", Fixture, NULL, setup, test_dir_non_existent, teardown);
-  g_test_add ("/monitor/cross-dir-moves", Fixture, NULL, setup, test_cross_dir_moves, teardown);
-  g_test_add ("/monitor/file/hard-links", Fixture, NULL, setup, test_file_hard_links, teardown);
+  g_test_add_func ("/monitor/atomic-replace", test_atomic_replace);
+  g_test_add_func ("/monitor/file-changes", test_file_changes);
+  g_test_add_func ("/monitor/dir-monitor", test_dir_monitor);
+  g_test_add_func ("/monitor/dir-not-existent", test_dir_non_existent);
+  g_test_add_func ("/monitor/cross-dir-moves", test_cross_dir_moves);
+  g_test_add_func ("/monitor/file/hard-links", test_file_hard_links);
 
   return g_test_run ();
 }

@@ -114,8 +114,7 @@ GDBusConnection *_g_bus_get_priv (GBusType            bus_type,
                                   GCancellable       *cancellable,
                                   GError            **error);
 
-void ensure_gdbus_testserver_up (GDBusConnection *connection,
-                                 GMainContext    *context);
+void ensure_gdbus_testserver_up (void);
 
 G_END_DECLS
 

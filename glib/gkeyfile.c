@@ -599,8 +599,7 @@ static gboolean              g_key_file_parse_value_as_boolean (GKeyFile        
 static gchar                *g_key_file_parse_boolean_as_value (GKeyFile               *key_file,
 								gboolean                value);
 static gchar                *g_key_file_parse_value_as_comment (GKeyFile               *key_file,
-                                                                const gchar            *value,
-                                                                gboolean                is_final_line);
+                                                                const gchar            *value);
 static gchar                *g_key_file_parse_comment_as_value (GKeyFile               *key_file,
                                                                 const gchar            *comment);
 static void                  g_key_file_parse_key_value_pair   (GKeyFile               *key_file,
@@ -1113,7 +1112,7 @@ g_key_file_load_from_dirs (GKeyFile       *key_file,
  * @full_path.  If the file could not be loaded then an %error is
  * set to either a #GFileError or #GKeyFileError.
  *
- * Returns: %TRUE if a key file could be loaded, %FALSE otherwise
+ * Returns: %TRUE if a key file could be loaded, %FALSE othewise
  * Since: 2.6
  **/
 gboolean
@@ -1693,7 +1692,7 @@ g_key_file_get_keys (GKeyFile     *key_file,
  *
  * Returns the name of the start group of the file. 
  *
- * Returns: (nullable): The start group of the key file.
+ * Returns: The start group of the key file.
  *
  * Since: 2.6
  **/
@@ -3119,7 +3118,7 @@ g_key_file_get_double  (GKeyFile     *key_file,
  * @key_file: a #GKeyFile
  * @group_name: a group name
  * @key: a key
- * @value: a double value
+ * @value: an double value
  *
  * Associates a new double value with @key under @group_name.
  * If @key cannot be found then it is created. 
@@ -3317,7 +3316,6 @@ g_key_file_set_key_comment (GKeyFile     *key_file,
   pair->value = g_key_file_parse_comment_as_value (key_file, comment);
   
   key_node = g_list_insert (key_node, pair, 1);
-  (void) key_node;
 
   return TRUE;
 }
@@ -3487,7 +3485,7 @@ g_key_file_get_key_comment (GKeyFile     *key_file,
   string = NULL;
 
   /* Then find all the comments already associated with the
-   * key and concatenate them.
+   * key and concatentate them.
    */
   tmp = key_node->next;
   if (!key_node->next)
@@ -3513,9 +3511,8 @@ g_key_file_get_key_comment (GKeyFile     *key_file,
       
       if (string == NULL)
 	string = g_string_sized_new (512);
-
-      comment = g_key_file_parse_value_as_comment (key_file, pair->value,
-                                                   (tmp->prev == key_node));
+      
+      comment = g_key_file_parse_value_as_comment (key_file, pair->value);
       g_string_append (string, comment);
       g_free (comment);
       
@@ -3572,8 +3569,7 @@ get_group_comment (GKeyFile       *key_file,
       if (string == NULL)
         string = g_string_sized_new (512);
 
-      comment = g_key_file_parse_value_as_comment (key_file, pair->value,
-                                                   (tmp->prev == NULL));
+      comment = g_key_file_parse_value_as_comment (key_file, pair->value);
       g_string_append (string, comment);
       g_free (comment);
 
@@ -3644,9 +3640,7 @@ g_key_file_get_top_comment (GKeyFile  *key_file,
  * @group_name. If both @key and @group_name are %NULL, then
  * @comment will be read from above the first group in the file.
  *
- * Note that the returned string does not include the '#' comment markers,
- * but does include any whitespace after them (on each line). It includes
- * the line breaks between lines, but does not include the final line break.
+ * Note that the returned string includes the '#' comment markers.
  *
  * Returns: a comment that should be freed with g_free()
  *
@@ -4552,8 +4546,7 @@ g_key_file_parse_boolean_as_value (GKeyFile *key_file,
 
 static gchar *
 g_key_file_parse_value_as_comment (GKeyFile    *key_file,
-                                   const gchar *value,
-                                   gboolean     is_final_line)
+                                   const gchar *value)
 {
   GString *string;
   gchar **lines;
@@ -4565,21 +4558,12 @@ g_key_file_parse_value_as_comment (GKeyFile    *key_file,
 
   for (i = 0; lines[i] != NULL; i++)
     {
-      const gchar *line = lines[i];
-
-      if (i != 0)
-        g_string_append_c (string, '\n');
-
-      if (line[0] == '#')
-        line++;
-      g_string_append (string, line);
+        if (lines[i][0] != '#')
+           g_string_append_printf (string, "%s\n", lines[i]);
+        else 
+           g_string_append_printf (string, "%s\n", lines[i] + 1);
     }
   g_strfreev (lines);
-
-  /* This function gets called once per line of a comment, but we don’t want
-   * to add a trailing newline. */
-  if (!is_final_line)
-    g_string_append_c (string, '\n');
 
   return g_string_free (string, FALSE);
 }
@@ -4611,9 +4595,7 @@ g_key_file_parse_comment_as_value (GKeyFile      *key_file,
  * @error: a pointer to a %NULL #GError, or %NULL
  *
  * Writes the contents of @key_file to @filename using
- * g_file_set_contents(). If you need stricter guarantees about durability of
- * the written file than are provided by g_file_set_contents(), use
- * g_file_set_contents_full() with the return value of g_key_file_to_data().
+ * g_file_set_contents().
  *
  * This function can fail for any of the reasons that
  * g_file_set_contents() may fail.

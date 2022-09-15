@@ -24,7 +24,6 @@
 
 #include "glistmodel.h"
 #include "glibintl.h"
-#include "gmarshal-internal.h"
 
 G_DEFINE_INTERFACE (GListModel, g_list_model, G_TYPE_OBJECT)
 
@@ -73,7 +72,7 @@ G_DEFINE_INTERFACE (GListModel, g_list_model, G_TYPE_OBJECT)
  * it are gone.
  *
  * On the other side, a consumer is expected only to hold references on
- * objects that are currently "user visible", in order to facilitate the
+ * objects that are currently "user visible", in order to faciliate the
  * maximum level of laziness in the implementation of the list and to
  * reduce the required number of signal connections at a given time.
  *
@@ -131,12 +130,9 @@ g_list_model_default_init (GListModelInterface *iface)
    * @removed: the number of items removed
    * @added: the number of items added
    *
-   * This signal is emitted whenever items were added to or removed
-   * from @list. At @position, @removed items were removed and @added
-   * items were added in their place.
-   *
-   * Note: If @removed != @added, the positions of all later items
-   * in the model change.
+   * This signal is emitted whenever items were added or removed to
+   * @list. At @position, @removed items were removed and @added items
+   * were added in their place.
    *
    * Since: 2.44
    */
@@ -145,12 +141,9 @@ g_list_model_default_init (GListModelInterface *iface)
                                               G_SIGNAL_RUN_LAST,
                                               0,
                                               NULL, NULL,
-                                              _g_cclosure_marshal_VOID__UINT_UINT_UINT,
+                                              g_cclosure_marshal_generic,
                                               G_TYPE_NONE,
                                               3, G_TYPE_UINT, G_TYPE_UINT, G_TYPE_UINT);
-  g_signal_set_va_marshaller (g_list_model_changed_signal,
-                              G_TYPE_FROM_INTERFACE (iface),
-                              _g_cclosure_marshal_VOID__UINT_UINT_UINTv);
 }
 
 /**

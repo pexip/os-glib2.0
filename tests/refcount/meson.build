@@ -1,4 +1,5 @@
 refcount_tests = {
+  'closures' : {'suite' : ['slow']},
   'objects' : {},
   'objects2' : {'suite' : ['slow']},
   'properties' : {},
@@ -35,7 +36,6 @@ foreach test_name, extra_args : refcount_tests
     test_conf = configuration_data()
     test_conf.set('installed_tests_dir', installed_tests_execdir)
     test_conf.set('program', test_name)
-    test_conf.set('env', '')
     configure_file(
       input: installed_tests_template,
       output: test_name + '.test',
@@ -54,7 +54,6 @@ foreach test_name, extra_args : refcount_tests
 
   suite = ['refcount'] + extra_args.get('suite', [])
   timeout = suite.contains('slow') ? test_timeout_slow : test_timeout
-
   # FIXME? TESTS_ENVIRONMENT = LIBCHARSET_ALIAS_DIR=$(top_builddir)/glib/libcharset
   test(test_name, exe, env : test_env, timeout : timeout, suite : suite)
 endforeach

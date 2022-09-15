@@ -32,6 +32,8 @@ G_BEGIN_DECLS
 
 typedef struct {
   GResolver parent_instance;
+
+  GThreadPool *thread_pool;
 } GThreadedResolver;
 
 typedef struct {

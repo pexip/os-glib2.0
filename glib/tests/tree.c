@@ -26,9 +26,7 @@
 #undef G_LOG_DOMAIN
 
 /* We are testing some deprecated APIs here */
-#ifndef GLIB_DISABLE_DEPRECATION_WARNINGS
 #define GLIB_DISABLE_DEPRECATION_WARNINGS
-#endif
 
 #include <stdio.h>
 #include <string.h>
@@ -465,3 +463,4 @@ main (int argc, char *argv[])
 
   return g_test_run ();
 }
+

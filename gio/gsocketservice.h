@@ -48,7 +48,7 @@ typedef struct _GSocketServiceClass                         GSocketServiceClass;
 
 /**
  * GSocketServiceClass:
- * @incoming: signal emitted when new connections are accepted
+ * @incomming: signal emitted when new connections are accepted
  *
  * Class structure for #GSocketService.
  */

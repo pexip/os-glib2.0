@@ -143,3 +143,8 @@ int _g_gnulib_vasprintf (char **result, char const *format, va_list args)
   
   return length;  
 }
+
+
+
+
+

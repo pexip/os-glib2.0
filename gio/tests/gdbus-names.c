@@ -189,7 +189,6 @@ test_bus_own_name (void)
    * Stop owning the name - this should invoke our free func
    */
   g_bus_unown_name (id);
-  g_main_loop_run (loop);
   g_assert_cmpint (data.num_free_func, ==, 2);
 
   /*
@@ -297,7 +296,6 @@ test_bus_own_name (void)
   g_assert_cmpint (data2.num_acquired, ==, 0);
   g_assert_cmpint (data2.num_lost,     ==, 1);
   g_bus_unown_name (id2);
-  g_main_loop_run (loop);
   g_assert_cmpint (data2.num_bus_acquired, ==, 1);
   g_assert_cmpint (data2.num_acquired, ==, 0);
   g_assert_cmpint (data2.num_lost,     ==, 1);
@@ -332,7 +330,6 @@ test_bus_own_name (void)
   g_assert_cmpint (data2.num_acquired, ==, 0);
   g_assert_cmpint (data2.num_lost,     ==, 1);
   g_bus_unown_name (id2);
-  g_main_loop_run (loop);
   g_assert_cmpint (data2.num_bus_acquired, ==, 0);
   g_assert_cmpint (data2.num_acquired, ==, 0);
   g_assert_cmpint (data2.num_lost,     ==, 1);
@@ -358,7 +355,6 @@ test_bus_own_name (void)
   g_assert_cmpint (data2.num_acquired, ==, 0);
   g_assert_cmpint (data2.num_lost,     ==, 1);
   g_bus_unown_name (id2);
-  g_main_loop_run (loop);
   g_assert_cmpint (data2.num_bus_acquired, ==, 0);
   g_assert_cmpint (data2.num_acquired, ==, 0);
   g_assert_cmpint (data2.num_lost,     ==, 1);
@@ -369,7 +365,6 @@ test_bus_own_name (void)
    */
   data.expect_null_connection = FALSE;
   g_bus_unown_name (id);
-  g_main_loop_run (loop);
   g_assert_cmpint (data.num_bus_acquired, ==, 1);
   g_assert_cmpint (data.num_acquired, ==, 1);
   g_assert_cmpint (data.num_free_func, ==, 4);
@@ -423,7 +418,6 @@ test_bus_own_name (void)
   g_assert_cmpint (data2.num_acquired, ==, 0);
   g_assert_cmpint (data2.num_lost,     ==, 1);
   g_bus_unown_name (id2);
-  g_main_loop_run (loop);
   g_assert_cmpint (data2.num_bus_acquired, ==, 0);
   g_assert_cmpint (data2.num_acquired, ==, 0);
   g_assert_cmpint (data2.num_lost,     ==, 1);
@@ -456,9 +450,8 @@ test_bus_own_name (void)
   g_assert_cmpint (data2.num_bus_acquired, ==, 0);
   /* ok, make owner2 release the name - then wait for owner to automagically reacquire it */
   g_bus_unown_name (id2);
-  g_main_loop_run (loop);
-  g_main_loop_run (loop);
   g_assert_cmpint (data2.num_free_func, ==, 1);
+  g_main_loop_run (loop);
   g_assert_cmpint (data.num_acquired, ==, 2);
   g_assert_cmpint (data.num_lost,     ==, 1);
 
@@ -473,13 +466,15 @@ test_bus_own_name (void)
   g_assert_cmpint (data.num_acquired, ==, 2);
   g_assert_cmpint (data.num_lost,     ==, 2);
   g_bus_unown_name (id);
-  g_main_loop_run (loop);
   g_assert_cmpint (data.num_free_func, ==, 5);
 
   g_object_unref (c);
   g_object_unref (c2);
 
   session_bus_down ();
+
+  /* See https://bugzilla.gnome.org/show_bug.cgi?id=711807 */
+  g_usleep (1000000);
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -653,7 +648,6 @@ test_bus_watch_name (void)
 
   /* unown the name */
   g_bus_unown_name (owner_id);
-  g_main_loop_run (loop);
   g_assert_cmpint (data.num_acquired, ==, 1);
   g_assert_cmpint (data.num_free_func, ==, 2);
 
@@ -713,7 +707,6 @@ test_bus_watch_name (void)
   g_assert_cmpint (data.num_free_func, ==, 1);
 
   g_bus_unown_name (owner_id);
-  g_main_loop_run (loop);
   g_assert_cmpint (data.num_free_func, ==, 2);
 
   session_bus_down ();

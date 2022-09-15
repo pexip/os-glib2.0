@@ -73,3 +73,4 @@ void                 g_network_service_set_scheme    (GNetworkService *srv, cons
 G_END_DECLS
 
 #endif /* __G_NETWORK_SERVICE_H__ */
+

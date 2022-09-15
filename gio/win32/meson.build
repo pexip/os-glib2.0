@@ -8,8 +8,8 @@ giowin32_sources = [
 ]
 
 giowin32_lib = static_library('giowin32',
-  sources : [giowin32_sources],
+  sources : [giowin32_sources, gioenumtypes_h],
   include_directories : [configinc, glibinc, gioinc, gmoduleinc],
-  dependencies : [libintl, gioenumtypes_dep],
+  dependencies : [libintl],
   pic : true,
-  c_args : gio_c_args)
+  c_args : [ '-DG_DISABLE_DEPRECATED' ] + gio_c_args)

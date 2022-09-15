@@ -86,27 +86,11 @@ class GHashPrinter:
     "Prints a GHashTable"
 
     class _iterator:
-        class _pointer_array:
-            def __init__(self, ptr, big_items):
-                self._big_items = big_items
-                self._gpointer_type = gdb.lookup_type("gpointer")
-                item_type = self._gpointer_type if self._big_items else gdb.lookup_type("guint")
-
-                self._items = ptr.cast(item_type.pointer())
-
-            def __getitem__(self, item):
-                item = self._items[item]
-
-                if not self._big_items:
-                    item = item.cast(self._gpointer_type)
-
-                return item
-
         def __init__(self, ht, keys_are_strings):
             self.ht = ht
             if ht != 0:
-                self.keys = self._pointer_array(ht["keys"], ht["have_big_keys"])
-                self.values = self._pointer_array(ht["values"], ht["have_big_values"])
+                self.keys = ht["keys"]
+                self.values = ht["values"]
                 self.hashes = ht["hashes"]
                 self.size = ht["size"]
             self.pos = 0
@@ -124,6 +108,7 @@ class GHashPrinter:
                 self.value = None
                 return v
             while long(self.pos) < long(self.size):
+                self.pos = self.pos + 1
                 if long (self.hashes[self.pos]) >= 2:
                     key = self.keys[self.pos]
                     val = self.values[self.pos]
@@ -134,12 +119,8 @@ class GHashPrinter:
                     # Queue value for next result
                     self.value = ('[%dv]'% (self.pos), val)
 
-                    # Increment pos and return key
-                    key = ('[%dk]'% (self.pos), key)
-                    self.pos += 1
-                    return key
-
-                self.pos += 1
+                    # Return key
+                    return ('[%dk]'% (self.pos), key)
             raise StopIteration
 
         __next__ = next

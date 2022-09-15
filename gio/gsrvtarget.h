@@ -56,3 +56,4 @@ GList       *g_srv_target_list_sort    (GList       *targets);
 G_END_DECLS
 
 #endif /* __G_SRV_TARGET_H__ */
+

@@ -149,7 +149,7 @@ def apply_annotations(iface_list, annotation_list):
 
 def codegen_main():
     arg_parser = argparse.ArgumentParser(description='D-Bus code and documentation generator')
-    arg_parser.add_argument('files', metavar='FILE', nargs='+',
+    arg_parser.add_argument('files', metavar='FILE', nargs='*',
                             help='D-Bus introspection XML file')
     arg_parser.add_argument('--xml-files', metavar='FILE', action='append', default=[],
                             help=argparse.SUPPRESS)
@@ -167,16 +167,6 @@ def codegen_main():
                             help='Use "pragma once" as the inclusion guard')
     arg_parser.add_argument('--annotate', nargs=3, action='append', metavar='WHAT KEY VALUE',
                             help='Add annotation (may be used several times)')
-    arg_parser.add_argument('--glib-min-required', metavar='VERSION',
-                            help='Minimum version of GLib to be supported by the outputted code (default: 2.30)')
-    arg_parser.add_argument('--glib-max-allowed', metavar='VERSION',
-                            help='Maximum version of GLib to be used by the outputted code (default: current GLib version)')
-    arg_parser.add_argument('--symbol-decorator',
-                            help='Macro used to decorate a symbol in the outputted header, possibly to export symbols')
-    arg_parser.add_argument('--symbol-decorator-header',
-                            help='Additional header required for decorator specified by --symbol-decorator')
-    arg_parser.add_argument('--symbol-decorator-define',
-                            help='Additional define required for decorator specified by --symbol-decorator')
 
     group = arg_parser.add_mutually_exclusive_group()
     group.add_argument('--generate-c-code', metavar='OUTFILES',
@@ -243,60 +233,12 @@ def codegen_main():
         c_file = args.output
         header_name = os.path.splitext(os.path.basename(c_file))[0] + '.h'
 
-    # Check the minimum GLib version. The minimum --glib-min-required is 2.30,
-    # because that’s when gdbus-codegen was introduced. Support 1, 2 or 3
-    # component versions, but ignore the micro component if it’s present.
-    if args.glib_min_required:
-        try:
-            parts = args.glib_min_required.split('.', 3)
-            glib_min_required = (int(parts[0]),
-                                 int(parts[1] if len(parts) > 1 else 0))
-            # Ignore micro component, but still validate it:
-            _ = int(parts[2] if len(parts) > 2 else 0)
-        except (ValueError, IndexError):
-            print_error('Unrecognized --glib-min-required string ‘{}’'.format(
-                args.glib_min_required))
-
-        if glib_min_required < (2, 30):
-            print_error('Invalid --glib-min-required string ‘{}’: minimum '
-                        'version is 2.30'.format(args.glib_min_required))
-    else:
-        glib_min_required = (2, 30)
-
-    # And the maximum GLib version.
-    if args.glib_max_allowed:
-        try:
-            parts = args.glib_max_allowed.split('.', 3)
-            glib_max_allowed = (int(parts[0]),
-                                int(parts[1] if len(parts) > 1 else 0))
-            # Ignore micro component, but still validate it:
-            _ = int(parts[2] if len(parts) > 2 else 0)
-        except (ValueError, IndexError):
-            print_error('Unrecognized --glib-max-allowed string ‘{}’'.format(
-                args.glib_max_allowed))
-    else:
-        glib_max_allowed = (config.MAJOR_VERSION, config.MINOR_VERSION)
-
-    # Only allow --symbol-decorator-define and --symbol-decorator-header if --symbol-decorator is used
-    if args.symbol_decorator is None:
-        if args.symbol_decorator_header or args.symbol_decorator_define:
-            print_error('--symbol-decorator-define and --symbol-decorator-header must be used with --symbol-decorator')
-
-    # Round --glib-max-allowed up to the next stable release.
-    glib_max_allowed = \
-        (glib_max_allowed[0], glib_max_allowed[1] + (glib_max_allowed[1] % 2))
-
-    if glib_max_allowed < glib_min_required:
-        print_error('Invalid versions: --glib-min-required ({}) must be '
-                    'less than or equal to --glib-max-allowed ({})'.format(glib_min_required, glib_max_allowed))
-
     all_ifaces = []
     input_files_basenames = []
     for fname in sorted(args.files + args.xml_files):
         with open(fname, 'rb') as f:
             xml_data = f.read()
-        parsed_ifaces = parser.parse_dbus_xml(xml_data,
-                                              h_type_implies_unix_fd=(glib_min_required >= (2, 64)))
+        parsed_ifaces = parser.parse_dbus_xml(xml_data)
         all_ifaces.extend(parsed_ifaces)
         input_files_basenames.append(os.path.basename(fname))
 
@@ -320,9 +262,6 @@ def codegen_main():
                                               header_name,
                                               input_files_basenames,
                                               args.pragma_once,
-                                              glib_min_required,
-                                              args.symbol_decorator,
-                                              args.symbol_decorator_header,
                                               outfile)
             gen.generate()
 
@@ -334,8 +273,6 @@ def codegen_main():
                                         header_name,
                                         input_files_basenames,
                                         docbook_gen,
-                                        glib_min_required,
-                                        args.symbol_decorator_define,
                                         outfile)
             gen.generate()
 
@@ -346,9 +283,6 @@ def codegen_main():
                                                            header_name,
                                                            input_files_basenames,
                                                            args.pragma_once,
-                                                           glib_min_required,
-                                                           args.symbol_decorator,
-                                                           args.symbol_decorator_header,
                                                            outfile)
             gen.generate()
 
@@ -358,8 +292,6 @@ def codegen_main():
                                                          args.c_namespace,
                                                          header_name,
                                                          input_files_basenames,
-                                                         glib_min_required,
-                                                         args.symbol_decorator_define,
                                                          outfile)
             gen.generate()
 

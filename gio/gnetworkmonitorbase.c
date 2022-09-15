@@ -45,7 +45,7 @@ enum
 
 struct _GNetworkMonitorBasePrivate
 {
-  GHashTable   *networks  /* (element-type GInetAddressMask) (owned) */;
+  GPtrArray    *networks;
   gboolean      have_ipv4_default_route;
   gboolean      have_ipv6_default_route;
   gboolean      is_available;
@@ -58,9 +58,6 @@ struct _GNetworkMonitorBasePrivate
 static guint network_changed_signal = 0;
 
 static void queue_network_changed (GNetworkMonitorBase *monitor);
-static guint inet_address_mask_hash (gconstpointer key);
-static gboolean inet_address_mask_equal (gconstpointer a,
-                                         gconstpointer b);
 
 G_DEFINE_TYPE_WITH_CODE (GNetworkMonitorBase, g_network_monitor_base, G_TYPE_OBJECT,
                          G_ADD_PRIVATE (GNetworkMonitorBase)
@@ -78,9 +75,7 @@ static void
 g_network_monitor_base_init (GNetworkMonitorBase *monitor)
 {
   monitor->priv = g_network_monitor_base_get_instance_private (monitor);
-  monitor->priv->networks = g_hash_table_new_full (inet_address_mask_hash,
-                                                   inet_address_mask_equal,
-                                                   g_object_unref, NULL);
+  monitor->priv->networks = g_ptr_array_new_with_free_func (g_object_unref);
   monitor->priv->context = g_main_context_get_thread_default ();
   if (monitor->priv->context)
     g_main_context_ref (monitor->priv->context);
@@ -154,7 +149,7 @@ g_network_monitor_base_finalize (GObject *object)
 {
   GNetworkMonitorBase *monitor = G_NETWORK_MONITOR_BASE (object);
 
-  g_hash_table_unref (monitor->priv->networks);
+  g_ptr_array_free (monitor->priv->networks, TRUE);
   if (monitor->priv->network_changed_source)
     {
       g_source_destroy (monitor->priv->network_changed_source);
@@ -185,18 +180,15 @@ g_network_monitor_base_can_reach_sockaddr (GNetworkMonitorBase *base,
                                            GSocketAddress *sockaddr)
 {
   GInetAddress *iaddr;
-  GHashTableIter iter;
-  gpointer key;
+  int i;
 
   if (!G_IS_INET_SOCKET_ADDRESS (sockaddr))
     return FALSE;
 
   iaddr = g_inet_socket_address_get_address (G_INET_SOCKET_ADDRESS (sockaddr));
-  g_hash_table_iter_init (&iter, base->priv->networks);
-  while (g_hash_table_iter_next (&iter, &key, NULL))
+  for (i = 0; i < base->priv->networks->len; i++)
     {
-      GInetAddressMask *mask = key;
-      if (g_inet_address_mask_matches (mask, iaddr))
+      if (g_inet_address_mask_matches (base->priv->networks->pdata[i], iaddr))
         return TRUE;
     }
 
@@ -213,7 +205,7 @@ g_network_monitor_base_can_reach (GNetworkMonitor      *monitor,
   GSocketAddressEnumerator *enumerator;
   GSocketAddress *addr;
 
-  if (g_hash_table_size (base->priv->networks) == 0)
+  if (base->priv->networks->len == 0)
     {
       g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_NETWORK_UNREACHABLE,
                            _("Network unreachable"));
@@ -317,7 +309,7 @@ g_network_monitor_base_can_reach_async (GNetworkMonitor     *monitor,
   task = g_task_new (monitor, cancellable, callback, user_data);
   g_task_set_source_tag (task, g_network_monitor_base_can_reach_async);
 
-  if (g_hash_table_size (G_NETWORK_MONITOR_BASE (monitor)->priv->networks) == 0)
+  if (G_NETWORK_MONITOR_BASE (monitor)->priv->networks->len == 0)
     {
       g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_NETWORK_UNREACHABLE,
                                _("Network unreachable"));
@@ -367,60 +359,6 @@ static void
 g_network_monitor_base_initable_iface_init (GInitableIface *iface)
 {
   iface->init = g_network_monitor_base_initable_init;
-}
-
-static guint
-inet_address_mask_hash (gconstpointer key)
-{
-  GInetAddressMask *mask = G_INET_ADDRESS_MASK (key);
-  guint addr_hash;
-  guint mask_length = g_inet_address_mask_get_length (mask);
-  GInetAddress *addr = g_inet_address_mask_get_address (mask);
-  const guint8 *bytes = g_inet_address_to_bytes (addr);
-  gsize bytes_length = g_inet_address_get_native_size (addr);
-
-  union
-    {
-      const guint8 *bytes;
-      guint32 *hash32;
-      guint64 *hash64;
-    } integerifier;
-
-  /* If we can fit the entire address into the hash key, do it. Don’t worry
-   * about endianness; the address should always be in network endianness. */
-  if (bytes_length == sizeof (guint32))
-    {
-      integerifier.bytes = bytes;
-      addr_hash = *integerifier.hash32;
-    }
-  else if (bytes_length == sizeof (guint64))
-    {
-      integerifier.bytes = bytes;
-      addr_hash = *integerifier.hash64;
-    }
-  else
-    {
-      gsize i;
-
-      /* Otherwise, fall back to adding the bytes together. We do this, rather
-       * than XORing them, as routes often have repeated tuples which would
-       * cancel out under XOR. */
-      addr_hash = 0;
-      for (i = 0; i < bytes_length; i++)
-        addr_hash += bytes[i];
-    }
-
-  return addr_hash + mask_length;;
-}
-
-static gboolean
-inet_address_mask_equal (gconstpointer a,
-                         gconstpointer b)
-{
-  GInetAddressMask *mask_a = G_INET_ADDRESS_MASK (a);
-  GInetAddressMask *mask_b = G_INET_ADDRESS_MASK (b);
-
-  return g_inet_address_mask_equal (mask_a, mask_b);
 }
 
 static gboolean
@@ -486,7 +424,7 @@ queue_network_changed (GNetworkMonitorBase *monitor)
 /**
  * g_network_monitor_base_add_network:
  * @monitor: the #GNetworkMonitorBase
- * @network: (transfer none): a #GInetAddressMask
+ * @network: a #GInetAddressMask
  *
  * Adds @network to @monitor's list of available networks.
  *
@@ -496,9 +434,15 @@ void
 g_network_monitor_base_add_network (GNetworkMonitorBase *monitor,
                                     GInetAddressMask    *network)
 {
-  if (!g_hash_table_add (monitor->priv->networks, g_object_ref (network)))
-    return;
+  int i;
 
+  for (i = 0; i < monitor->priv->networks->len; i++)
+    {
+      if (g_inet_address_mask_equal (monitor->priv->networks->pdata[i], network))
+        return;
+    }
+
+  g_ptr_array_add (monitor->priv->networks, g_object_ref (network));
   if (g_inet_address_mask_get_length (network) == 0)
     {
       switch (g_inet_address_mask_get_family (network))
@@ -537,25 +481,33 @@ void
 g_network_monitor_base_remove_network (GNetworkMonitorBase *monitor,
                                        GInetAddressMask    *network)
 {
-  if (!g_hash_table_remove (monitor->priv->networks, network))
-    return;
+  int i;
 
-  if (g_inet_address_mask_get_length (network) == 0)
+  for (i = 0; i < monitor->priv->networks->len; i++)
     {
-      switch (g_inet_address_mask_get_family (network))
+      if (g_inet_address_mask_equal (monitor->priv->networks->pdata[i], network))
         {
-        case G_SOCKET_FAMILY_IPV4:
-          monitor->priv->have_ipv4_default_route = FALSE;
-          break;
-        case G_SOCKET_FAMILY_IPV6:
-          monitor->priv->have_ipv6_default_route = FALSE;
-          break;
-        default:
-          break;
+          g_ptr_array_remove_index_fast (monitor->priv->networks, i);
+
+          if (g_inet_address_mask_get_length (network) == 0)
+            {
+              switch (g_inet_address_mask_get_family (network))
+                {
+                case G_SOCKET_FAMILY_IPV4:
+                  monitor->priv->have_ipv4_default_route = FALSE;
+                  break;
+                case G_SOCKET_FAMILY_IPV6:
+                  monitor->priv->have_ipv6_default_route = FALSE;
+                  break;
+                default:
+                  break;
+                }
+            }
+
+          queue_network_changed (monitor);
+          return;
         }
     }
-
-  queue_network_changed (monitor);
 }
 
 /**
@@ -574,7 +526,7 @@ g_network_monitor_base_set_networks (GNetworkMonitorBase  *monitor,
 {
   int i;
 
-  g_hash_table_remove_all (monitor->priv->networks);
+  g_ptr_array_set_size (monitor->priv->networks, 0);
   monitor->priv->have_ipv4_default_route = FALSE;
   monitor->priv->have_ipv6_default_route = FALSE;
 

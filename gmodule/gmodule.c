@@ -186,7 +186,7 @@
 
 /* We maintain a list of modules, so we can reference count them.
  * That's needed because some platforms don't support references counts on
- * modules. Also, the module for the program itself is kept separately for
+ * modules. Also, the module for the program itself is kept seperately for
  * faster access and because it has special semantics.
  */
 
@@ -207,7 +207,8 @@ struct _GModule
 static gpointer		_g_module_open		(const gchar	*file_name,
 						 gboolean	 bind_lazy,
 						 gboolean	 bind_local);
-static void		_g_module_close		(gpointer	 handle);
+static void		_g_module_close		(gpointer	 handle,
+						 gboolean	 is_unref);
 static gpointer		_g_module_self		(void);
 static gpointer		_g_module_symbol	(gpointer	 handle,
 						 const gchar	*symbol_name);
@@ -276,12 +277,14 @@ g_module_set_error (const gchar *error)
 }
 
 
-/* --- include platform specific code --- */
+/* --- include platform specifc code --- */
 #define	SUPPORT_OR_RETURN(rv)	{ g_module_set_error (NULL); }
 #if	(G_MODULE_IMPL == G_MODULE_IMPL_DL)
 #include "gmodule-dl.c"
 #elif	(G_MODULE_IMPL == G_MODULE_IMPL_WIN32)
 #include "gmodule-win32.c"
+#elif	(G_MODULE_IMPL == G_MODULE_IMPL_DYLD)
+#include "gmodule-dyld.c"
 #elif	(G_MODULE_IMPL == G_MODULE_IMPL_AR)
 #include "gmodule-ar.c"
 #else
@@ -296,7 +299,8 @@ _g_module_open (const gchar	*file_name,
   return NULL;
 }
 static void
-_g_module_close (gpointer handle)
+_g_module_close	(gpointer	 handle,
+		 gboolean	 is_unref)
 {
 }
 static gpointer
@@ -476,7 +480,7 @@ static GRecMutex g_module_global_lock;
  * archive) it tries to open the corresponding module. If that fails
  * and it doesn't have the proper module suffix for the platform
  * (#G_MODULE_SUFFIX), this suffix will be appended and the corresponding
- * module will be opened. If that fails and @file_name doesn't have the
+ * module will be opended. If that fails and @file_name doesn't have the
  * ".la"-suffix, this suffix is appended and g_module_open() tries to open
  * the corresponding module. If eventually that fails as well, %NULL is
  * returned.
@@ -613,7 +617,7 @@ g_module_open (const gchar    *file_name,
       module = g_module_find_by_handle (handle);
       if (module)
 	{
-	  _g_module_close (module->handle);
+	  _g_module_close (module->handle, TRUE);
 	  module->ref_count++;
 	  g_module_set_error (NULL);
 	  
@@ -719,7 +723,7 @@ g_module_close (GModule *module)
 	}
       module->next = NULL;
       
-      _g_module_close (module->handle);
+      _g_module_close (module->handle, FALSE);
       g_free (module->file_name);
       g_free (module);
     }

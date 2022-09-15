@@ -66,12 +66,9 @@ struct _GMountOperationClass
 
   /**
    * GMountOperationClass::ask_question:
-   * @op: a #GMountOperation
-   * @message: string containing a message to display to the user
-   * @choices: (array zero-terminated=1) (element-type utf8): an array of
-   *    strings for each possible choice
-   *
-   * Virtual implementation of #GMountOperation::ask-question.
+   * @op:
+   * @message:
+   * @choices: (array zero-terminated=1) (element-type utf8):
    */
   void (* ask_question) (GMountOperation       *op,
 			 const char            *message,
@@ -84,14 +81,10 @@ struct _GMountOperationClass
 
   /**
    * GMountOperationClass::show_processes:
-   * @op: a #GMountOperation
-   * @message: string containing a message to display to the user
-   * @processes: (element-type GPid): an array of #GPid for processes blocking
-   *    the operation
-   * @choices: (array zero-terminated=1) (element-type utf8): an array of
-   *    strings for each possible choice
-   *
-   * Virtual implementation of #GMountOperation::show-processes.
+   * @op:
+   * @message:
+   * @processes: (element-type GPid):
+   * @choices: (array zero-terminated=1) (element-type utf8):
    *
    * Since: 2.22
    */

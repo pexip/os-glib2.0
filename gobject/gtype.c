@@ -33,7 +33,6 @@
 
 #include "glib-private.h"
 #include "gconstructor.h"
-#include "gstrfuncsprivate.h"
 
 #ifdef G_OS_WIN32
 #include <windows.h>
@@ -381,10 +380,7 @@ static GQuark          static_quark_type_flags = 0;
 static GQuark          static_quark_iface_holder = 0;
 static GQuark          static_quark_dependants_array = 0;
 static guint           type_registration_serial = 0;
-
-G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 GTypeDebugFlags	       _g_type_debug_flags = 0;
-G_GNUC_END_IGNORE_DEPRECATIONS
 
 /* --- type nodes --- */
 static GHashTable       *static_type_nodes_ht = NULL;
@@ -1028,7 +1024,7 @@ check_add_interface_L (GType instance_type,
   if (entry && entry->vtable == NULL && !type_iface_peek_holder_L (iface, NODE_TYPE (node)))
     {
       /* ok, we do conform to this interface already, but the interface vtable was not
-       * yet initialized, and we just conform to the interface because it got added to
+       * yet intialized, and we just conform to the interface because it got added to
        * one of our parents. so we allow overriding of holder info here.
        */
       return TRUE;
@@ -1471,14 +1467,14 @@ type_add_interface_Wm (TypeNode             *node,
   iholder->next = iface_node_get_holders_L (iface);
   iface_node_set_holders_W (iface, iholder);
   iholder->instance_type = NODE_TYPE (node);
-  iholder->info = info ? g_memdup2 (info, sizeof (*info)) : NULL;
+  iholder->info = info ? g_memdup (info, sizeof (*info)) : NULL;
   iholder->plugin = plugin;
 
   /* create an iface entry for this type */
   type_node_add_iface_entry_W (node, NODE_TYPE (iface), NULL);
   
   /* if the class is already (partly) initialized, we may need to base
-   * initialize and/or initialize the new interface.
+   * initalize and/or initialize the new interface.
    */
   if (node->data)
     {
@@ -1732,7 +1728,7 @@ type_iface_retrieve_holder_info_Wm (TypeNode *iface,
         INVALID_RECURSION ("g_type_plugin_*", iholder->plugin, NODE_NAME (iface));
       
       check_interface_info_I (iface, instance_type, &tmp_info);
-      iholder->info = g_memdup2 (&tmp_info, sizeof (tmp_info));
+      iholder->info = g_memdup (&tmp_info, sizeof (tmp_info));
     }
   
   return iholder;	/* we don't modify write lock upon returning NULL */
@@ -1770,7 +1766,7 @@ type_iface_blow_holder_info_Wm (TypeNode *iface,
  * and structure setups for instances: actual instance creation should
  * happen through functions supplied by the type's fundamental type
  * implementation.  So use of g_type_create_instance() is reserved for
- * implementers of fundamental types only. E.g. instances of the
+ * implementators of fundamental types only. E.g. instances of the
  * #GObject hierarchy should be created via g_object_new() and never
  * directly through g_type_create_instance() which doesn't handle things
  * like singleton objects or object construction.
@@ -2017,10 +2013,10 @@ type_iface_vtable_base_init_Wm (TypeNode *iface,
       IFaceEntry *pentry = type_lookup_iface_entry_L (pnode, iface);
       
       if (pentry)
-	vtable = g_memdup2 (pentry->vtable, iface->data->iface.vtable_size);
+	vtable = g_memdup (pentry->vtable, iface->data->iface.vtable_size);
     }
   if (!vtable)
-    vtable = g_memdup2 (iface->data->iface.dflt_vtable, iface->data->iface.vtable_size);
+    vtable = g_memdup (iface->data->iface.dflt_vtable, iface->data->iface.vtable_size);
   entry->vtable = vtable;
   vtable->g_type = NODE_TYPE (iface);
   vtable->g_instance_type = NODE_TYPE (node);
@@ -2826,7 +2822,7 @@ g_type_register_dynamic (GType        parent_type,
  * @info: #GInterfaceInfo structure for this
  *        (@instance_type, @interface_type) combination
  *
- * Adds @interface_type to the static @instantiable_type.
+ * Adds the static @interface_type to @instantiable_type.
  * The information contained in the #GInterfaceInfo structure
  * pointed to by @info is used to manage the relationship.
  */
@@ -2862,7 +2858,7 @@ g_type_add_interface_static (GType                 instance_type,
  * @interface_type: #GType value of an interface type
  * @plugin: #GTypePlugin structure to retrieve the #GInterfaceInfo from
  *
- * Adds @interface_type to the dynamic @instantiable_type. The information
+ * Adds the dynamic @interface_type to @instantiable_type. The information
  * contained in the #GTypePlugin structure pointed to by @plugin
  * is used to manage the relationship.
  */
@@ -3190,7 +3186,7 @@ g_type_interface_peek_parent (gpointer g_iface)
  * and returns the default interface vtable for the type.
  *
  * If the type is not currently in use, then the default vtable
- * for the type will be created and initialized by calling
+ * for the type will be created and initalized by calling
  * the base interface init and default vtable init functions for
  * the type (the @base_init and @class_init members of #GTypeInfo).
  * Calling g_type_default_interface_ref() is useful when you
@@ -3271,7 +3267,7 @@ g_type_default_interface_peek (GType g_type)
 /**
  * g_type_default_interface_unref:
  * @g_iface: (type GObject.TypeInterface): the default vtable
- *     structure for an interface, as returned by g_type_default_interface_ref()
+ *     structure for a interface, as returned by g_type_default_interface_ref()
  *
  * Decrements the reference count for the type corresponding to the
  * interface default vtable @g_iface. If the type is dynamic, then
@@ -3341,9 +3337,9 @@ g_type_qname (GType type)
 
 /**
  * g_type_from_name:
- * @name: type name to look up
+ * @name: type name to lookup
  *
- * Look up the type ID from a given type name, returning 0 if no type
+ * Lookup the type ID from a given type name, returning 0 if no type
  * has been registered under this name (this is the preferred method
  * to find out by name whether a specific type has been registered
  * yet).
@@ -4336,7 +4332,6 @@ _g_type_boxed_init (GType          type,
  *
  * Deprecated: 2.36: the type system is now initialised automatically
  */
-G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 void
 g_type_init_with_debug_flags (GTypeDebugFlags debug_flags)
 {
@@ -4345,7 +4340,6 @@ g_type_init_with_debug_flags (GTypeDebugFlags debug_flags)
   if (debug_flags)
     g_message ("g_type_init_with_debug_flags() is no longer supported.  Use the GOBJECT_DEBUG environment variable.");
 }
-G_GNUC_END_IGNORE_DEPRECATIONS
 
 /**
  * g_type_init:
@@ -4368,7 +4362,7 @@ gobject_init (void)
   const gchar *env_string;
   GTypeInfo info;
   TypeNode *node;
-  GType type G_GNUC_UNUSED  /* when compiling with G_DISABLE_ASSERT */;
+  GType type;
 
   /* Ensure GLib is initialized first, see
    * https://bugzilla.gnome.org/show_bug.cgi?id=756139
@@ -4783,7 +4777,7 @@ g_type_class_get_instance_private_offset (gpointer g_class)
 
 /**
  * g_type_add_class_private:
- * @class_type: GType of a classed type
+ * @class_type: GType of an classed type
  * @private_size: size of private structure
  *
  * Registers a private class structure for a classed type;
@@ -4908,3 +4902,4 @@ g_type_ensure (GType type)
   if (G_UNLIKELY (type == (GType)-1))
     g_error ("can't happen");
 }
+

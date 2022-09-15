@@ -25,7 +25,6 @@
 #include "gmountoperation.h"
 #include "gioenumtypes.h"
 #include "glibintl.h"
-#include "gmarshal-internal.h"
 
 
 /**
@@ -322,12 +321,9 @@ g_mount_operation_class_init (GMountOperationClass *klass)
 		  G_SIGNAL_RUN_LAST,
 		  G_STRUCT_OFFSET (GMountOperationClass, ask_password),
 		  NULL, NULL,
-		  _g_cclosure_marshal_VOID__STRING_STRING_STRING_FLAGS,
+		  NULL,
 		  G_TYPE_NONE, 4,
 		  G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_ASK_PASSWORD_FLAGS);
-  g_signal_set_va_marshaller (signals[ASK_PASSWORD],
-                              G_TYPE_FROM_CLASS (object_class),
-                              _g_cclosure_marshal_VOID__STRING_STRING_STRING_FLAGSv);
 		  
   /**
    * GMountOperation::ask-question:
@@ -348,12 +344,9 @@ g_mount_operation_class_init (GMountOperationClass *klass)
 		  G_SIGNAL_RUN_LAST,
 		  G_STRUCT_OFFSET (GMountOperationClass, ask_question),
 		  NULL, NULL,
-		  _g_cclosure_marshal_VOID__STRING_BOXED,
+		  NULL,
 		  G_TYPE_NONE, 2,
 		  G_TYPE_STRING, G_TYPE_STRV);
-  g_signal_set_va_marshaller (signals[ASK_QUESTION],
-                              G_TYPE_FROM_CLASS (object_class),
-                              _g_cclosure_marshal_VOID__STRING_BOXEDv);
 		  
   /**
    * GMountOperation::reply:
@@ -368,7 +361,7 @@ g_mount_operation_class_init (GMountOperationClass *klass)
 		  G_SIGNAL_RUN_LAST,
 		  G_STRUCT_OFFSET (GMountOperationClass, reply),
 		  NULL, NULL,
-		  NULL,
+		  g_cclosure_marshal_VOID__ENUM,
 		  G_TYPE_NONE, 1,
 		  G_TYPE_MOUNT_OPERATION_RESULT);
 
@@ -389,7 +382,7 @@ g_mount_operation_class_init (GMountOperationClass *klass)
 		  G_SIGNAL_RUN_LAST,
 		  G_STRUCT_OFFSET (GMountOperationClass, aborted),
 		  NULL, NULL,
-		  NULL,
+		  g_cclosure_marshal_VOID__VOID,
 		  G_TYPE_NONE, 0);
 
   /**
@@ -421,17 +414,14 @@ g_mount_operation_class_init (GMountOperationClass *klass)
 		  G_SIGNAL_RUN_LAST,
 		  G_STRUCT_OFFSET (GMountOperationClass, show_processes),
 		  NULL, NULL,
-		  _g_cclosure_marshal_VOID__STRING_BOXED_BOXED,
+		  NULL,
 		  G_TYPE_NONE, 3,
 		  G_TYPE_STRING, G_TYPE_ARRAY, G_TYPE_STRV);
-  g_signal_set_va_marshaller (signals[SHOW_PROCESSES],
-                              G_TYPE_FROM_CLASS (object_class),
-                              _g_cclosure_marshal_VOID__STRING_BOXED_BOXEDv);
 
   /**
    * GMountOperation::show-unmount-progress:
    * @op: a #GMountOperation:
-   * @message: string containing a message to display to the user
+   * @message: string containing a mesage to display to the user
    * @time_left: the estimated time left before the operation completes,
    *     in microseconds, or -1
    * @bytes_left: the amount of bytes to be written before the operation
@@ -462,13 +452,9 @@ g_mount_operation_class_init (GMountOperationClass *klass)
                   G_TYPE_FROM_CLASS (object_class),
                   G_SIGNAL_RUN_LAST,
                   G_STRUCT_OFFSET (GMountOperationClass, show_unmount_progress),
-                  NULL, NULL,
-                  _g_cclosure_marshal_VOID__STRING_INT64_INT64,
+                  NULL, NULL, NULL,
                   G_TYPE_NONE, 3,
                   G_TYPE_STRING, G_TYPE_INT64, G_TYPE_INT64);
-  g_signal_set_va_marshaller (signals[SHOW_UNMOUNT_PROGRESS],
-                              G_TYPE_FROM_CLASS (object_class),
-                              _g_cclosure_marshal_VOID__STRING_INT64_INT64v);
 
   /**
    * GMountOperation:username:
@@ -562,7 +548,7 @@ g_mount_operation_class_init (GMountOperationClass *klass)
    * GMountOperation:is-tcrypt-hidden-volume:
    *
    * Whether the device to be unlocked is a TCRYPT hidden volume.
-   * See [the VeraCrypt documentation](https://www.veracrypt.fr/en/Hidden%20Volume.html).
+   * See https://www.veracrypt.fr/en/Hidden%20Volume.html.
    *
    * Since: 2.58
    */
@@ -582,7 +568,7 @@ g_mount_operation_class_init (GMountOperationClass *klass)
   * In this context, a system volume is a volume with a bootloader
   * and operating system installed. This is only supported for Windows
   * operating systems. For further documentation, see
-  * [the VeraCrypt documentation](https://www.veracrypt.fr/en/System%20Encryption.html).
+  * https://www.veracrypt.fr/en/System%20Encryption.html.
   *
   * Since: 2.58
   */
@@ -599,7 +585,7 @@ g_mount_operation_class_init (GMountOperationClass *klass)
   * GMountOperation:pim:
   *
   * The VeraCrypt PIM value, when unlocking a VeraCrypt volume. See
-  * [the VeraCrypt documentation](https://www.veracrypt.fr/en/Personal%20Iterations%20Multiplier%20(PIM).html).
+  * https://www.veracrypt.fr/en/Personal%20Iterations%20Multiplier%20(PIM).html.
   *
   * Since: 2.58
   */
@@ -813,7 +799,7 @@ g_mount_operation_set_password_save (GMountOperation *op,
  * Gets a choice from the mount operation.
  *
  * Returns: an integer containing an index of the user's choice from 
- * the choice's list, or `0`.
+ * the choice's list, or %0.
  **/
 int
 g_mount_operation_get_choice (GMountOperation *op)

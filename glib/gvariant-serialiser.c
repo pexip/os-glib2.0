@@ -22,6 +22,7 @@
 #include "config.h"
 
 #include "gvariant-serialiser.h"
+#include "gunicodeprivate.h"
 
 #include <glib/gvariant-internal.h>
 #include <glib/gtestutils.h>
@@ -127,24 +128,20 @@
  *
  * Checks @serialised for validity according to the invariants described
  * above.
- *
- * Returns: %TRUE if @serialised is valid; %FALSE otherwise
  */
-gboolean
+static void
 g_variant_serialised_check (GVariantSerialised serialised)
 {
   gsize fixed_size;
   guint alignment;
 
-  if (serialised.type_info == NULL)
-    return FALSE;
+  g_assert (serialised.type_info != NULL);
   g_variant_type_info_query (serialised.type_info, &alignment, &fixed_size);
 
-  if (fixed_size != 0 && serialised.size != fixed_size)
-    return FALSE;
-  else if (fixed_size == 0 &&
-           !(serialised.size == 0 || serialised.data != NULL))
-    return FALSE;
+  if (fixed_size)
+    g_assert_cmpint (serialised.size, ==, fixed_size);
+  else
+    g_assert (serialised.size == 0 || serialised.data != NULL);
 
   /* Depending on the native alignment requirements of the machine, the
    * compiler will insert either 3 or 7 padding bytes after the char.
@@ -171,8 +168,10 @@ g_variant_serialised_check (GVariantSerialised serialised)
    * Check if this is a small allocation and return without enforcing
    * the alignment assertion if this is the case.
    */
-  return (serialised.size <= alignment ||
-          (alignment & (gsize) serialised.data) == 0);
+  if (serialised.size <= alignment)
+    return;
+
+  g_assert_cmpint (alignment & (gsize) serialised.data, ==, 0);
 }
 
 /* < private >
@@ -1357,7 +1356,7 @@ gvs_variant_is_normal (GVariantSerialised value)
 gsize
 g_variant_serialised_n_children (GVariantSerialised serialised)
 {
-  g_assert (g_variant_serialised_check (serialised));
+  g_variant_serialised_check (serialised);
 
   DISPATCH_CASES (serialised.type_info,
 
@@ -1394,7 +1393,7 @@ g_variant_serialised_get_child (GVariantSerialised serialised,
 {
   GVariantSerialised child;
 
-  g_assert (g_variant_serialised_check (serialised));
+  g_variant_serialised_check (serialised);
 
   if G_LIKELY (index_ < g_variant_serialised_n_children (serialised))
     {
@@ -1402,7 +1401,7 @@ g_variant_serialised_get_child (GVariantSerialised serialised,
 
                       child = gvs_/**/,/**/_get_child (serialised, index_);
                       g_assert (child.size || child.data == NULL);
-                      g_assert (g_variant_serialised_check (child));
+                      g_variant_serialised_check (child);
                       return child;
 
                      )
@@ -1443,7 +1442,7 @@ g_variant_serialiser_serialise (GVariantSerialised        serialised,
                                 const gpointer           *children,
                                 gsize                     n_children)
 {
-  g_assert (g_variant_serialised_check (serialised));
+  g_variant_serialised_check (serialised);
 
   DISPATCH_CASES (serialised.type_info,
 
@@ -1498,7 +1497,7 @@ g_variant_serialised_byteswap (GVariantSerialised serialised)
   gsize fixed_size;
   guint alignment;
 
-  g_assert (g_variant_serialised_check (serialised));
+  g_variant_serialised_check (serialised);
 
   if (!serialised.data)
     return;
@@ -1654,7 +1653,7 @@ g_variant_serialiser_is_string (gconstpointer data,
   if (*expected_end != '\0')
     return FALSE;
 
-  g_utf8_validate_len (data, size, &end);
+  _g_utf8_validate_len (data, size, &end);
 
   return end == expected_end;
 }

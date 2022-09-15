@@ -116,22 +116,19 @@ context_clear (struct context *ctx)
 static void
 context_quit (struct context *ctx)
 {
-  g_atomic_int_set (&ctx->quit, TRUE);
+  ctx->quit = TRUE;
   g_wakeup_signal (ctx->wakeup);
 }
 
 static struct token *
-context_try_pop_token (struct context *ctx)
+context_pop_token (struct context *ctx)
 {
-  struct token *token = NULL;
+  struct token *token;
 
   g_mutex_lock (&ctx->lock);
-  if (ctx->pending_tokens != NULL)
-    {
-      token = ctx->pending_tokens->data;
-      ctx->pending_tokens = g_slist_delete_link (ctx->pending_tokens,
-                                                 ctx->pending_tokens);
-    }
+  token = ctx->pending_tokens->data;
+  ctx->pending_tokens = g_slist_delete_link (ctx->pending_tokens,
+                                             ctx->pending_tokens);
   g_mutex_unlock (&ctx->lock);
 
   return token;
@@ -191,15 +188,17 @@ static gpointer
 thread_func (gpointer data)
 {
   struct context *ctx = data;
-  struct token *token;
 
-  while (!g_atomic_int_get (&ctx->quit))
+  while (!ctx->quit)
     {
       wait_for_signaled (ctx->wakeup);
       g_wakeup_acknowledge (ctx->wakeup);
 
-      while ((token = context_try_pop_token (ctx)) != NULL)
+      while (ctx->pending_tokens)
         {
+          struct token *token;
+
+          token = context_pop_token (ctx);
           g_assert (token->owner == ctx);
           dispatch_token (token);
         }

@@ -32,8 +32,6 @@
 #include <gio/gzlibdecompressor.h>
 #include <gio/gconverterinputstream.h>
 
-#include "glib-private.h"
-
 struct _GResource
 {
   int ref_count;
@@ -80,17 +78,10 @@ G_DEFINE_BOXED_TYPE (GResource, g_resource, g_resource_ref, g_resource_unref)
  *
  * `to-pixdata` which will use the gdk-pixbuf-pixdata command to convert
  * images to the GdkPixdata format, which allows you to create pixbufs directly using the data inside
- * the resource file, rather than an (uncompressed) copy of it. For this, the gdk-pixbuf-pixdata
+ * the resource file, rather than an (uncompressed) copy if it. For this, the gdk-pixbuf-pixdata
  * program must be in the PATH, or the `GDK_PIXBUF_PIXDATA` environment variable must be
  * set to the full path to the gdk-pixbuf-pixdata executable; otherwise the resource compiler will
  * abort.
- *
- * `json-stripblanks` which will use the `json-glib-format` command to strip
- * ignorable whitespace from the JSON file. For this to work, the
- * `JSON_GLIB_FORMAT` environment variable must be set to the full path to the
- * `json-glib-format` executable, or it must be in the `PATH`;
- * otherwise the preprocessing step is skipped. In addition, at least version
- * 1.6 of `json-glib-format` is required.
  *
  * Resource files will be exported in the GResource namespace using the
  * combination of the given `prefix` and the filename from the `file` element.
@@ -160,8 +151,8 @@ G_DEFINE_BOXED_TYPE (GResource, g_resource, g_resource_ref, g_resource_unref)
  * When debugging a program or testing a change to an installed version, it is often useful to be able to
  * replace resources in the program or library, without recompiling, for debugging or quick hacking and testing
  * purposes. Since GLib 2.50, it is possible to use the `G_RESOURCE_OVERLAYS` environment variable to selectively overlay
- * resources with replacements from the filesystem.  It is a %G_SEARCHPATH_SEPARATOR-separated list of substitutions to perform
- * during resource lookups. It is ignored when running in a setuid process.
+ * resources with replacements from the filesystem.  It is a colon-separated list of substitutions to perform
+ * during resource lookups.
  *
  * A substitution has the form
  *
@@ -294,27 +285,6 @@ enumerate_overlay_dir (const gchar *candidate,
   return FALSE;
 }
 
-typedef struct {
-  gsize size;
-  guint32 flags;
-} InfoData;
-
-static gboolean
-get_overlay_info (const gchar *candidate,
-                  gpointer     user_data)
-{
-  InfoData *info = user_data;
-  GStatBuf buf;
-
-  if (g_stat (candidate, &buf) < 0)
-    return FALSE;
-
-  info->size = buf.st_size;
-  info->flags = G_RESOURCE_FLAGS_NONE;
-
-  return TRUE;
-}
-
 static gboolean
 g_resource_find_overlay (const gchar    *path,
                          CheckCandidate  check,
@@ -332,19 +302,16 @@ g_resource_find_overlay (const gchar    *path,
 
   if (g_once_init_enter (&overlay_dirs))
     {
-      gboolean is_setuid = GLIB_PRIVATE_CALL (g_check_setuid) ();
       const gchar * const *result;
       const gchar *envvar;
 
-      /* Don’t load overlays if setuid, as they could allow reading privileged
-       * files. */
-      envvar = !is_setuid ? g_getenv ("G_RESOURCE_OVERLAYS") : NULL;
+      envvar = g_getenv ("G_RESOURCE_OVERLAYS");
       if (envvar != NULL)
         {
           gchar **parts;
           gint i, j;
 
-          parts = g_strsplit (envvar, G_SEARCHPATH_SEPARATOR_S, 0);
+          parts = g_strsplit (envvar, ":", 0);
 
           /* Sanity check the parts, dropping those that are invalid.
            * 'i' may grow faster than 'j'.
@@ -390,9 +357,9 @@ g_resource_find_overlay (const gchar    *path,
                   continue;
                 }
 
-              if (!g_path_is_absolute (eq + 1))
+              if (eq[1] != '/')
                 {
-                  g_critical ("G_RESOURCE_OVERLAYS segment '%s' does not have an absolute path after '='.  Ignoring", part);
+                  g_critical ("G_RESOURCE_OVERLAYS segment '%s' lacks leading '/' after '='.  Ignoring", part);
                   g_free (part);
                   continue;
                 }
@@ -1284,17 +1251,6 @@ g_resources_get_info (const gchar           *path,
   gboolean res = FALSE;
   GList *l;
   gboolean r_res;
-  InfoData info;
-
-  if (g_resource_find_overlay (path, get_overlay_info, &info))
-    {
-      if (size)
-        *size = info.size;
-      if (flags)
-        *flags = info.flags;
-
-      return TRUE;
-    }
 
   register_lazy_static_resources ();
 

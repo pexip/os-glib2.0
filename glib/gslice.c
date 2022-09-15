@@ -41,12 +41,10 @@
 #include "gmain.h"
 #include "gmem.h"               /* gslice.h */
 #include "gstrfuncs.h"
-#include "gstrfuncsprivate.h"
 #include "gutils.h"
 #include "gtrashstack.h"
 #include "gtestutils.h"
 #include "gthread.h"
-#include "gthreadprivate.h"
 #include "glib_trace.h"
 #include "gprintf.h"
 
@@ -142,10 +140,10 @@
  * - the thread magazines. for each (aligned) chunk size, a magazine (a list)
  *   of recently freed and soon to be allocated chunks is maintained per thread.
  *   this way, most alloc/free requests can be quickly satisfied from per-thread
- *   free lists which only require one g_private_get() call to retrieve the
+ *   free lists which only require one g_private_get() call to retrive the
  *   thread handle.
  * - the magazine cache. allocating and freeing chunks to/from threads only
- *   occurs at magazine sizes from a global depot of magazines. the depot
+ *   occours at magazine sizes from a global depot of magazines. the depot
  *   maintaines a 15 second working set of allocated magazines, so full
  *   magazines are not allocated and released too often.
  *   the chunk size dependent magazine sizes automatically adapt (within limits,
@@ -292,7 +290,7 @@ static SliceConfig slice_config = {
 };
 static GMutex      smc_tree_mutex; /* mutex for G_SLICE=debug-blocks */
 
-/* --- auxiliary functions --- */
+/* --- auxiliary funcitons --- */
 void
 g_slice_set_config (GSliceConfig ckey,
                     gint64       value)
@@ -311,7 +309,6 @@ g_slice_set_config (GSliceConfig ckey,
       break;
     case G_SLICE_CONFIG_COLOR_INCREMENT:
       slice_config.color_increment = value;
-      break;
     default: ;
     }
 }
@@ -352,7 +349,7 @@ g_slice_get_config_state (GSliceConfig ckey,
       array[i++] = allocator->contention_counters[address];
       array[i++] = allocator_get_magazine_threshold (allocator, address);
       *n_values = i;
-      return g_memdup2 (array, sizeof (array[0]) * *n_values);
+      return g_memdup (array, sizeof (array[0]) * *n_values);
     default:
       return NULL;
     }
@@ -362,52 +359,10 @@ static void
 slice_config_init (SliceConfig *config)
 {
   const gchar *val;
-  gchar *val_allocated = NULL;
 
   *config = slice_config;
 
-  /* Note that the empty string (`G_SLICE=""`) is treated differently from the
-   * envvar being unset. In the latter case, we also check whether running under
-   * valgrind. */
-#ifndef G_OS_WIN32
-  val = g_getenv ("G_SLICE");
-#else
-  /* The win32 implementation of g_getenv() has to do UTF-8 ↔ UTF-16 conversions
-   * which use the slice allocator, leading to deadlock. Use a simple in-place
-   * implementation here instead.
-   *
-   * Ignore references to other environment variables: only support values which
-   * are a combination of always-malloc and debug-blocks. */
-  {
-
-  wchar_t wvalue[128];  /* at least big enough for `always-malloc,debug-blocks` */
-  int len;
-
-  len = GetEnvironmentVariableW (L"G_SLICE", wvalue, G_N_ELEMENTS (wvalue));
-
-  if (len == 0)
-    {
-      if (GetLastError () == ERROR_ENVVAR_NOT_FOUND)
-        val = NULL;
-      else
-        val = "";
-    }
-  else if (len >= G_N_ELEMENTS (wvalue))
-    {
-      /* @wvalue isn’t big enough. Give up. */
-      g_warning ("Unsupported G_SLICE value");
-      val = NULL;
-    }
-  else
-    {
-      /* it’s safe to use g_utf16_to_utf8() here as it only allocates using
-       * malloc() rather than GSlice */
-      val = val_allocated = g_utf16_to_utf8 (wvalue, -1, NULL, NULL, NULL);
-    }
-
-  }
-#endif  /* G_OS_WIN32 */
-
+  val = getenv ("G_SLICE");
   if (val != NULL)
     {
       gint flags;
@@ -435,8 +390,6 @@ slice_config_init (SliceConfig *config)
         config->always_malloc = TRUE;
 #endif
     }
-
-  g_free (val_allocated);
 }
 
 static void
@@ -562,9 +515,10 @@ thread_memory_from_self (void)
       g_mutex_unlock (&init_mutex);
 
       n_magazines = MAX_SLAB_INDEX (allocator);
-      tmem = g_private_set_alloc0 (&private_thread_memory, sizeof (ThreadMemory) + sizeof (Magazine) * 2 * n_magazines);
+      tmem = g_malloc0 (sizeof (ThreadMemory) + sizeof (Magazine) * 2 * n_magazines);
       tmem->magazine1 = (Magazine*) (tmem + 1);
       tmem->magazine2 = &tmem->magazine1[n_magazines];
+      g_private_set (&private_thread_memory, tmem);
     }
   return tmem;
 }
@@ -641,8 +595,9 @@ magazine_cache_update_stamp (void)
 {
   if (allocator->stamp_counter >= MAX_STAMP_COUNTER)
     {
-      gint64 now_us = g_get_real_time ();
-      allocator->last_stamp = now_us / 1000; /* milli seconds */
+      GTimeVal tv;
+      g_get_current_time (&tv);
+      allocator->last_stamp = tv.tv_sec * 1000 + tv.tv_usec / 1000; /* milli seconds */
       allocator->stamp_counter = 0;
     }
   else
@@ -685,8 +640,7 @@ magazine_cache_trim (Allocator *allocator,
   /* trim magazine cache from tail */
   ChunkLink *current = magazine_chain_prev (allocator->magazines[ix]);
   ChunkLink *trash = NULL;
-  while (!G_APPROX_VALUE(stamp, magazine_chain_uint_stamp (current),
-                         allocator->config.working_set_msecs))
+  while (ABS (stamp - magazine_chain_uint_stamp (current)) >= allocator->config.working_set_msecs)
     {
       /* unlink */
       ChunkLink *prev = magazine_chain_prev (current);
@@ -1442,9 +1396,7 @@ slab_allocator_free_chunk (gsize    chunk_size,
  */
 
 #if !(HAVE_POSIX_MEMALIGN || HAVE_MEMALIGN || HAVE_VALLOC)
-G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 static GTrashStack *compat_valloc_trash = NULL;
-G_GNUC_END_IGNORE_DEPRECATIONS
 #endif
 
 static gpointer

@@ -66,14 +66,10 @@ static GMemVTable glib_mem_vtable = {
  * If any call to allocate memory using functions g_new(), g_new0(), g_renew(),
  * g_malloc(), g_malloc0(), g_malloc0_n(), g_realloc(), and g_realloc_n()
  * fails, the application is terminated. This also means that there is no
- * need to check if the call succeeded. On the other hand, the `g_try_...()` family
+ * need to check if the call succeeded. On the other hand, g_try_...() family
  * of functions returns %NULL on failure that can be used as a check
  * for unsuccessful memory allocation. The application is not terminated
  * in this case.
- *
- * As all GLib functions and data structures use `g_malloc()` internally, unless
- * otherwise specified, any allocation failure will result in the application
- * being terminated.
  *
  * It's important to match g_malloc() (and wrappers such as g_new()) with
  * g_free(), g_slice_alloc() (and wrappers such as g_slice_new()) with
@@ -81,9 +77,6 @@ static GMemVTable glib_mem_vtable = {
  * new with delete and new[] with delete[]. Otherwise bad things can happen,
  * since these allocators may use different memory pools (and new/delete call
  * constructors and destructors).
- *
- * Since GLib 2.46 g_malloc() is hardcoded to always use the system malloc
- * implementation.
  */
 
 /* --- functions --- */
@@ -177,7 +170,8 @@ g_realloc (gpointer mem,
                G_STRLOC, n_bytes);
     }
 
-  free (mem);
+  if (mem)
+    free (mem);
 
   TRACE (GLIB_MEM_REALLOC((void*) NULL, (void*)mem, 0, 0));
 
@@ -196,7 +190,8 @@ g_realloc (gpointer mem,
 void
 g_free (gpointer mem)
 {
-  free (mem);
+  if (G_LIKELY (mem))
+    free (mem);
   TRACE(GLIB_MEM_FREE((void*) mem));
 }
 
@@ -309,7 +304,8 @@ g_try_realloc (gpointer mem,
   else
     {
       newmem = NULL;
-      free (mem);
+      if (mem)
+	free (mem);
     }
 
   TRACE (GLIB_MEM_REALLOC((void*) newmem, (void*)mem, (unsigned int) n_bytes, 1));
@@ -464,7 +460,7 @@ g_try_realloc_n (gpointer mem,
  * 
  * Checks whether the allocator used by g_malloc() is the system's
  * malloc implementation. If it returns %TRUE memory allocated with
- * malloc() can be used interchangeably with memory allocated using g_malloc().
+ * malloc() can be used interchangeable with memory allocated using g_malloc().
  * This function is useful for avoiding an extra copy of allocated memory returned
  * by a non-GLib-based API.
  *

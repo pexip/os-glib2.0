@@ -105,7 +105,7 @@ g_filename_completer_class_init (GFilenameCompleterClass *klass)
 					  G_SIGNAL_RUN_LAST,
 					  G_STRUCT_OFFSET (GFilenameCompleterClass, got_completion_data),
 					  NULL, NULL,
-					  NULL,
+					  g_cclosure_marshal_VOID__VOID,
 					  G_TYPE_NONE, 0);
 }
 
@@ -278,7 +278,7 @@ got_enum (GObject *source_object,
 	g_object_unref (data->completer->basenames_dir);
       g_list_free_full (data->completer->basenames, g_free);
 
-      /* Mark up-to-date with no basenames */
+      /* Mark uptodate with no basenames */
       data->completer->basenames_dir = g_object_ref (data->dir);
       data->completer->basenames = NULL;
       data->completer->basenames_are_escaped = data->should_escape;

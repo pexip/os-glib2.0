@@ -34,13 +34,13 @@
  * @short_description: Native GSocketAddress
  * @include: gio/gio.h
  *
- * A socket address of some unknown native type.
+ * An socket address of some unknown native type.
  */
 
 /**
  * GNativeSocketAddress:
  *
- * A socket address, corresponding to a general struct
+ * An socket address, corresponding to a general struct
  * sockadd address of a type not otherwise handled by glib.
  */
 

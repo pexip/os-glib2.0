@@ -22,9 +22,7 @@
 
 import collections
 import os
-import shutil
 import subprocess
-import sys
 import tempfile
 import textwrap
 import unittest
@@ -47,14 +45,10 @@ class TestMkenums(unittest.TestCase):
     parsing and generation code out into a library and unit test that, and
     convert this test to just check command line behaviour.
     """
-    # Track the cwd, we want to back out to that to clean up our tempdir
-    cwd = ''
-    rspfile = False
 
     def setUp(self):
         self.timeout_seconds = 10  # seconds per test
         self.tmpdir = tempfile.TemporaryDirectory()
-        self.cwd = os.getcwd()
         os.chdir(self.tmpdir.name)
         print('tmpdir:', self.tmpdir.name)
         if 'G_TEST_BUILDDIR' in os.environ:
@@ -62,34 +56,14 @@ class TestMkenums(unittest.TestCase):
                 os.path.join(os.environ['G_TEST_BUILDDIR'], '..',
                              'glib-mkenums')
         else:
-            self.__mkenums = shutil.which('glib-mkenums')
-        print('rspfile: {}, mkenums:'.format(self.rspfile), self.__mkenums)
+            self.__mkenums = os.path.join('/', 'usr', 'bin', 'glib-mkenums')
+        print('mkenums:', self.__mkenums)
 
     def tearDown(self):
-        os.chdir(self.cwd)
         self.tmpdir.cleanup()
 
-    def _write_rspfile(self, argv):
-        import shlex
-        with tempfile.NamedTemporaryFile(dir=self.tmpdir.name, mode='w',
-                                         delete=False) as f:
-            contents = ' '.join([shlex.quote(arg) for arg in argv])
-            print('Response file contains:', contents)
-            f.write(contents)
-            f.flush()
-            return f.name
-
     def runMkenums(self, *args):
-        if self.rspfile:
-            rspfile = self._write_rspfile(args)
-            args = ['@' + rspfile]
         argv = [self.__mkenums]
-
-        # shebang lines are not supported on native
-        # Windows consoles
-        if os.name == 'nt':
-            argv.insert(0, sys.executable)
-
         argv.extend(args)
         print('Running:', argv)
 
@@ -97,15 +71,13 @@ class TestMkenums(unittest.TestCase):
         env['LC_ALL'] = 'C.UTF-8'
         print('Environment:', env)
 
-        # We want to ensure consistent line endings...
         info = subprocess.run(argv, timeout=self.timeout_seconds,
                               stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE,
-                              env=env,
-                              universal_newlines=True)
+                              env=env)
         info.check_returncode()
-        out = info.stdout.strip()
-        err = info.stderr.strip()
+        out = info.stdout.decode('utf-8').strip()
+        err = info.stderr.decode('utf-8').strip()
 
         # Known substitutions for standard boilerplate
         subs = {
@@ -124,8 +96,7 @@ class TestMkenums(unittest.TestCase):
 
     def runMkenumsWithTemplate(self, template_contents, *args):
         with tempfile.NamedTemporaryFile(dir=self.tmpdir.name,
-                                         suffix='.template',
-                                         delete=False) as template_file:
+                                         suffix='.template') as template_file:
             # Write out the template.
             template_file.write(template_contents.encode('utf-8'))
             print(template_file.name + ':', template_contents)
@@ -153,7 +124,6 @@ enum_name: @enum_name@
 ENUMNAME: @ENUMNAME@
 ENUMSHORT: @ENUMSHORT@
 ENUMPREFIX: @ENUMPREFIX@
-enumsince: @enumsince@
 type: @type@
 Type: @Type@
 TYPE: @TYPE@
@@ -166,7 +136,6 @@ enum_name: @enum_name@
 ENUMNAME: @ENUMNAME@
 ENUMSHORT: @ENUMSHORT@
 ENUMPREFIX: @ENUMPREFIX@
-enumsince: @enumsince@
 type: @type@
 Type: @Type@
 TYPE: @TYPE@
@@ -189,7 +158,6 @@ enum_name: @enum_name@
 ENUMNAME: @ENUMNAME@
 ENUMSHORT: @ENUMSHORT@
 ENUMPREFIX: @ENUMPREFIX@
-enumsince: @enumsince@
 type: @type@
 Type: @Type@
 TYPE: @TYPE@
@@ -208,8 +176,7 @@ file-tail
 
     def runMkenumsWithHeader(self, h_contents, encoding='utf-8'):
         with tempfile.NamedTemporaryFile(dir=self.tmpdir.name,
-                                         suffix='.h',
-                                         delete=False) as h_file:
+                                         suffix='.h') as h_file:
             # Write out the header to be scanned.
             h_file.write(h_contents.encode(encoding))
             print(h_file.name + ':', h_contents)
@@ -228,7 +195,7 @@ file-tail
 
     def assertSingleEnum(self, result, enum_name_camel, enum_name_lower,
                          enum_name_upper, enum_name_short, enum_prefix,
-                         enum_since, type_lower, type_camel, type_upper,
+                         type_lower, type_camel, type_upper,
                          value_name, value_nick, value_num):
         """Assert that out (from runMkenumsWithHeader()) contains a single
            enum and value matching the given arguments."""
@@ -238,7 +205,6 @@ file-tail
             'enum_name_upper': enum_name_upper,
             'enum_name_short': enum_name_short,
             'enum_prefix': enum_prefix,
-            'enum_since': enum_since,
             'type_lower': type_lower,
             'type_camel': type_camel,
             'type_upper': type_upper,
@@ -262,7 +228,6 @@ enum_name: {enum_name_lower}
 ENUMNAME: {enum_name_upper}
 ENUMSHORT: {enum_name_short}
 ENUMPREFIX: {enum_prefix}
-enumsince: {enum_since}
 type: {type_lower}
 Type: {type_camel}
 TYPE: {type_upper}
@@ -272,7 +237,6 @@ enum_name: {enum_name_lower}
 ENUMNAME: {enum_name_upper}
 ENUMSHORT: {enum_name_short}
 ENUMPREFIX: {enum_prefix}
-enumsince: {enum_since}
 type: {type_lower}
 Type: {type_camel}
 TYPE: {type_upper}
@@ -289,7 +253,6 @@ enum_name: {enum_name_lower}
 ENUMNAME: {enum_name_upper}
 ENUMSHORT: {enum_name_short}
 ENUMPREFIX: {enum_prefix}
-enumsince: {enum_since}
 type: {type_lower}
 Type: {type_camel}
 TYPE: {type_upper}
@@ -308,7 +271,7 @@ comment: {standard_bottom_comment}
         """Test running with no arguments at all."""
         result = self.runMkenums()
         self.assertEqual('', result.err)
-        self.assertEqual('''/* {standard_top_comment} */
+        self.assertEquals('''/* {standard_top_comment} */
 
 
 /* {standard_bottom_comment} */'''.format(**result.subs),
@@ -318,7 +281,7 @@ comment: {standard_bottom_comment}
         """Test running with an empty template and no header files."""
         result = self.runMkenumsWithTemplate('')
         self.assertEqual('', result.err)
-        self.assertEqual('''/* {standard_top_comment} */
+        self.assertEquals('''/* {standard_top_comment} */
 
 
 /* {standard_bottom_comment} */'''.format(**result.subs),
@@ -328,7 +291,7 @@ comment: {standard_bottom_comment}
         """Test running with a complete template, but no header files."""
         result = self.runMkenumsWithAllSubstitutions()
         self.assertEqual('', result.err)
-        self.assertEqual('''
+        self.assertEquals('''
 comment
 comment: {standard_top_comment}
 
@@ -367,7 +330,7 @@ comment: {standard_bottom_comment}
         self.assertEqual('', result.err)
         self.assertSingleEnum(result, 'SomeEnumIdentifier',
                               'some_enum_identifier', 'SOME_ENUM_IDENTIFIER',
-                              'ENUM_IDENTIFIER', 'SOME', '', 'enum', 'Enum',
+                              'ENUM_IDENTIFIER', 'SOME', 'enum', 'Enum',
                               'ENUM', 'ENUM_VALUE', 'value', '0')
 
     def test_non_utf8_encoding(self):
@@ -382,7 +345,7 @@ comment: {standard_bottom_comment}
         self.assertIn('WARNING: UnicodeWarning: ', result.err)
         self.assertSingleEnum(result, 'SomeEnumIdentifier',
                               'some_enum_identifier', 'SOME_ENUM_IDENTIFIER',
-                              'ENUM_IDENTIFIER', 'SOME', '', 'enum', 'Enum',
+                              'ENUM_IDENTIFIER', 'SOME', 'enum', 'Enum',
                               'ENUM', 'ENUM_VALUE', 'value', '0')
 
     def test_reproducible(self):
@@ -403,9 +366,9 @@ comment: {standard_bottom_comment}
         '''
 
         with tempfile.NamedTemporaryFile(dir=self.tmpdir.name,
-                                         suffix='1.h', delete=False) as h_file1, \
+                                         suffix='1.h') as h_file1, \
                 tempfile.NamedTemporaryFile(dir=self.tmpdir.name,
-                                            suffix='2.h', delete=False) as h_file2:
+                                            suffix='2.h') as h_file2:
             # Write out the headers.
             h_file1.write(h_contents1.encode('utf-8'))
             h_file2.write(h_contents2.encode('utf-8'))
@@ -437,7 +400,7 @@ comment: {standard_bottom_comment}
         self.assertEqual('', result.err)
         self.assertSingleEnum(result, 'GeglSamplerType',
                               'gegl_sampler_type', 'GEGL_SAMPLER_TYPE',
-                              'SAMPLER_TYPE', 'GEGL', '', 'enum', 'Enum',
+                              'SAMPLER_TYPE', 'GEGL', 'enum', 'Enum',
                               'ENUM', 'GEGL_SAMPLER_NEAREST', 'nearest', '0')
 
     def test_filename_basename_in_fhead_ftail(self):
@@ -483,25 +446,6 @@ basename: @basename@
 comment
 comment: {standard_bottom_comment}
 '''.format(**result.subs).strip(), result.out)
-
-    def test_since(self):
-        """Test user-provided 'since' version handling
-        https://gitlab.gnome.org/GNOME/glib/-/merge_requests/1492"""
-        h_contents = '''
-        typedef enum { /*< since=1.0 >*/
-            QMI_WMS_MESSAGE_PROTOCOL_CDMA = 0,
-        } QmiWmsMessageProtocol;
-        '''
-        result = self.runMkenumsWithHeader(h_contents)
-        self.assertEqual('', result.err)
-        self.assertSingleEnum(result, 'QmiWmsMessageProtocol',
-                              'qmi_wms_message_protocol', 'QMI_WMS_MESSAGE_PROTOCOL',
-                              'WMS_MESSAGE_PROTOCOL', 'QMI', '1.0', 'enum', 'Enum',
-                              'ENUM', 'QMI_WMS_MESSAGE_PROTOCOL_CDMA', 'cdma', '0')
-
-class TestRspMkenums(TestMkenums):
-    '''Run all tests again in @rspfile mode'''
-    rspfile = True
 
 
 if __name__ == '__main__':

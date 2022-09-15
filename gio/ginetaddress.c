@@ -31,6 +31,13 @@
 #include "glibintl.h"
 #include "gnetworkingprivate.h"
 
+#ifdef G_OS_WIN32
+/* Ensure Windows XP runtime compatibility, while using
+ * inet_pton() and inet_ntop() if available
+ */
+#include "gwin32networking.h"
+#endif
+
 struct _GInetAddressPrivate
 {
   GSocketFamily family;
@@ -375,8 +382,8 @@ g_inet_address_init (GInetAddress *address)
  *
  * Parses @string as an IP address and creates a new #GInetAddress.
  *
- * Returns: (nullable) (transfer full): a new #GInetAddress corresponding
- * to @string, or %NULL if @string could not be parsed.
+ * Returns: a new #GInetAddress corresponding to @string, or %NULL if
+ * @string could not be parsed.
  *     Free the returned object with g_object_unref().
  *
  * Since: 2.22

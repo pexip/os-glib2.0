@@ -188,7 +188,7 @@ g_tcp_wrapper_connection_new (GIOStream *base_io_stream,
  * g_tcp_wrapper_connection_get_base_io_stream:
  * @conn: a #GTcpWrapperConnection
  *
- * Gets @conn's base #GIOStream
+ * Get's @conn's base #GIOStream
  *
  * Returns: (transfer none): @conn's base #GIOStream
  */

@@ -9,7 +9,3 @@ Restrictions: allow-stderr
 Tests: flaky
 Depends: libglib2.0-tests, dbus-x11, dbus (>= 1.8), xauth, xvfb, gnome-desktop-testing
 Restrictions: allow-stderr flaky
-
-Tests: bug896019 bug896019-biarch
-Depends: dpkg-dev, libglib2.0-0
-Restrictions: allow-stderr, breaks-testbed, needs-root, skippable

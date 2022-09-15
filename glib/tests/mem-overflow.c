@@ -21,7 +21,7 @@
 
 /* We test for errors in optimize-only definitions in gmem.h */
 
-#if defined(__GNUC__) && __GNUC__ > 6
+#ifdef __GNUC__
 #pragma GCC optimize (1)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Walloc-size-larger-than="
@@ -200,7 +200,7 @@ empty_alloc (void)
 }
 #endif
 
-#if defined(__GNUC__) && __GNUC__ > 6
+#ifdef __GNUC__
 #pragma GCC diagnostic pop
 #endif
 

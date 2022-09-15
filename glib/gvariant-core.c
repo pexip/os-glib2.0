@@ -28,7 +28,6 @@
 #include <glib/gbytes.h>
 #include <glib/gslice.h>
 #include <glib/gmem.h>
-#include <glib/grefcount.h>
 #include <string.h>
 
 
@@ -75,7 +74,7 @@ struct _GVariant
   } contents;
 
   gint state;
-  gatomicrefcount ref_count;
+  gint ref_count;
   gsize depth;
 };
 
@@ -336,7 +335,7 @@ g_variant_ensure_size (GVariant *value)
 {
   g_assert (value->state & STATE_LOCKED);
 
-  if (value->size == (gsize) -1)
+  if (value->size == (gssize) -1)
     {
       gpointer *children;
       gsize n_children;
@@ -489,7 +488,7 @@ g_variant_alloc (const GVariantType *type,
                  (trusted ? STATE_TRUSTED : 0) |
                  STATE_FLOATING;
   value->size = (gssize) -1;
-  g_atomic_ref_count_init (&value->ref_count);
+  value->ref_count = 1;
   value->depth = 0;
 
   return value;
@@ -507,10 +506,6 @@ g_variant_alloc (const GVariantType *type,
  *
  * A reference is taken on @bytes.
  *
- * The data in @bytes must be aligned appropriately for the @type being loaded.
- * Otherwise this function will internally create a copy of the memory (since
- * GLib 2.60) or (in older versions) fail and exit the process.
- *
  * Returns: (transfer none): a new #GVariant with a floating reference
  *
  * Since: 2.36
@@ -523,55 +518,13 @@ g_variant_new_from_bytes (const GVariantType *type,
   GVariant *value;
   guint alignment;
   gsize size;
-  GBytes *owned_bytes = NULL;
-  GVariantSerialised serialised;
 
   value = g_variant_alloc (type, TRUE, trusted);
 
+  value->contents.serialised.bytes = g_bytes_ref (bytes);
+
   g_variant_type_info_query (value->type_info,
                              &alignment, &size);
-
-  /* Ensure the alignment is correct. This is a huge performance hit if it’s
-   * not correct, but that’s better than aborting if a caller provides data
-   * with the wrong alignment (which is likely to happen very occasionally, and
-   * only cause an abort on some architectures — so is unlikely to be caught
-   * in testing). Callers can always actively ensure they use the correct
-   * alignment to avoid the performance hit. */
-  serialised.type_info = value->type_info;
-  serialised.data = (guchar *) g_bytes_get_data (bytes, &serialised.size);
-  serialised.depth = 0;
-
-  if (!g_variant_serialised_check (serialised))
-    {
-#ifdef HAVE_POSIX_MEMALIGN
-      gpointer aligned_data = NULL;
-      gsize aligned_size = g_bytes_get_size (bytes);
-
-      /* posix_memalign() requires the alignment to be a multiple of
-       * sizeof(void*), and a power of 2. See g_variant_type_info_query() for
-       * details on the alignment format. */
-      if (posix_memalign (&aligned_data, MAX (sizeof (void *), alignment + 1),
-                          aligned_size) != 0)
-        g_error ("posix_memalign failed");
-
-      if (aligned_size != 0)
-        memcpy (aligned_data, g_bytes_get_data (bytes, NULL), aligned_size);
-
-      bytes = owned_bytes = g_bytes_new_with_free_func (aligned_data,
-                                                        aligned_size,
-                                                        free, aligned_data);
-      aligned_data = NULL;
-#else
-      /* NOTE: there may be platforms that lack posix_memalign() and also
-       * have malloc() that returns non-8-aligned.  if so, we need to try
-       * harder here.
-       */
-      bytes = owned_bytes = g_bytes_new (g_bytes_get_data (bytes, NULL),
-                                         g_bytes_get_size (bytes));
-#endif
-    }
-
-  value->contents.serialised.bytes = g_bytes_ref (bytes);
 
   if (size && g_bytes_get_size (bytes) != size)
     {
@@ -589,8 +542,6 @@ g_variant_new_from_bytes (const GVariantType *type,
     {
       value->contents.serialised.data = g_bytes_get_data (bytes, &value->size);
     }
-
-  g_clear_pointer (&owned_bytes, g_bytes_unref);
 
   return value;
 }
@@ -666,21 +617,6 @@ g_variant_is_trusted (GVariant *value)
   return (value->state & STATE_TRUSTED) != 0;
 }
 
-/* < internal >
- * g_variant_get_depth:
- * @value: a #GVariant
- *
- * Gets the nesting depth of a #GVariant. This is 0 for a #GVariant with no
- * children.
- *
- * Returns: nesting depth of @value
- */
-gsize
-g_variant_get_depth (GVariant *value)
-{
-  return value->depth;
-}
-
 /* -- public -- */
 
 /**
@@ -696,8 +632,9 @@ void
 g_variant_unref (GVariant *value)
 {
   g_return_if_fail (value != NULL);
+  g_return_if_fail (value->ref_count > 0);
 
-  if (g_atomic_ref_count_dec (&value->ref_count))
+  if (g_atomic_int_dec_and_test (&value->ref_count))
     {
       if G_UNLIKELY (value->state & STATE_LOCKED)
         g_critical ("attempting to free a locked GVariant instance.  "
@@ -731,8 +668,9 @@ GVariant *
 g_variant_ref (GVariant *value)
 {
   g_return_val_if_fail (value != NULL, NULL);
+  g_return_val_if_fail (value->ref_count > 0, NULL);
 
-  g_atomic_ref_count_inc (&value->ref_count);
+  g_atomic_int_inc (&value->ref_count);
 
   return value;
 }
@@ -772,7 +710,7 @@ GVariant *
 g_variant_ref_sink (GVariant *value)
 {
   g_return_val_if_fail (value != NULL, NULL);
-  g_return_val_if_fail (!g_atomic_ref_count_compare (&value->ref_count, 0), NULL);
+  g_return_val_if_fail (value->ref_count > 0, NULL);
 
   g_variant_lock (value);
 
@@ -810,7 +748,7 @@ g_variant_ref_sink (GVariant *value)
  *
  * Using this function on the return value of the user's callback allows
  * the user to do whichever is more convenient for them.  The caller
- * will always receives exactly one full reference to the value: either
+ * will alway receives exactly one full reference to the value: either
  * the one that was returned in the first place, or a floating reference
  * that has been converted to a full reference.
  *
@@ -829,7 +767,7 @@ GVariant *
 g_variant_take_ref (GVariant *value)
 {
   g_return_val_if_fail (value != NULL, NULL);
-  g_return_val_if_fail (!g_atomic_ref_count_compare (&value->ref_count, 0), NULL);
+  g_return_val_if_fail (value->ref_count > 0, NULL);
 
   g_atomic_int_and (&value->state, ~STATE_FLOATING);
 
@@ -965,12 +903,6 @@ g_variant_get_data_as_bytes (GVariant *value)
   data = value->contents.serialised.data;
   size = value->size;
 
-  if (data == NULL)
-    {
-      g_assert (size == 0);
-      data = bytes_data;
-    }
-
   if (data == bytes_data && size == bytes_size)
     return g_bytes_ref (value->contents.serialised.bytes);
   else
@@ -1040,12 +972,6 @@ g_variant_n_children (GVariant *value)
  *
  * The returned value is never floating.  You should free it with
  * g_variant_unref() when you're done with it.
- *
- * Note that values borrowed from the returned child are not guaranteed to
- * still be valid after the child is freed even if you still hold a reference
- * to @value, if @value has not been serialised at the time this function is
- * called. To avoid this, you can serialize @value by calling
- * g_variant_get_data() and optionally ignoring the return value.
  *
  * There may be implementation specific restrictions on deeply nested values,
  * which would result in the unit tuple being returned as the child value,
@@ -1117,7 +1043,7 @@ g_variant_get_child_value (GVariant *value,
     child->state = (value->state & STATE_TRUSTED) |
                    STATE_SERIALISED;
     child->size = s_child.size;
-    g_atomic_ref_count_init (&child->ref_count);
+    child->ref_count = 1;
     child->depth = value->depth + 1;
     child->contents.serialised.bytes =
       g_bytes_ref (value->contents.serialised.bytes);

@@ -166,7 +166,7 @@ static gpointer
 ref_unref_thread (gpointer data)
 {
   gint i;
-  /* first, synchronize with other threads,
+  /* first, syncronize with other threads,
    */
   if (g_test_verbose())
     g_printerr ("WAITING!\n");

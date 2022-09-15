@@ -59,3 +59,4 @@ glib__private__ (void)
 
   return &table;
 }
+

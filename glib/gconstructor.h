@@ -1,6 +1,6 @@
 /*
   If G_HAS_CONSTRUCTORS is true then the compiler support *both* constructors and
-  destructors, in a usable way, including e.g. on library unload. If not you're on
+  destructors, in a sane way, including e.g. on library unload. If not you're on
   your own.
 
   Some compilers need #pragma to handle this, which does not work with macros,
@@ -28,8 +28,6 @@
 #elif defined (_MSC_VER) && (_MSC_VER >= 1500)
 /* Visual studio 2008 and later has _Pragma */
 
-#include <stdlib.h>
-
 #define G_HAS_CONSTRUCTORS 1
 
 /* We do some weird things to avoid the constructors being optimized
@@ -42,13 +40,13 @@
  */
 
 /* We need to account for differences between the mangling of symbols
- * for x86 and x64/ARM/ARM64 programs, as symbols on x86 are prefixed
- * with an underscore but symbols on x64/ARM/ARM64 are not.
+ * for Win32 (x86) and x64 programs, as symbols on Win32 are prefixed
+ * with an underscore but symbols on x64 are not.
  */
-#ifdef _M_IX86
-#define G_MSVC_SYMBOL_PREFIX "_"
-#else
+#ifdef _WIN64
 #define G_MSVC_SYMBOL_PREFIX ""
+#else
+#define G_MSVC_SYMBOL_PREFIX "_"
 #endif
 
 #define G_DEFINE_CONSTRUCTOR(_func) G_MSVC_CTOR (_func, G_MSVC_SYMBOL_PREFIX)

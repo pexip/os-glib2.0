@@ -26,7 +26,6 @@
 #include "gdbusutils.h"
 
 #include "glibintl.h"
-#include "gmarshal-internal.h"
 
 /**
  * SECTION:gdbusobjectmanager
@@ -52,16 +51,6 @@
 typedef GDBusObjectManagerIface GDBusObjectManagerInterface;
 G_DEFINE_INTERFACE (GDBusObjectManager, g_dbus_object_manager, G_TYPE_OBJECT)
 
-enum {
-  OBJECT_ADDED,
-  OBJECT_REMOVED,
-  INTERFACE_ADDED,
-  INTERFACE_REMOVED,
-  N_SIGNALS
-};
-
-static guint signals[N_SIGNALS];
-
 static void
 g_dbus_object_manager_default_init (GDBusObjectManagerIface *iface)
 {
@@ -74,17 +63,16 @@ g_dbus_object_manager_default_init (GDBusObjectManagerIface *iface)
    *
    * Since: 2.30
    */
-  signals[OBJECT_ADDED] =
-    g_signal_new (I_("object-added"),
-                  G_TYPE_FROM_INTERFACE (iface),
-                  G_SIGNAL_RUN_LAST,
-                  G_STRUCT_OFFSET (GDBusObjectManagerIface, object_added),
-                  NULL,
-                  NULL,
-                  NULL,
-                  G_TYPE_NONE,
-                  1,
-                  G_TYPE_DBUS_OBJECT);
+  g_signal_new (I_("object-added"),
+                G_TYPE_FROM_INTERFACE (iface),
+                G_SIGNAL_RUN_LAST,
+                G_STRUCT_OFFSET (GDBusObjectManagerIface, object_added),
+                NULL,
+                NULL,
+                g_cclosure_marshal_VOID__OBJECT,
+                G_TYPE_NONE,
+                1,
+                G_TYPE_DBUS_OBJECT);
 
   /**
    * GDBusObjectManager::object-removed:
@@ -95,17 +83,16 @@ g_dbus_object_manager_default_init (GDBusObjectManagerIface *iface)
    *
    * Since: 2.30
    */
-  signals[OBJECT_REMOVED] =
-    g_signal_new (I_("object-removed"),
-                  G_TYPE_FROM_INTERFACE (iface),
-                  G_SIGNAL_RUN_LAST,
-                  G_STRUCT_OFFSET (GDBusObjectManagerIface, object_removed),
-                  NULL,
-                  NULL,
-                  NULL,
-                  G_TYPE_NONE,
-                  1,
-                  G_TYPE_DBUS_OBJECT);
+  g_signal_new (I_("object-removed"),
+                G_TYPE_FROM_INTERFACE (iface),
+                G_SIGNAL_RUN_LAST,
+                G_STRUCT_OFFSET (GDBusObjectManagerIface, object_removed),
+                NULL,
+                NULL,
+                g_cclosure_marshal_VOID__OBJECT,
+                G_TYPE_NONE,
+                1,
+                G_TYPE_DBUS_OBJECT);
 
   /**
    * GDBusObjectManager::interface-added:
@@ -120,21 +107,17 @@ g_dbus_object_manager_default_init (GDBusObjectManagerIface *iface)
    *
    * Since: 2.30
    */
-  signals[INTERFACE_ADDED] =
-    g_signal_new (I_("interface-added"),
-                  G_TYPE_FROM_INTERFACE (iface),
-                  G_SIGNAL_RUN_LAST,
-                  G_STRUCT_OFFSET (GDBusObjectManagerIface, interface_added),
-                  NULL,
-                  NULL,
-                  _g_cclosure_marshal_VOID__OBJECT_OBJECT,
-                  G_TYPE_NONE,
-                  2,
-                  G_TYPE_DBUS_OBJECT,
-                  G_TYPE_DBUS_INTERFACE);
-  g_signal_set_va_marshaller (signals[INTERFACE_ADDED],
-                              G_TYPE_FROM_INTERFACE (iface),
-                              _g_cclosure_marshal_VOID__OBJECT_OBJECTv);
+  g_signal_new (I_("interface-added"),
+                G_TYPE_FROM_INTERFACE (iface),
+                G_SIGNAL_RUN_LAST,
+                G_STRUCT_OFFSET (GDBusObjectManagerIface, interface_added),
+                NULL,
+                NULL,
+                NULL,
+                G_TYPE_NONE,
+                2,
+                G_TYPE_DBUS_OBJECT,
+                G_TYPE_DBUS_INTERFACE);
 
   /**
    * GDBusObjectManager::interface-removed:
@@ -149,21 +132,17 @@ g_dbus_object_manager_default_init (GDBusObjectManagerIface *iface)
    *
    * Since: 2.30
    */
-  signals[INTERFACE_REMOVED] =
-    g_signal_new (I_("interface-removed"),
-                  G_TYPE_FROM_INTERFACE (iface),
-                  G_SIGNAL_RUN_LAST,
-                  G_STRUCT_OFFSET (GDBusObjectManagerIface, interface_removed),
-                  NULL,
-                  NULL,
-                  _g_cclosure_marshal_VOID__OBJECT_OBJECT,
-                  G_TYPE_NONE,
-                  2,
-                  G_TYPE_DBUS_OBJECT,
-                  G_TYPE_DBUS_INTERFACE);
-  g_signal_set_va_marshaller (signals[INTERFACE_REMOVED],
-                              G_TYPE_FROM_INTERFACE (iface),
-                              _g_cclosure_marshal_VOID__OBJECT_OBJECTv);
+  g_signal_new (I_("interface-removed"),
+                G_TYPE_FROM_INTERFACE (iface),
+                G_SIGNAL_RUN_LAST,
+                G_STRUCT_OFFSET (GDBusObjectManagerIface, interface_removed),
+                NULL,
+                NULL,
+                NULL,
+                G_TYPE_NONE,
+                2,
+                G_TYPE_DBUS_OBJECT,
+                G_TYPE_DBUS_INTERFACE);
 
 }
 
@@ -209,7 +188,7 @@ g_dbus_object_manager_get_objects (GDBusObjectManager *manager)
 /**
  * g_dbus_object_manager_get_object:
  * @manager: A #GDBusObjectManager.
- * @object_path: Object path to look up.
+ * @object_path: Object path to lookup.
  *
  * Gets the #GDBusObjectProxy at @object_path, if any.
  *
@@ -230,8 +209,8 @@ g_dbus_object_manager_get_object (GDBusObjectManager *manager,
 /**
  * g_dbus_object_manager_get_interface:
  * @manager: A #GDBusObjectManager.
- * @object_path: Object path to look up.
- * @interface_name: D-Bus interface name to look up.
+ * @object_path: Object path to lookup.
+ * @interface_name: D-Bus interface name to lookup.
  *
  * Gets the interface proxy for @interface_name at @object_path, if
  * any.

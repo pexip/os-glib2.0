@@ -26,7 +26,6 @@
 #undef G_LOG_DOMAIN
 
 #include <glib.h>
-#include <glib/gstdio.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -39,20 +38,15 @@
 
 
 static void
-run_tests (const gchar* argv0)
+run_tests (void)
 {
-  GError *err = NULL;
+  GError *err;
   gchar *output = NULL;
-  gchar *erroutput = NULL;
-  gchar *dirname = g_path_get_dirname (argv0);
 #ifdef G_OS_WIN32
+  gchar *erroutput = NULL;
   int pipedown[2], pipeup[2];
   gchar **argv = 0;
-  gchar spawn_binary[1000] = {0};
-  gchar full_cmdline[1000] = {0};
-  g_snprintf (spawn_binary, sizeof (spawn_binary), "%s\\spawn-test-win32-gui.exe", dirname);
 #endif
-  g_free (dirname);
   
   err = NULL;
   if (!g_spawn_command_line_sync ("nonexistent_application foo 'bar baz' blah blah",
@@ -102,15 +96,12 @@ run_tests (const gchar* argv0)
         }
 
       g_free (output);
-      output = NULL;
     }
-#endif
-  /* Running sort synchronously, collecting its output. 'sort' command is selected
-   * because it is non-builtin command on both unix and win32 with well-defined stdout behaviour.
-   */
-  g_file_set_contents ("spawn-test-created-file.txt", "line first\nline 2\nline last\n", -1, &err);
-  g_assert_no_error(err);
-  if (!g_spawn_command_line_sync ("sort spawn-test-created-file.txt",
+#else
+#ifdef G_OS_WIN32
+  printf ("Running netstat synchronously, collecting its output\n");
+
+  if (!g_spawn_command_line_sync ("netstat -n",
                                   &output, &erroutput, NULL,
                                   &err))
     {
@@ -123,9 +114,9 @@ run_tests (const gchar* argv0)
       g_assert (output != NULL);
       g_assert (erroutput != NULL);
       
-      if (strstr (output, "\nline first") == 0)
+      if (strstr (output, "Active Connections") == 0)
         {
-          printf ("output was '%s', should have contained 'line first' in second line\n",
+          printf ("output was '%s', should have contained 'Active Connections'\n",
                   output);
 
           exit (1);
@@ -141,36 +132,13 @@ run_tests (const gchar* argv0)
       output = NULL;
       g_free (erroutput);
       erroutput = NULL;
-      g_unlink ("spawn-test-created-file.txt");
     }
 
-  if (!g_spawn_command_line_sync ("sort non-existing-file.txt",
-                                  NULL, &erroutput, NULL,
-                                  &err))
-    {
-      fprintf (stderr, "Error: %s\n", err->message);
-      g_error_free (err);
-      exit (1);
-    }
-  else
-    {
-      g_assert (erroutput != NULL);
-
-      if (erroutput[0] == '\0')
-        {
-          printf ("erroutput was empty, expected contain error message about non-existing-file.txt\n");
-          exit (1);
-        }
-      g_free (erroutput);
-      erroutput = NULL;
-    }
-
-#ifdef G_OS_WIN32
-  printf ("Running spawn-test-win32-gui in various ways.\n");
+  printf ("Running spawn-test-win32-gui in various ways. Click on the OK buttons.\n");
 
   printf ("First asynchronously (without wait).\n");
-  g_snprintf (full_cmdline, sizeof (full_cmdline), "'%s' 1", spawn_binary);
-  if (!g_spawn_command_line_async (full_cmdline, &err))
+
+  if (!g_spawn_command_line_async ("'.\\spawn-test-win32-gui.exe' 1", &err))
     {
       fprintf (stderr, "Error: %s\n", err->message);
       g_error_free (err);
@@ -178,8 +146,7 @@ run_tests (const gchar* argv0)
     }
 
   printf ("Now synchronously, collecting its output.\n");
-  g_snprintf (full_cmdline, sizeof (full_cmdline), "'%s' 2", spawn_binary);
-  if (!g_spawn_command_line_sync (full_cmdline,
+  if (!g_spawn_command_line_sync ("'.\\spawn-test-win32-gui.exe' 2",
 				  &output, &erroutput, NULL,
 				  &err))
     {
@@ -207,38 +174,26 @@ run_tests (const gchar* argv0)
 	}
 
       g_free (output);
-      output = NULL;
       g_free (erroutput);
-      erroutput = NULL;
     }
 
   printf ("Now with G_SPAWN_FILE_AND_ARGV_ZERO.\n");
-  g_snprintf (full_cmdline, sizeof (full_cmdline), "'%s' this-should-be-argv-zero print_argv0", spawn_binary);
-  if (!g_shell_parse_argv (full_cmdline, NULL, &argv, &err))
+
+  if (!g_shell_parse_argv ("'.\\spawn-test-win32-gui.exe' this-should-be-argv-zero nop", NULL, &argv, &err))
     {
       fprintf (stderr, "Error parsing command line? %s\n", err->message);
       g_error_free (err);
       exit (1);
     }
 
-  if (!g_spawn_sync (NULL, argv, NULL,
+  if (!g_spawn_async (NULL, argv, NULL,
 		      G_SPAWN_FILE_AND_ARGV_ZERO,
-		      NULL, NULL, &output, NULL, NULL,
+		      NULL, NULL, NULL,
 		      &err))
     {
       fprintf (stderr, "Error: %s\n", err->message);
       g_error_free (err);
       exit (1);
-    }
-  else
-    {
-      if (strcmp (output, "this-should-be-argv-zero") != 0)
-	{
-	  printf ("output was '%s', should have been 'this-should-be-argv-zero'\n", output);
-	  exit (1);
-	}
-      g_free (output);
-      output = NULL;
     }
 
   printf ("Now talking to it through pipes.\n");
@@ -250,8 +205,8 @@ run_tests (const gchar* argv0)
       exit (1);
     }
 
-  g_snprintf (full_cmdline, sizeof (full_cmdline), "'%s' pipes %d %d", spawn_binary, pipedown[0], pipeup[1]);
-  if (!g_shell_parse_argv (full_cmdline,
+  if (!g_shell_parse_argv (g_strdup_printf ("'.\\spawn-test-win32-gui.exe' pipes %d %d",
+					    pipedown[0], pipeup[1]),
                            NULL, &argv,
                            &err))
     {
@@ -282,7 +237,7 @@ run_tests (const gchar* argv0)
 	    fprintf (stderr, "Read error: %s\n", g_strerror (errsv));
 	  else
 	    fprintf (stderr, "Wanted to read %d bytes, got %d\n",
-		     (int)sizeof (n), k);
+		     sizeof (n), k);
 	  exit (1);
 	}
 
@@ -313,12 +268,7 @@ run_tests (const gchar* argv0)
 	    fprintf (stderr, "Read error: %s\n", g_strerror (errsv));
 	  else
 	    fprintf (stderr, "Wanted to read %d bytes, got %d\n",
-		     (int)sizeof (n), k);
-	  exit (1);
-	}
-      if (n != strlen ("See ya"))
-	{
-	  printf ("child wrote %d bytes, expected %d", n, (int) strlen ("See ya"));
+		     sizeof (n), k);
 	  exit (1);
 	}
 
@@ -332,13 +282,8 @@ run_tests (const gchar* argv0)
 		     n, k);
 	  exit (1);
 	}
-      buf[n] = '\0';
-      if (strcmp (buf, "See ya") != 0)
-	{
-	  printf ("output was '%s', should have been 'See ya'\n", buf);
-	  exit (1);
-	}
     }
+#endif
 #endif
 }
 
@@ -346,7 +291,7 @@ int
 main (int   argc,
       char *argv[])
 {
-  run_tests (argv[0]);
+  run_tests ();
   
   return 0;
 }

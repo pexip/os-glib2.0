@@ -200,17 +200,12 @@ main (int argc, char **argv)
   GOptionContext *context;
   GError *error = NULL;
   const char *mode;
-  gboolean ret;
 
   context = g_option_context_new ("MODE - Test GSubprocess stuff");
   g_option_context_add_main_entries (context, options, NULL);
-  ret = g_option_context_parse (context, &argc, &argv, &error);
-  g_option_context_free (context);
-
-  if (!ret)
+  if (!g_option_context_parse (context, &argc, &argv, &error))
     {
       g_printerr ("%s: %s\n", argv[0], error->message);
-      g_error_free (error);
       return 1;
     }
 

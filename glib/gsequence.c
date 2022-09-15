@@ -30,10 +30,7 @@
  *
  * The #GSequence data structure has the API of a list, but is
  * implemented internally with a balanced binary tree. This means that
- * most of the operations  (access, search, insertion, deletion, ...) on
- * #GSequence are O(log(n)) in average and O(n) in worst case for time
- * complexity. But, note that maintaining a balanced sorted list of n
- * elements is done in time O(n log(n)).
+ * it is possible to maintain a sorted list of n elements in time O(n log n).
  * The data contained in each element can be either integer values, by using
  * of the [Type Conversion Macros][glib-Type-Conversion-Macros], or simply
  * pointers to any type of data.
@@ -830,7 +827,7 @@ g_sequence_search (GSequence        *seq,
 /**
  * g_sequence_lookup:
  * @seq: a #GSequence
- * @data: data to look up
+ * @data: data to lookup
  * @cmp_func: the function used to compare items in the sequence
  * @cmp_data: user data passed to @cmp_func
  *
@@ -1118,7 +1115,7 @@ g_sequence_search_iter (GSequence                *seq,
 /**
  * g_sequence_lookup_iter:
  * @seq: a #GSequence
- * @data: data to look up
+ * @data: data to lookup
  * @iter_cmp: the function used to compare iterators in the sequence
  * @cmp_data: user data passed to @iter_cmp
  *

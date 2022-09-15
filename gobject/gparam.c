@@ -41,14 +41,11 @@
  *
  * ## Parameter names # {#canonical-parameter-names}
  *
- * A property name consists of one or more segments consisting of ASCII letters
- * and digits, separated by either the `-` or `_` character. The first
- * character of a property name must be a letter. These are the same rules as
- * for signal naming (see g_signal_new()).
- *
- * When creating and looking up a #GParamSpec, either separator can be
- * used, but they cannot be mixed. Using `-` is considerably more
- * efficient, and is the ‘canonical form’. Using `_` is discouraged.
+ * Parameter names need to start with a letter (a-z or A-Z).
+ * Subsequent characters can be letters, numbers or a '-'.
+ * All other characters are replaced by a '-' during construction.
+ * The result of this replacement is called the canonical name of
+ * the parameter.
  */
 
 
@@ -358,8 +355,6 @@ g_param_spec_get_blurb (GParamSpec *pspec)
   return NULL;
 }
 
-/* @key must have already been validated with is_valid()
- * Modifies @key in place. */
 static void
 canonicalize_key (gchar *key)
 {
@@ -369,51 +364,28 @@ canonicalize_key (gchar *key)
     {
       gchar c = *p;
       
-      if (c == '_')
-        *p = '-';
+      if (c != '-' &&
+	  (c < '0' || c > '9') &&
+	  (c < 'A' || c > 'Z') &&
+	  (c < 'a' || c > 'z'))
+	*p = '-';
     }
 }
 
-/* @key must have already been validated with is_valid() */
 static gboolean
 is_canonical (const gchar *key)
 {
-  return (strchr (key, '_') == NULL);
-}
-
-/**
- * g_param_spec_is_valid_name:
- * @name: the canonical name of the property
- *
- * Validate a property name for a #GParamSpec. This can be useful for
- * dynamically-generated properties which need to be validated at run-time
- * before actually trying to create them.
- *
- * See [canonical parameter names][canonical-parameter-names] for details of
- * the rules for valid names.
- *
- * Returns: %TRUE if @name is a valid property name, %FALSE otherwise.
- * Since: 2.66
- */
-gboolean
-g_param_spec_is_valid_name (const gchar *name)
-{
   const gchar *p;
 
-  /* First character must be a letter. */
-  if ((name[0] < 'A' || name[0] > 'Z') &&
-      (name[0] < 'a' || name[0] > 'z'))
-    return FALSE;
-
-  for (p = name; *p != 0; p++)
+  for (p = key; *p != 0; p++)
     {
-      const gchar c = *p;
-
-      if (c != '-' && c != '_' &&
-          (c < '0' || c > '9') &&
-          (c < 'A' || c > 'Z') &&
-          (c < 'a' || c > 'z'))
-        return FALSE;
+      gchar c = *p;
+      
+      if (c != '-' &&
+	  (c < '0' || c > '9') &&
+	  (c < 'A' || c > 'Z') &&
+	  (c < 'a' || c > 'z'))
+	return FALSE;
     }
 
   return TRUE;
@@ -429,9 +401,15 @@ g_param_spec_is_valid_name (const gchar *name)
  *
  * Creates a new #GParamSpec instance.
  *
- * See [canonical parameter names][canonical-parameter-names] for details of
- * the rules for @name. Names which violate these rules lead to undefined
- * behaviour.
+ * A property name consists of segments consisting of ASCII letters and
+ * digits, separated by either the '-' or '_' character. The first
+ * character of a property name must be a letter. Names which violate these
+ * rules lead to undefined behaviour.
+ *
+ * When creating and looking up a #GParamSpec, either separator can be
+ * used, but they cannot be mixed. Using '-' is considerably more
+ * efficient and in fact required when using property names as detail
+ * strings for signals.
  *
  * Beyond the name, #GParamSpecs have two more descriptive
  * strings associated with them, the @nick, which should be suitable
@@ -453,7 +431,7 @@ g_param_spec_internal (GType        param_type,
   
   g_return_val_if_fail (G_TYPE_IS_PARAM (param_type) && param_type != G_TYPE_PARAM, NULL);
   g_return_val_if_fail (name != NULL, NULL);
-  g_return_val_if_fail (g_param_spec_is_valid_name (name), NULL);
+  g_return_val_if_fail ((name[0] >= 'A' && name[0] <= 'Z') || (name[0] >= 'a' && name[0] <= 'z'), NULL);
   g_return_val_if_fail (!(flags & G_PARAM_STATIC_NAME) || is_canonical (name), NULL);
   
   pspec = (gpointer) g_type_create_instance (param_type);
@@ -617,8 +595,7 @@ g_param_spec_get_redirect_target (GParamSpec *pspec)
 /**
  * g_param_value_set_default:
  * @pspec: a valid #GParamSpec
- * @value: a #GValue of correct type for @pspec; since 2.64, you
- *   can also pass an empty #GValue, initialized with %G_VALUE_INIT
+ * @value: a #GValue of correct type for @pspec
  *
  * Sets @value to its default value as specified in @pspec.
  */
@@ -627,18 +604,10 @@ g_param_value_set_default (GParamSpec *pspec,
 			   GValue     *value)
 {
   g_return_if_fail (G_IS_PARAM_SPEC (pspec));
+  g_return_if_fail (G_IS_VALUE (value));
+  g_return_if_fail (PSPEC_APPLIES_TO_VALUE (pspec, value));
 
-  if (G_VALUE_TYPE (value) == G_TYPE_INVALID)
-    {
-      g_value_init (value, G_PARAM_SPEC_VALUE_TYPE (pspec));
-    }
-  else
-    {
-      g_return_if_fail (G_IS_VALUE (value));
-      g_return_if_fail (PSPEC_APPLIES_TO_VALUE (pspec, value));
-      g_value_reset (value);
-    }
-
+  g_value_reset (value);
   G_PARAM_SPEC_GET_CLASS (pspec)->value_set_default (pspec, value);
 }
 
@@ -652,8 +621,8 @@ g_param_value_set_default (GParamSpec *pspec,
  * Returns: whether @value contains the canonical default for this @pspec
  */
 gboolean
-g_param_value_defaults (GParamSpec   *pspec,
-			const GValue *value)
+g_param_value_defaults (GParamSpec *pspec,
+			GValue     *value)
 {
   GValue dflt_value = G_VALUE_INIT;
   gboolean defaults;
@@ -707,7 +676,7 @@ g_param_value_validate (GParamSpec *pspec,
 /**
  * g_param_value_convert:
  * @pspec: a valid #GParamSpec
- * @src_value: source #GValue
+ * @src_value: souce #GValue
  * @dest_value: destination #GValue of correct type for @pspec
  * @strict_validation: %TRUE requires @dest_value to conform to @pspec
  * without modifications
@@ -871,7 +840,8 @@ value_param_lcopy_value (const GValue *value,
 {
   GParamSpec **param_p = collect_values[0].v_pointer;
 
-  g_return_val_if_fail (param_p != NULL, g_strdup_printf ("value location for '%s' passed as NULL", G_VALUE_TYPE_NAME (value)));
+  if (!param_p)
+    return g_strdup_printf ("value location for '%s' passed as NULL", G_VALUE_TYPE_NAME (value));
 
   if (!value->data[0].v_pointer)
     *param_p = NULL;
@@ -1501,8 +1471,8 @@ g_value_set_param_take_ownership (GValue     *value,
  * @param: (nullable): the #GParamSpec to be set
  *
  * Sets the contents of a %G_TYPE_PARAM #GValue to @param and takes
- * over the ownership of the caller’s reference to @param; the caller
- * doesn’t have to unref it any more.
+ * over the ownership of the callers reference to @param; the caller
+ * doesn't have to unref it any more.
  *
  * Since: 2.4
  */
@@ -1591,7 +1561,8 @@ g_param_spec_get_default_value (GParamSpec *pspec)
       g_param_value_set_default (pspec, &default_value);
 
       /* store all but the type */
-      memcpy (priv->default_value.data, default_value.data, sizeof (default_value.data));
+      default_value.g_type = 0;
+      priv->default_value = default_value;
 
       g_once_init_leave (&priv->default_value.g_type, pspec->value_type);
     }

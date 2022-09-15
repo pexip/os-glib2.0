@@ -772,22 +772,6 @@ g_fake_resolver_lookup_by_name_async (GResolver           *resolver,
   g_object_unref (task);
 }
 
-static void
-g_fake_resolver_lookup_by_name_with_flags_async (GResolver               *resolver,
-                                                 const gchar             *hostname,
-                                                 GResolverNameLookupFlags flags,
-                                                 GCancellable            *cancellable,
-                                                 GAsyncReadyCallback      callback,
-                                                 gpointer                 user_data)
-{
-  /* Note this isn't a real implementation as it ignores the flags */
-  g_fake_resolver_lookup_by_name_async (resolver,
-                                        hostname,
-                                        cancellable,
-                                        callback,
-                                        user_data);
-}
-
 static GList *
 g_fake_resolver_lookup_by_name_finish (GResolver            *resolver,
 				       GAsyncResult         *result,
@@ -801,11 +785,9 @@ g_fake_resolver_class_init (GFakeResolverClass *fake_class)
 {
   GResolverClass *resolver_class = G_RESOLVER_CLASS (fake_class);
 
-  resolver_class->lookup_by_name                   = g_fake_resolver_lookup_by_name;
-  resolver_class->lookup_by_name_async             = g_fake_resolver_lookup_by_name_async;
-  resolver_class->lookup_by_name_finish            = g_fake_resolver_lookup_by_name_finish;
-  resolver_class->lookup_by_name_with_flags_async  = g_fake_resolver_lookup_by_name_with_flags_async;
-  resolver_class->lookup_by_name_with_flags_finish = g_fake_resolver_lookup_by_name_finish;
+  resolver_class->lookup_by_name        = g_fake_resolver_lookup_by_name;
+  resolver_class->lookup_by_name_async  = g_fake_resolver_lookup_by_name_async;
+  resolver_class->lookup_by_name_finish = g_fake_resolver_lookup_by_name_finish;
 }
 
 
@@ -1387,3 +1369,4 @@ main (int   argc,
 
   return result;
 }
+

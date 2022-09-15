@@ -46,12 +46,18 @@
 #include "gstrfuncs.h"
 #include "gtestutils.h"
 #include "gthread.h"
-#include "gthreadprivate.h"
 #include "gunicode.h"
 #include "gfileutils.h"
-#include "genviron.h"
 
 #include "glibintl.h"
+
+#if defined(USE_LIBICONV_GNU) && !defined (_LIBICONV_H)
+#error GNU libiconv in use but included iconv.h not from libiconv
+#endif
+#if !defined(USE_LIBICONV_GNU) && defined (_LIBICONV_H) \
+     && !defined (__APPLE_CC__) && !defined (__LP_64__)
+#error GNU libiconv not in use but included iconv.h is from libiconv
+#endif
 
 
 /**
@@ -782,8 +788,7 @@ g_convert_with_fallback (const gchar *str,
 		  inbytes_remaining = strlen (p);
 		  break;
 		}
-              /* if p is null */
-              G_GNUC_FALLTHROUGH;
+	      /* fall thru if p is NULL */
 	    default:
               {
                 int errsv = errno;
@@ -1125,21 +1130,24 @@ g_get_filename_charsets (const gchar ***filename_charsets)
   const gchar *charset;
 
   if (!cache)
-    cache = g_private_set_alloc0 (&cache_private, sizeof (GFilenameCharsetCache));
+    {
+      cache = g_new0 (GFilenameCharsetCache, 1);
+      g_private_set (&cache_private, cache);
+    }
 
   g_get_charset (&charset);
 
   if (!(cache->charset && strcmp (cache->charset, charset) == 0))
     {
       const gchar *new_charset;
-      const gchar *p;
+      gchar *p;
       gint i;
 
       g_free (cache->charset);
       g_strfreev (cache->filename_charsets);
       cache->charset = g_strdup (charset);
       
-      p = g_getenv ("G_FILENAME_ENCODING");
+      p = getenv ("G_FILENAME_ENCODING");
       if (p != NULL && p[0] != '\0') 
 	{
 	  cache->filename_charsets = g_strsplit (p, ",", 0);
@@ -1155,7 +1163,7 @@ g_get_filename_charsets (const gchar ***filename_charsets)
 		}
 	    }
 	}
-      else if (g_getenv ("G_BROKEN_FILENAMES") != NULL)
+      else if (getenv ("G_BROKEN_FILENAMES") != NULL)
 	{
 	  cache->filename_charsets = g_new0 (gchar *, 2);
 	  cache->is_utf8 = g_get_charset (&new_charset);
@@ -1807,10 +1815,12 @@ g_filename_to_uri (const gchar *filename,
 gchar **
 g_uri_list_extract_uris (const gchar *uri_list)
 {
-  GPtrArray *uris;
+  GSList *uris, *u;
   const gchar *p, *q;
+  gchar **result;
+  gint n_uris = 0;
 
-  uris = g_ptr_array_new ();
+  uris = NULL;
 
   p = uri_list;
 
@@ -1839,17 +1849,26 @@ g_uri_list_extract_uris (const gchar *uri_list)
 		q--;
 
 	      if (q > p)
-                g_ptr_array_add (uris, g_strndup (p, q - p + 1));
-            }
-        }
+		{
+		  uris = g_slist_prepend (uris, g_strndup (p, q - p + 1));
+		  n_uris++;
+		}
+	    }
+	}
       p = strchr (p, '\n');
       if (p)
 	p++;
     }
 
-  g_ptr_array_add (uris, NULL);
+  result = g_new (gchar *, n_uris + 1);
 
-  return (gchar **) g_ptr_array_free (uris, FALSE);
+  result[n_uris--] = NULL;
+  for (u = uris; u; u = u->next)
+    result[n_uris--] = u->data;
+
+  g_slist_free (uris);
+
+  return result;
 }
 
 /**

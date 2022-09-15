@@ -332,7 +332,7 @@ gvdb_table_list_from_item (GvdbTable                    *table,
 /**
  * gvdb_table_get_names:
  * @table: a #GvdbTable
- * @length: (out) (optional): the number of items returned, or %NULL
+ * @length: the number of items returned, or %NULL
  *
  * Gets a list of all names contained in @table.
  *
@@ -344,17 +344,17 @@ gvdb_table_list_from_item (GvdbTable                    *table,
  * above calls in the case of the corrupted file.  Note also that the
  * returned strings may not be utf8.
  *
- * Returns: (array length=length): a %NULL-terminated list of strings, of length @length
+ * Returns: a %NULL-terminated list of strings, of length @length
  **/
 gchar **
 gvdb_table_get_names (GvdbTable *table,
-                      gsize     *length)
+                      gint      *length)
 {
   gchar **names;
-  guint n_names;
-  guint filled;
-  guint total;
-  guint i;
+  gint n_names;
+  gint filled;
+  gint total;
+  gint i;
 
   /* We generally proceed by iterating over the list of items in the
    * hash table (in order of appearance) recording them into an array.
@@ -462,7 +462,7 @@ gvdb_table_get_names (GvdbTable *table,
     {
       GPtrArray *fixed_names;
 
-      fixed_names = g_ptr_array_sized_new (n_names + 1  /* NULL terminator */);
+      fixed_names = g_ptr_array_new ();
       for (i = 0; i < n_names; i++)
         if (names[i] != NULL)
           g_ptr_array_add (fixed_names, names[i]);
@@ -474,10 +474,7 @@ gvdb_table_get_names (GvdbTable *table,
     }
 
   if (length)
-    {
-      G_STATIC_ASSERT (sizeof (*length) >= sizeof (n_names));
-      *length = n_names;
-    }
+    *length = n_names;
 
   return names;
 }

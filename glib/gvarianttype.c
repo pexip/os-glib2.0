@@ -28,7 +28,6 @@
 
 #include <string.h>
 
-#include "gstrfuncsprivate.h"
 
 /**
  * SECTION:gvarianttype
@@ -313,7 +312,7 @@ g_variant_type_string_scan (const gchar  *string,
  * If @type_string is not a valid #GVariant type string, 0 will be returned.
  *
  * Returns: depth of @type_string, or 0 on error
- * Since: 2.60
+ * Since: 2.60 (backported to 2.58)
  */
 gsize
 g_variant_type_string_get_depth_ (const gchar *type_string)
@@ -1085,16 +1084,12 @@ g_variant_type_key (const GVariantType *type)
 const GVariantType *
 g_variant_type_value (const GVariantType *type)
 {
-#ifndef G_DISABLE_ASSERT
   const gchar *type_string;
-#endif
 
   g_return_val_if_fail (g_variant_type_check (type), NULL);
 
-#ifndef G_DISABLE_ASSERT
   type_string = g_variant_type_peek_string (type);
   g_assert (type_string[0] == '{');
-#endif
 
   return g_variant_type_next (g_variant_type_key (type));
 }
@@ -1121,7 +1116,7 @@ g_variant_type_new_tuple_slow (const GVariantType * const *items,
 {
   /* the "slow" version is needed in case the static buffer of 1024
    * bytes is exceeded when running the normal version.  this will
-   * happen only with very unusually large types, so it can be slow.
+   * happen only in truly insane code, so it can be slow.
    */
   GString *string;
   gint i;
@@ -1182,7 +1177,7 @@ g_variant_type_new_tuple (const GVariantType * const *items,
   g_assert (offset < sizeof buffer);
   buffer[offset++] = ')';
 
-  return (GVariantType *) g_memdup2 (buffer, offset);
+  return (GVariantType *) g_memdup (buffer, offset);
 }
 
 /**

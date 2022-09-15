@@ -113,7 +113,7 @@ _g_enum_types_init (void)
   static const GTypeFundamentalInfo finfo = {
     G_TYPE_FLAG_CLASSED | G_TYPE_FLAG_DERIVABLE,
   };
-  GType type G_GNUC_UNUSED  /* when compiling with G_DISABLE_ASSERT */;
+  GType type;
   
   g_return_if_fail (initialized == FALSE);
   initialized = TRUE;
@@ -167,9 +167,10 @@ value_flags_enum_lcopy_value (const GValue *value,
 			      guint         collect_flags)
 {
   gint *int_p = collect_values[0].v_pointer;
-
-  g_return_val_if_fail (int_p != NULL, g_strdup_printf ("value location for '%s' passed as NULL", G_VALUE_TYPE_NAME (value)));
-
+  
+  if (!int_p)
+    return g_strdup_printf ("value location for '%s' passed as NULL", G_VALUE_TYPE_NAME (value));
+  
   *int_p = value->data[0].v_long;
   
   return NULL;
