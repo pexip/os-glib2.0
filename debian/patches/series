@@ -38,3 +38,4 @@ debian/closures-test-Skip-on-arm-unless-flaky-tests-are-allowed.patch
 debian/Disable-some-tests-on-slow-architectures-which-keep-faili.patch
 debian/Skip-test-which-performs-some-unreliable-floating-point-c.patch
 debian/Skip-unreliable-test_threaded_singleton-by-default.patch
+CVE-2021-3800.patch

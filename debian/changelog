@@ -1,3 +1,15 @@
+glib2.0 (2.58.3-2+deb10u4pexip1) pexip; urgency=medium
+
+  * New upstream release with security fix.
+
+ -- Steve McIntyre <steve.mcintyre@pexip.com>  Wed, 21 Sep 2022 17:03:13 +0100
+
+glib2.0 (2.58.3-2+deb10u4) buster-security; urgency=medium
+
+  * CVE-2021-3800: information leak using CHARSETALIASDIR envvar.
+
+ -- Emilio Pozuelo Monfort <pochu@debian.org>  Thu, 15 Sep 2022 12:13:48 +0200
+
 glib2.0 (2.58.3-2+deb10u3pexip1) pexip; urgency=medium
 
   * New upstream release.
