@@ -1,6 +1,8 @@
 /*
  * Copyright 2015 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -29,7 +31,7 @@ static gboolean force = FALSE;
 
 static const GOptionEntry entries[] = {
   {"force", 'f', 0, G_OPTION_ARG_NONE, &force, N_("Ignore nonexistent files, never prompt"), NULL},
-  { NULL }
+  G_OPTION_ENTRY_NULL
 };
 
 int

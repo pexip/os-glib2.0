@@ -1,6 +1,8 @@
 /* GObject - GLib Type, Object, Parameter and Signal Library
  * Copyright (C) 1998-1999, 2000-2001 Tim Janik and Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -23,6 +25,7 @@
 
 #include "gboxed.h"
 #include "gclosure.h"
+#include "gobject.h"
 
 /*< private >
  * GOBJECT_IF_DEBUG:
@@ -44,7 +47,9 @@ G_STMT_START { \
 
 G_BEGIN_DECLS
 
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 extern GTypeDebugFlags _g_type_debug_flags;
+G_GNUC_END_IGNORE_DEPRECATIONS
 
 typedef struct _GRealClosure  GRealClosure;
 struct _GRealClosure
@@ -89,6 +94,10 @@ void        _g_closure_invoke_va (GClosure       *closure,
 				  va_list         args,
 				  int             n_params,
 				  GType          *param_types);
+
+gboolean    _g_object_has_signal_handler     (GObject     *object);
+void        _g_object_set_has_signal_handler (GObject     *object,
+                                              guint        signal_id);
 
 /**
  * _G_DEFINE_TYPE_EXTENDED_WITH_PRELUDE:

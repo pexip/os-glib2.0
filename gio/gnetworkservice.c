@@ -4,6 +4,8 @@
  *
  * Copyright (C) 2008 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -52,7 +54,7 @@
  * address families.
  *
  * See #GSrvTarget for more information about SRV records, and see
- * #GSocketConnectable for and example of using the connectable
+ * #GSocketConnectable for an example of using the connectable
  * interface.
  */
 
@@ -318,7 +320,7 @@ g_network_service_get_domain (GNetworkService *srv)
  * g_network_service_get_scheme:
  * @srv: a #GNetworkService
  *
- * Get's the URI scheme used to resolve proxies. By default, the service name
+ * Gets the URI scheme used to resolve proxies. By default, the service name
  * is used as scheme.
  *
  * Returns: @srv's scheme name
@@ -445,7 +447,7 @@ g_network_service_address_enumerator_next (GSocketAddressEnumerator  *enumerator
     {
       if (srv_enum->addr_enum == NULL && srv_enum->t)
         {
-          GError *error = NULL;
+          GError *my_error = NULL;
           gchar *uri;
           gchar *hostname;
           GSocketConnectable *addr;
@@ -465,23 +467,27 @@ g_network_service_address_enumerator_next (GSocketAddressEnumerator  *enumerator
               continue;
             }
 
-          uri = _g_uri_from_authority (g_network_service_get_scheme (srv_enum->srv),
-                                       hostname,
-                                       g_srv_target_get_port (target),
-                                       NULL);
+          uri = g_uri_join (G_URI_FLAGS_NONE,
+                            g_network_service_get_scheme (srv_enum->srv),
+                            NULL,
+                            hostname,
+                            g_srv_target_get_port (target),
+                            "",
+                            NULL,
+                            NULL);
           g_free (hostname);
 
           addr = g_network_address_parse_uri (uri,
                                               g_srv_target_get_port (target),
-                                              &error);
+                                              &my_error);
           g_free (uri);
 
           if (addr == NULL)
             {
               if (srv_enum->error == NULL)
-                srv_enum->error = error;
+                srv_enum->error = my_error;
               else
-                g_error_free (error);
+                g_error_free (my_error);
               continue;
             }
 
@@ -494,18 +500,18 @@ g_network_service_address_enumerator_next (GSocketAddressEnumerator  *enumerator
 
       if (srv_enum->addr_enum)
         {
-          GError *error = NULL;
+          GError *my_error = NULL;
 
           ret = g_socket_address_enumerator_next (srv_enum->addr_enum,
                                                   cancellable,
-                                                  &error);
+                                                  &my_error);
 
-          if (error)
+          if (my_error)
             {
               if (srv_enum->error == NULL)
-                srv_enum->error = error;
+                srv_enum->error = my_error;
               else
-                g_error_free (error);
+                g_error_free (my_error);
             }
 
           if (!ret)

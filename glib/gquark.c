@@ -4,6 +4,8 @@
  *
  * gquark.c: Functions for dealing with quarks and interned strings
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -126,6 +128,9 @@ g_quark_init (void)
  * If you want the GQuark to be created if it doesn't already exist,
  * use g_quark_from_string() or g_quark_from_static_string().
  *
+ * This function must not be used before library constructors have finished
+ * running.
+ *
  * Returns: the #GQuark associated with the string, or 0 if @string is
  *     %NULL or there is no #GQuark associated with it
  */
@@ -214,6 +219,10 @@ quark_from_string_locked (const gchar   *string,
  * not currently have an associated #GQuark, a new #GQuark is created,
  * using a copy of the string.
  *
+ * This function must not be used before library constructors have finished
+ * running. In particular, this means it cannot be used to initialize global
+ * variables in C++.
+ *
  * Returns: the #GQuark identifying the string, or 0 if @string is %NULL
  */
 GQuark
@@ -239,6 +248,10 @@ g_quark_from_string (const gchar *string)
  * expect to ever unload the module again (e.g. do not use this
  * function in GTK+ theme engines).
  *
+ * This function must not be used before library constructors have finished
+ * running. In particular, this means it cannot be used to initialize global
+ * variables in C++.
+ *
  * Returns: the #GQuark identifying the string, or 0 if @string is %NULL
  */
 GQuark
@@ -260,9 +273,9 @@ g_quark_to_string (GQuark quark)
 {
   gchar* result = NULL;
   gchar **strings;
-  gint seq_id;
+  guint seq_id;
 
-  seq_id = g_atomic_int_get (&quark_seq_id);
+  seq_id = (guint) g_atomic_int_get (&quark_seq_id);
   strings = g_atomic_pointer_get (&quarks);
 
   if (quark < seq_id)
@@ -325,6 +338,10 @@ quark_intern_string_locked (const gchar   *string,
  * can be compared for equality by comparing the pointers, instead of
  * using strcmp().
  *
+ * This function must not be used before library constructors have finished
+ * running. In particular, this means it cannot be used to initialize global
+ * variables in C++.
+ *
  * Returns: a canonical representation for the string
  *
  * Since: 2.10
@@ -343,6 +360,10 @@ g_intern_string (const gchar *string)
  * can be compared for equality by comparing the pointers, instead of
  * using strcmp(). g_intern_static_string() does not copy the string,
  * therefore @string must not be freed or modified.
+ *
+ * This function must not be used before library constructors have finished
+ * running. In particular, this means it cannot be used to initialize global
+ * variables in C++.
  *
  * Returns: a canonical representation for the string
  *

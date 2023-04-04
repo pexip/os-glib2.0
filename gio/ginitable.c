@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2009 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -50,7 +52,7 @@
  * unreferenced).
  *
  * For bindings in languages where the native constructor supports
- * exceptions the binding could check for objects implemention %GInitable
+ * exceptions the binding could check for objects implementing %GInitable
  * during normal construction and automatically initialize them, throwing
  * an exception on failure.
  */
@@ -187,6 +189,7 @@ g_initable_new (GType          object_type,
  * Deprecated: 2.54: Use g_object_new_with_properties() and
  * g_initable_init() instead. See #GParameter for more information.
  */
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 gpointer
 g_initable_newv (GType          object_type,
 		 guint          n_parameters,
@@ -198,9 +201,7 @@ g_initable_newv (GType          object_type,
 
   g_return_val_if_fail (G_TYPE_IS_INITABLE (object_type), NULL);
 
-G_GNUC_BEGIN_IGNORE_DEPRECATIONS
   obj = g_object_newv (object_type, n_parameters, parameters);
-G_GNUC_END_IGNORE_DEPRECATIONS
 
   if (!g_initable_init (G_INITABLE (obj), cancellable, error))
     {
@@ -210,6 +211,7 @@ G_GNUC_END_IGNORE_DEPRECATIONS
 
   return (gpointer)obj;
 }
+G_GNUC_END_IGNORE_DEPRECATIONS
 
 /**
  * g_initable_new_valist:

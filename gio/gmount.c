@@ -4,6 +4,8 @@
  * 
  * Copyright (C) 2006-2008 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -78,7 +80,7 @@ g_mount_default_init (GMountInterface *iface)
                 G_SIGNAL_RUN_LAST,
                 G_STRUCT_OFFSET (GMountIface, changed),
                 NULL, NULL,
-                g_cclosure_marshal_VOID__VOID,
+                NULL,
                 G_TYPE_NONE, 0);
 
   /**
@@ -95,7 +97,7 @@ g_mount_default_init (GMountInterface *iface)
                 G_SIGNAL_RUN_LAST,
                 G_STRUCT_OFFSET (GMountIface, unmounted),
                 NULL, NULL,
-                g_cclosure_marshal_VOID__VOID,
+                NULL,
                 G_TYPE_NONE, 0);
   /**
    * GMount::pre-unmount:
@@ -114,7 +116,7 @@ g_mount_default_init (GMountInterface *iface)
                 G_SIGNAL_RUN_LAST,
                 G_STRUCT_OFFSET (GMountIface, pre_unmount),
                 NULL, NULL,
-                g_cclosure_marshal_VOID__VOID,
+                NULL,
                 G_TYPE_NONE, 0);
 }
 
@@ -865,7 +867,7 @@ g_mount_guess_content_type_finish (GMount        *mount,
  * [shared-mime-info](http://www.freedesktop.org/wiki/Specifications/shared-mime-info-spec)
  * specification for more on x-content types.
  *
- * This is an synchronous operation and as such may block doing IO;
+ * This is a synchronous operation and as such may block doing IO;
  * see g_mount_guess_content_type() for the asynchronous version.
  *
  * Returns: (transfer full) (element-type utf8): a %NULL-terminated array of content types or %NULL on error.

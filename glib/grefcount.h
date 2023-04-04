@@ -2,6 +2,8 @@
  *
  * Copyright 2018  Emmanuele Bassi
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -92,7 +94,7 @@ gboolean        g_atomic_ref_count_compare      (gatomicrefcount *arc,
   (G_GNUC_EXTENSION ({ \
     G_STATIC_ASSERT (sizeof *(rc) == sizeof (gatomicrefcount)); \
     (void) (0 ? *(rc) ^ *(rc) : 1); \
-    g_atomic_int_set ((rc), 1); \
+    *(rc) = 1; \
   }))
 
 # define g_atomic_ref_count_inc(rc) \

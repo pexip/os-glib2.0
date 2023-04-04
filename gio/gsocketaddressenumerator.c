@@ -1,6 +1,8 @@
 /* GIO - GLib Input, Output and Streaming Library
- * 
+ *
  * Copyright (C) 2008 Red Hat, Inc.
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -22,6 +24,26 @@
 
 #include "gtask.h"
 
+/**
+ * SECTION:gsocketaddressenumerator
+ * @short_description: Enumerator for socket addresses
+ * @include: gio/gio.h
+ *
+ * #GSocketAddressEnumerator is an enumerator type for #GSocketAddress
+ * instances. It is returned by enumeration functions such as
+ * g_socket_connectable_enumerate(), which returns a #GSocketAddressEnumerator
+ * to list each #GSocketAddress which could be used to connect to that
+ * #GSocketConnectable.
+ *
+ * Enumeration is typically a blocking operation, so the asynchronous methods
+ * g_socket_address_enumerator_next_async() and
+ * g_socket_address_enumerator_next_finish() should be used where possible.
+ *
+ * Each #GSocketAddressEnumerator can only be enumerated once. Once
+ * g_socket_address_enumerator_next() has returned %NULL, further
+ * enumeration with that #GSocketAddressEnumerator is not possible, and it can
+ * be unreffed.
+ */
 
 G_DEFINE_ABSTRACT_TYPE (GSocketAddressEnumerator, g_socket_address_enumerator, G_TYPE_OBJECT)
 
@@ -65,7 +87,7 @@ g_socket_address_enumerator_class_init (GSocketAddressEnumeratorClass *enumerato
  * internal errors (other than @cancellable being triggered) will be
  * ignored.
  *
- * Returns: (transfer full): a #GSocketAddress (owned by the caller), or %NULL on
+ * Returns: (transfer full) (nullable): a #GSocketAddress (owned by the caller), or %NULL on
  *     error (in which case *@error will be set) or if there are no
  *     more addresses.
  */
@@ -120,6 +142,8 @@ g_socket_address_enumerator_real_next_async (GSocketAddressEnumerator *enumerato
  * Asynchronously retrieves the next #GSocketAddress from @enumerator
  * and then calls @callback, which must call
  * g_socket_address_enumerator_next_finish() to get the result.
+ *
+ * It is an error to call this multiple times before the previous callback has finished.
  */
 void
 g_socket_address_enumerator_next_async (GSocketAddressEnumerator *enumerator,
@@ -157,7 +181,7 @@ g_socket_address_enumerator_real_next_finish (GSocketAddressEnumerator  *enumera
  * g_socket_address_enumerator_next() for more information about
  * error handling.
  *
- * Returns: (transfer full): a #GSocketAddress (owned by the caller), or %NULL on
+ * Returns: (transfer full) (nullable): a #GSocketAddress (owned by the caller), or %NULL on
  *     error (in which case *@error will be set) or if there are no
  *     more addresses.
  */

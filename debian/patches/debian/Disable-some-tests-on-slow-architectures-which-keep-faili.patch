@@ -10,50 +10,16 @@ environment variable]
 Co-authored-by: Simon McVittie <smcv@debian.org>
 Forwarded: no
 ---
- gio/tests/socket.c    |  8 ++++++++
- glib/tests/mainloop.c | 24 ++++++++++++++++++++++++
- glib/tests/timeout.c  |  9 +++++++++
- 3 files changed, 41 insertions(+)
+ glib/tests/mainloop.c       | 16 ++++++++++++++++
+ glib/tests/timeout.c        |  9 +++++++++
+ gobject/tests/threadtests.c |  8 ++++++++
+ 3 files changed, 33 insertions(+)
 
-diff --git a/gio/tests/socket.c b/gio/tests/socket.c
-index 9b3adb4..e34b0d0 100644
---- a/gio/tests/socket.c
-+++ b/gio/tests/socket.c
-@@ -1111,6 +1111,14 @@ test_timed_wait (void)
-   gint64 start_time;
-   gint poll_duration;
- 
-+#if defined(__arm__)
-+  if (g_getenv ("DEB_ALLOW_FLAKY_TESTS") == NULL)
-+    {
-+      g_test_skip ("Not reliable on older ARM hardware");
-+      return;
-+    }
-+#endif
-+
-   data = create_server (G_SOCKET_FAMILY_IPV4, echo_server_thread, FALSE, &error);
-   if (error != NULL)
-     {
 diff --git a/glib/tests/mainloop.c b/glib/tests/mainloop.c
-index cf114fd..9beefd3 100644
+index c18da94..2aec6ff 100644
 --- a/glib/tests/mainloop.c
 +++ b/glib/tests/mainloop.c
-@@ -168,6 +168,14 @@ test_timeouts (void)
-   GMainLoop *loop;
-   GSource *source;
- 
-+#if defined(__arm__)
-+  if (g_getenv ("DEB_ALLOW_FLAKY_TESTS") == NULL)
-+    {
-+      g_test_skip ("Not reliable on older ARM hardware");
-+      return;
-+    }
-+#endif
-+
-   a = b = c = 0;
- 
-   ctx = g_main_context_new ();
-@@ -451,6 +459,14 @@ test_child_sources (void)
+@@ -520,6 +520,14 @@ test_child_sources (void)
    GMainLoop *loop;
    GSource *parent, *child_b, *child_c, *end;
  
@@ -68,7 +34,7 @@ index cf114fd..9beefd3 100644
    ctx = g_main_context_new ();
    loop = g_main_loop_new (ctx, FALSE);
  
-@@ -529,6 +545,14 @@ test_recursive_child_sources (void)
+@@ -598,6 +606,14 @@ test_recursive_child_sources (void)
    GMainLoop *loop;
    GSource *parent, *child_b, *child_c, *end;
  
@@ -84,10 +50,10 @@ index cf114fd..9beefd3 100644
    loop = g_main_loop_new (ctx, FALSE);
  
 diff --git a/glib/tests/timeout.c b/glib/tests/timeout.c
-index ce7dd09..d2729ae 100644
+index acbb8f3..60cc5f2 100644
 --- a/glib/tests/timeout.c
 +++ b/glib/tests/timeout.c
-@@ -89,6 +89,15 @@ test_func (gpointer data)
+@@ -177,6 +177,15 @@ test_func (gpointer data)
  static void
  test_rounding (void)
  {
@@ -103,3 +69,22 @@ index ce7dd09..d2729ae 100644
    loop = g_main_loop_new (NULL, FALSE);
  
    last_time = g_get_monotonic_time ();
+diff --git a/gobject/tests/threadtests.c b/gobject/tests/threadtests.c
+index 3b485eb..6ea9a48 100644
+--- a/gobject/tests/threadtests.c
++++ b/gobject/tests/threadtests.c
+@@ -484,6 +484,14 @@ test_threaded_toggle_notify (void)
+                   "safely from another (the main) thread without causing the "
+                   "notifying thread to abort");
+ 
++#if defined(__arm__)
++  if (g_getenv ("DEB_ALLOW_FLAKY_TESTS") == NULL)
++    {
++      g_test_skip ("Intermittently takes more than 5 minutes on 32-bit ARM (Debian#1023652)");
++      return;
++    }
++#endif
++
+   g_object_add_toggle_ref (object, on_toggle_notify, &data);
+   g_object_unref (object);
+ 

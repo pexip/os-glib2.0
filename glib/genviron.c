@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1998  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -42,13 +44,27 @@
 #include "gunicode.h"
 #include "gconvert.h"
 #include "gquark.h"
+#include "gthreadprivate.h"
 
 /* Environ array functions {{{1 */
+static gboolean
+g_environ_matches (const gchar *env, const gchar *variable, gsize len)
+{
+#ifdef G_OS_WIN32
+    /* TODO handle Unicode environment variable names */
+    /* Like filesystem paths, environment variables are case-insensitive. */
+    return g_ascii_strncasecmp (env, variable, len) == 0 && env[len] == '=';
+#else
+    return strncmp (env, variable, len) == 0 && env[len] == '=';
+#endif
+}
+
 static gint
 g_environ_find (gchar       **envp,
                 const gchar  *variable)
 {
-  gint len, i;
+  gsize len;
+  gint i;
 
   if (envp == NULL)
     return -1;
@@ -57,8 +73,7 @@ g_environ_find (gchar       **envp,
 
   for (i = 0; envp[i]; i++)
     {
-      if (strncmp (envp[i], variable, len) == 0 &&
-          envp[i][len] == '=')
+      if (g_environ_matches (envp[i], variable, len))
         return i;
     }
 
@@ -75,7 +90,7 @@ g_environ_find (gchar       **envp,
  * Returns the value of the environment variable @variable in the
  * provided list @envp.
  *
- * Returns: (type filename): the value of the environment variable, or %NULL if
+ * Returns: (type filename) (nullable): the value of the environment variable, or %NULL if
  *     the environment variable is not set in @envp. The returned
  *     string is owned by @envp, and will be freed if @variable is
  *     set or unset again.
@@ -155,7 +170,7 @@ g_environ_unsetenv_internal (gchar        **envp,
                              const gchar   *variable,
                              gboolean       free_value)
 {
-  gint len;
+  gsize len;
   gchar **e, **f;
 
   len = strlen (variable);
@@ -166,7 +181,7 @@ g_environ_unsetenv_internal (gchar        **envp,
   e = f = envp;
   while (*e != NULL)
     {
-      if (strncmp (*e, variable, len) != 0 || (*e)[len] != '=')
+      if (!g_environ_matches (*e, variable, len))
         {
           *f = *e;
           f++;
@@ -214,7 +229,7 @@ g_environ_unsetenv (gchar       **envp,
   return g_environ_unsetenv_internal (envp, variable, TRUE);
 }
 
-/* UNIX implemention {{{1 */
+/* UNIX implementation {{{1 */
 #ifndef G_OS_WIN32
 
 /**
@@ -229,7 +244,7 @@ g_environ_unsetenv (gchar       **envp,
  * On Windows, in case the environment variable's value contains
  * references to other environment variables, they are expanded.
  *
- * Returns: (type filename): the value of the environment variable, or %NULL if
+ * Returns: (type filename) (nullable): the value of the environment variable, or %NULL if
  *     the environment variable is not found. The returned string
  *     may be overwritten by the next call to g_getenv(), g_setenv()
  *     or g_unsetenv().
@@ -287,6 +302,13 @@ g_setenv (const gchar *variable,
   g_return_val_if_fail (strchr (variable, '=') == NULL, FALSE);
   g_return_val_if_fail (value != NULL, FALSE);
 
+#ifndef G_DISABLE_CHECKS
+  /* FIXME: This will be upgraded to a g_warning() in a future release of GLib.
+   * See https://gitlab.gnome.org/GNOME/glib/issues/715 */
+  if (g_thread_n_created () > 0)
+    g_debug ("setenv()/putenv() are not thread-safe and should not be used after threads are created");
+#endif
+
 #ifdef HAVE_SETENV
   result = setenv (variable, value, overwrite);
 #else
@@ -342,6 +364,13 @@ g_unsetenv (const gchar *variable)
 {
   g_return_if_fail (variable != NULL);
   g_return_if_fail (strchr (variable, '=') == NULL);
+
+#ifndef G_DISABLE_CHECKS
+  /* FIXME: This will be upgraded to a g_warning() in a future release of GLib.
+   * See https://gitlab.gnome.org/GNOME/glib/issues/715 */
+  if (g_thread_n_created () > 0)
+    g_debug ("unsetenv() is not thread-safe and should not be used after threads are created");
+#endif
 
 #ifdef HAVE_UNSETENV
   unsetenv (variable);
@@ -427,7 +456,7 @@ g_getenv (const gchar *variable)
   GQuark quark;
   gchar *value;
   wchar_t dummy[2], *wname, *wvalue;
-  int len;
+  DWORD len;
 
   g_return_val_if_fail (variable != NULL, NULL);
   g_return_val_if_fail (g_utf8_validate (variable, -1, NULL), NULL);

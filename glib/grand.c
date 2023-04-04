@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -49,6 +51,7 @@
 #include "gmem.h"
 #include "gtestutils.h"
 #include "gthread.h"
+#include "gtimer.h"
 
 #ifdef G_OS_UNIX
 #include <unistd.h>
@@ -220,7 +223,6 @@ g_rand_new (void)
   guint32 seed[4];
 #ifdef G_OS_UNIX
   static gboolean dev_urandom_exists = TRUE;
-  GTimeVal now;
 
   if (dev_urandom_exists)
     {
@@ -254,10 +256,10 @@ g_rand_new (void)
     }
 
   if (!dev_urandom_exists)
-    {  
-      g_get_current_time (&now);
-      seed[0] = now.tv_sec;
-      seed[1] = now.tv_usec;
+    {
+      gint64 now_us = g_get_real_time ();
+      seed[0] = now_us / G_USEC_PER_SEC;
+      seed[1] = now_us % G_USEC_PER_SEC;
       seed[2] = getpid ();
       seed[3] = getppid ();
     }
@@ -266,7 +268,7 @@ g_rand_new (void)
    * MinGW-w64 has a wrapper that will emulate rand_s() if it's not in msvcrt
    */
 #if (defined(_MSC_VER) && _MSC_VER >= 1400) || defined(__MINGW64_VERSION_MAJOR)
-  gint i;
+  gsize i;
 
   for (i = 0; i < G_N_ELEMENTS (seed); i++)
     rand_s (&seed[i]);
@@ -434,7 +436,7 @@ g_rand_set_seed_array (GRand         *rand,
  * @rand_: a #GRand
  *
  * Returns a random #gboolean from @rand_.
- * This corresponds to a unbiased coin toss.
+ * This corresponds to an unbiased coin toss.
  *
  * Returns: a random #gboolean
  */
@@ -502,7 +504,7 @@ g_rand_int_range (GRand  *rand,
                   gint32  end)
 {
   guint32 dist = end - begin;
-  guint32 random;
+  guint32 random = 0;
 
   g_return_val_if_fail (rand != NULL, begin);
   g_return_val_if_fail (end > begin, begin);
@@ -563,7 +565,6 @@ g_rand_int_range (GRand  *rand,
 	}
       break;
     default:
-      random = 0;		/* Quiet GCC */
       g_assert_not_reached ();
     }      
  
@@ -583,7 +584,7 @@ gdouble
 g_rand_double (GRand *rand)
 {    
   /* We set all 52 bits after the point for this, not only the first
-     32. Thats why we need two calls to g_rand_int */
+     32. That's why we need two calls to g_rand_int */
   gdouble retval = g_rand_int (rand) * G_RAND_DOUBLE_TRANSFORM;
   retval = (retval + g_rand_int (rand)) * G_RAND_DOUBLE_TRANSFORM;
 
@@ -634,7 +635,7 @@ get_global_random (void)
  * g_random_boolean:
  *
  * Returns a random #gboolean.
- * This corresponds to a unbiased coin toss.
+ * This corresponds to an unbiased coin toss.
  *
  * Returns: a random #gboolean
  */

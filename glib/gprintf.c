@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997, 2002  Peter Mattis, Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -20,6 +22,7 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <errno.h>
 
 #include "gprintf.h"
 #include "gprintfint.h"
@@ -256,7 +259,7 @@ g_vsprintf (gchar	 *string,
  * @n: the maximum number of bytes to produce (including the 
  *     terminating nul character).
  * @format: a standard printf() format string, but notice 
- *          string precision pitfalls][string-precision]
+ *          [string precision pitfalls][string-precision]
  * @args: the list of arguments to insert in the output.
  *
  * A safer form of the standard vsprintf() function. The output is guaranteed
@@ -294,8 +297,9 @@ g_vsnprintf (gchar	 *string,
 
 /**
  * g_vasprintf:
- * @string: the return location for the newly-allocated string.
- * @format: a standard printf() format string, but notice
+ * @string: (not optional) (nullable): the return location for the newly-allocated string,
+ *   which will be %NULL if (and only if) this function fails
+ * @format: (not nullable): a standard printf() format string, but notice
  *          [string precision pitfalls][string-precision]
  * @args: the list of arguments to insert in the output.
  *
@@ -305,9 +309,13 @@ g_vsnprintf (gchar	 *string,
  * string to hold the output, instead of putting the output in a buffer 
  * you allocate in advance.
  *
+ * The returned value in @string is guaranteed to be non-NULL, unless
+ * @format contains `%lc` or `%ls` conversions, which can fail if no
+ * multibyte representation is available for the given character.
+ *
  * `glib/gprintf.h` must be explicitly included in order to use this function.
  *
- * Returns: the number of bytes printed.
+ * Returns: the number of bytes printed, or `-1` on failure
  *
  * Since: 2.4
  **/
@@ -319,7 +327,7 @@ g_vasprintf (gchar      **string,
   gint len;
   g_return_val_if_fail (string != NULL, -1);
 
-#if !defined(HAVE_GOOD_PRINTF)
+#if !defined(USE_SYSTEM_PRINTF)
 
   len = _g_gnulib_vasprintf (string, format, args);
   if (len < 0)
@@ -327,9 +335,18 @@ g_vasprintf (gchar      **string,
 
 #elif defined (HAVE_VASPRINTF)
 
-  len = vasprintf (string, format, args);
-  if (len < 0)
-    *string = NULL;
+  {
+    int saved_errno;
+    len = vasprintf (string, format, args);
+    saved_errno = errno;
+    if (len < 0)
+      {
+        if (saved_errno == ENOMEM)
+          g_error ("%s: failed to allocate memory", G_STRLOC);
+        else
+          *string = NULL;
+      }
+  }
 
 #else
 
@@ -342,6 +359,12 @@ g_vasprintf (gchar      **string,
 
     len = _g_vsprintf (*string, format, args2);
     va_end (args2);
+
+    if (len < 0)
+      {
+        g_free (*string);
+        *string = NULL;
+      }
   }
 #endif
 

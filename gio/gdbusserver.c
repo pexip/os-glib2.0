@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -42,6 +44,7 @@
 #include "ginetsocketaddress.h"
 #include "ginputstream.h"
 #include "giostream.h"
+#include "gmarshal-internal.h"
 
 #ifdef G_OS_UNIX
 #include <unistd.h>
@@ -50,11 +53,14 @@
 #include <io.h>
 #endif
 
-#ifdef G_OS_UNIX
 #include "gunixsocketaddress.h"
-#endif
 
 #include "glibintl.h"
+
+#define G_DBUS_SERVER_FLAGS_ALL \
+  (G_DBUS_SERVER_FLAGS_RUN_IN_THREAD | \
+   G_DBUS_SERVER_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS | \
+   G_DBUS_SERVER_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER)
 
 /**
  * SECTION:gdbusserver
@@ -70,8 +76,15 @@
  * To just export an object on a well-known name on a message bus, such as the
  * session or system bus, you should instead use g_bus_own_name().
  *
- * An example of peer-to-peer communication with G-DBus can be found
- * in [gdbus-example-peer.c](https://git.gnome.org/browse/glib/tree/gio/tests/gdbus-example-peer.c).
+ * An example of peer-to-peer communication with GDBus can be found
+ * in [gdbus-example-peer.c](https://gitlab.gnome.org/GNOME/glib/-/blob/HEAD/gio/tests/gdbus-example-peer.c).
+ *
+ * Note that a minimal #GDBusServer will accept connections from any
+ * peer. In many use-cases it will be necessary to add a #GDBusAuthObserver
+ * that only accepts connections that have successfully authenticated
+ * as the same user that is running the #GDBusServer. Since GLib 2.68 this can
+ * be achieved more simply by passing the
+ * %G_DBUS_SERVER_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER flag to the server.
  */
 
 /**
@@ -96,6 +109,7 @@ struct _GDBusServer
 
   gchar *client_address;
 
+  gchar *unix_socket_path;
   GSocketListener *listener;
   gboolean is_using_listener;
   gulong run_signal_handler_id;
@@ -157,9 +171,22 @@ G_DEFINE_TYPE_WITH_CODE (GDBusServer, g_dbus_server, G_TYPE_OBJECT,
                          G_IMPLEMENT_INTERFACE (G_TYPE_INITABLE, initable_iface_init))
 
 static void
+g_dbus_server_dispose (GObject *object)
+{
+  GDBusServer *server = G_DBUS_SERVER (object);
+
+  if (server->active)
+    g_dbus_server_stop (server);
+
+  G_OBJECT_CLASS (g_dbus_server_parent_class)->dispose (object);
+}
+
+static void
 g_dbus_server_finalize (GObject *object)
 {
   GDBusServer *server = G_DBUS_SERVER (object);
+
+  g_assert (!server->active);
 
   if (server->authentication_observer != NULL)
     g_object_unref (server->authentication_observer);
@@ -178,9 +205,8 @@ g_dbus_server_finalize (GObject *object)
       memset (server->nonce, '\0', 16);
       g_free (server->nonce);
     }
-  /* we could unlink the nonce file but I don't
-   * think it's really worth the effort/risk
-   */
+
+  g_free (server->unix_socket_path);
   g_free (server->nonce_file);
 
   g_main_context_unref (server->main_context_at_construction);
@@ -265,6 +291,7 @@ g_dbus_server_class_init (GDBusServerClass *klass)
 {
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
 
+  gobject_class->dispose      = g_dbus_server_dispose;
   gobject_class->finalize     = g_dbus_server_finalize;
   gobject_class->set_property = g_dbus_server_set_property;
   gobject_class->get_property = g_dbus_server_get_property;
@@ -293,7 +320,9 @@ g_dbus_server_class_init (GDBusServerClass *klass)
   /**
    * GDBusServer:guid:
    *
-   * The guid of the server.
+   * The GUID of the server.
+   *
+   * See #GDBusConnection:guid for more details.
    *
    * Since: 2.26
    */
@@ -424,10 +453,13 @@ g_dbus_server_class_init (GDBusServerClass *klass)
                                                   G_STRUCT_OFFSET (GDBusServerClass, new_connection),
                                                   g_signal_accumulator_true_handled,
                                                   NULL, /* accu_data */
-                                                  NULL,
+                                                  _g_cclosure_marshal_BOOLEAN__OBJECT,
                                                   G_TYPE_BOOLEAN,
                                                   1,
                                                   G_TYPE_DBUS_CONNECTION);
+  g_signal_set_va_marshaller (_signals[NEW_CONNECTION_SIGNAL],
+                              G_TYPE_FROM_CLASS (klass),
+                              _g_cclosure_marshal_BOOLEAN__OBJECTv);
 }
 
 static void
@@ -457,6 +489,10 @@ on_run (GSocketService    *service,
  * Once constructed, you can use g_dbus_server_get_client_address() to
  * get a D-Bus address string that clients can use to connect.
  *
+ * To have control over the available authentication mechanisms and
+ * the users that are authorized to connect, it is strongly recommended
+ * to provide a non-%NULL #GDBusAuthObserver.
+ *
  * Connect to the #GDBusServer::new-connection signal to handle
  * incoming connections.
  *
@@ -465,8 +501,8 @@ on_run (GSocketService    *service,
  *
  * #GDBusServer is used in this [example][gdbus-peer-to-peer].
  *
- * This is a synchronous failable constructor. See
- * g_dbus_server_new() for the asynchronous version.
+ * This is a synchronous failable constructor. There is currently no
+ * asynchronous version.
  *
  * Returns: A #GDBusServer or %NULL if @error is set. Free with
  * g_object_unref().
@@ -485,6 +521,7 @@ g_dbus_server_new_sync (const gchar        *address,
 
   g_return_val_if_fail (address != NULL, NULL);
   g_return_val_if_fail (g_dbus_is_guid (guid), NULL);
+  g_return_val_if_fail ((flags & ~G_DBUS_SERVER_FLAGS_ALL) == 0, NULL);
   g_return_val_if_fail (error == NULL || *error == NULL, NULL);
 
   server = g_initable_new (G_TYPE_DBUS_SERVER,
@@ -507,7 +544,9 @@ g_dbus_server_new_sync (const gchar        *address,
  * [D-Bus address](https://dbus.freedesktop.org/doc/dbus-specification.html#addresses)
  * string that can be used by clients to connect to @server.
  *
- * Returns: A D-Bus address string. Do not free, the string is owned
+ * This is valid and non-empty if initializing the #GDBusServer succeeded.
+ *
+ * Returns: (not nullable): A D-Bus address string. Do not free, the string is owned
  * by @server.
  *
  * Since: 2.26
@@ -523,9 +562,9 @@ g_dbus_server_get_client_address (GDBusServer *server)
  * g_dbus_server_get_guid:
  * @server: A #GDBusServer.
  *
- * Gets the GUID for @server.
+ * Gets the GUID for @server, as provided to g_dbus_server_new_sync().
  *
- * Returns: A D-Bus GUID. Do not free this string, it is owned by @server.
+ * Returns: (not nullable): A D-Bus GUID. Do not free this string, it is owned by @server.
  *
  * Since: 2.26
  */
@@ -586,6 +625,12 @@ g_dbus_server_start (GDBusServer *server)
     return;
   /* Right now we don't have any transport not using the listener... */
   g_assert (server->is_using_listener);
+  server->run_signal_handler_id = g_signal_connect_data (G_SOCKET_SERVICE (server->listener),
+                                                         "run",
+                                                         G_CALLBACK (on_run),
+                                                         g_object_ref (server),
+                                                         (GClosureNotify) g_object_unref,
+                                                         G_CONNECT_DEFAULT);
   g_socket_service_start (G_SOCKET_SERVICE (server->listener));
   server->active = TRUE;
   g_object_notify (G_OBJECT (server), "active");
@@ -608,16 +653,25 @@ g_dbus_server_stop (GDBusServer *server)
   /* Right now we don't have any transport not using the listener... */
   g_assert (server->is_using_listener);
   g_assert (server->run_signal_handler_id > 0);
-  g_signal_handler_disconnect (server->listener, server->run_signal_handler_id);
-  server->run_signal_handler_id = 0;
+  g_clear_signal_handler (&server->run_signal_handler_id, server->listener);
   g_socket_service_stop (G_SOCKET_SERVICE (server->listener));
   server->active = FALSE;
   g_object_notify (G_OBJECT (server), "active");
+
+  if (server->unix_socket_path)
+    {
+      if (g_unlink (server->unix_socket_path) != 0)
+        g_warning ("Failed to delete %s: %s", server->unix_socket_path, g_strerror (errno));
+    }
+
+  if (server->nonce_file)
+    {
+      if (g_unlink (server->nonce_file) != 0)
+        g_warning ("Failed to delete %s: %s", server->nonce_file, g_strerror (errno));
+    }
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
-
-#ifdef G_OS_UNIX
 
 static gint
 random_ascii (void)
@@ -633,7 +687,7 @@ random_ascii (void)
   return ret;
 }
 
-/* note that address_entry has already been validated => exactly one of path, tmpdir or abstract keys are set */
+/* note that address_entry has already been validated => exactly one of path, dir, tmpdir, or abstract keys are set */
 static gboolean
 try_unix (GDBusServer  *server,
           const gchar  *address_entry,
@@ -642,6 +696,7 @@ try_unix (GDBusServer  *server,
 {
   gboolean ret;
   const gchar *path;
+  const gchar *dir;
   const gchar *tmpdir;
   const gchar *abstract;
   GSocketAddress *address;
@@ -650,6 +705,7 @@ try_unix (GDBusServer  *server,
   address = NULL;
 
   path = g_hash_table_lookup (key_value_pairs, "path");
+  dir = g_hash_table_lookup (key_value_pairs, "dir");
   tmpdir = g_hash_table_lookup (key_value_pairs, "tmpdir");
   abstract = g_hash_table_lookup (key_value_pairs, "abstract");
 
@@ -657,20 +713,21 @@ try_unix (GDBusServer  *server,
     {
       address = g_unix_socket_address_new (path);
     }
-  else if (tmpdir != NULL)
+  else if (dir != NULL || tmpdir != NULL)
     {
       gint n;
       GString *s;
       GError *local_error;
 
     retry:
-      s = g_string_new (tmpdir);
+      s = g_string_new (tmpdir != NULL ? tmpdir : dir);
       g_string_append (s, "/dbus-");
       for (n = 0; n < 8; n++)
         g_string_append_c (s, random_ascii ());
 
-      /* prefer abstract namespace if available */
-      if (g_unix_socket_address_abstract_names_supported ())
+      /* prefer abstract namespace if available for tmpdir: addresses
+       * abstract namespace is disallowed for dir: addresses */
+      if (tmpdir != NULL && g_unix_socket_address_abstract_names_supported ())
         address = g_unix_socket_address_new_with_type (s->str,
                                                        -1,
                                                        G_UNIX_SOCKET_ADDRESS_ABSTRACT);
@@ -705,7 +762,7 @@ try_unix (GDBusServer  *server,
           g_set_error_literal (error,
                                G_IO_ERROR,
                                G_IO_ERROR_NOT_SUPPORTED,
-                               _("Abstract name space not supported"));
+                               _("Abstract namespace not supported"));
           goto out;
         }
       address = g_unix_socket_address_new_with_type (abstract,
@@ -735,30 +792,35 @@ try_unix (GDBusServer  *server,
       /* Fill out client_address if the connection attempt worked */
       if (ret)
         {
+          const char *address_path;
+          char *escaped_path;
+
           server->is_using_listener = TRUE;
+          address_path = g_unix_socket_address_get_path (G_UNIX_SOCKET_ADDRESS (address));
+          escaped_path = g_dbus_address_escape_value (address_path);
 
           switch (g_unix_socket_address_get_address_type (G_UNIX_SOCKET_ADDRESS (address)))
             {
             case G_UNIX_SOCKET_ADDRESS_ABSTRACT:
-              server->client_address = g_strdup_printf ("unix:abstract=%s",
-                                                        g_unix_socket_address_get_path (G_UNIX_SOCKET_ADDRESS (address)));
+              server->client_address = g_strdup_printf ("unix:abstract=%s", escaped_path);
               break;
 
             case G_UNIX_SOCKET_ADDRESS_PATH:
-              server->client_address = g_strdup_printf ("unix:path=%s",
-                                                        g_unix_socket_address_get_path (G_UNIX_SOCKET_ADDRESS (address)));
+              server->client_address = g_strdup_printf ("unix:path=%s", escaped_path);
+              server->unix_socket_path = g_strdup (address_path);
               break;
 
             default:
               g_assert_not_reached ();
               break;
             }
+
+          g_free (escaped_path);
         }
       g_object_unref (address);
     }
   return ret;
 }
-#endif
 
 /* ---------------------------------------------------------------------------------------------------- */
 
@@ -844,6 +906,7 @@ try_tcp (GDBusServer  *server,
       gsize bytes_written;
       gsize bytes_remaining;
       char *file_escaped;
+      char *host_escaped;
 
       server->nonce = g_new0 (guchar, 16);
       for (n = 0; n < 16; n++)
@@ -861,12 +924,12 @@ try_tcp (GDBusServer  *server,
       bytes_remaining = 16;
       while (bytes_remaining > 0)
         {
-          gssize ret;
+          gssize size;
           int errsv;
 
-          ret = write (fd, server->nonce + bytes_written, bytes_remaining);
+          size = write (fd, server->nonce + bytes_written, bytes_remaining);
           errsv = errno;
-          if (ret == -1)
+          if (size == -1)
             {
               if (errsv == EINTR)
                 goto again;
@@ -878,16 +941,18 @@ try_tcp (GDBusServer  *server,
                            g_strerror (errsv));
               goto out;
             }
-          bytes_written += ret;
-          bytes_remaining -= ret;
+          bytes_written += size;
+          bytes_remaining -= size;
         }
       if (!g_close (fd, error))
         goto out;
-      file_escaped = g_uri_escape_string (server->nonce_file, "/\\", FALSE);
+      host_escaped = g_dbus_address_escape_value (host);
+      file_escaped = g_dbus_address_escape_value (server->nonce_file);
       server->client_address = g_strdup_printf ("nonce-tcp:host=%s,port=%d,noncefile=%s",
-                                                host,
+                                                host_escaped,
                                                 port_num,
                                                 file_escaped);
+      g_free (host_escaped);
       g_free (file_escaped);
     }
   else
@@ -976,6 +1041,8 @@ on_run (GSocketService    *service,
     G_DBUS_CONNECTION_FLAGS_DELAY_MESSAGE_PROCESSING;
   if (server->flags & G_DBUS_SERVER_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS)
     connection_flags |= G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS;
+  if (server->flags & G_DBUS_SERVER_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER)
+    connection_flags |= G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER;
 
   connection = g_dbus_connection_new_sync (G_IO_STREAM (socket_connection),
                                            server->guid,
@@ -1015,7 +1082,7 @@ on_run (GSocketService    *service,
                              emit_new_connection_in_idle,
                              data,
                              (GDestroyNotify) emit_idle_data_free);
-      g_source_set_name (idle_source, "[gio] emit_new_connection_in_idle");
+      g_source_set_static_name (idle_source, "[gio] emit_new_connection_in_idle");
       g_source_attach (idle_source, server->main_context_at_construction);
       g_source_unref (idle_source);
     }
@@ -1072,10 +1139,8 @@ initable_init (GInitable     *initable,
           if (FALSE)
             {
             }
-#ifdef G_OS_UNIX
           else if (g_strcmp0 (transport_name, "unix") == 0)
             ret = try_unix (server, address_entry, key_value_pairs, &this_error);
-#endif
           else if (g_strcmp0 (transport_name, "tcp") == 0)
             ret = try_tcp (server, address_entry, key_value_pairs, FALSE, &this_error);
           else if (g_strcmp0 (transport_name, "nonce-tcp") == 0)
@@ -1112,15 +1177,7 @@ initable_init (GInitable     *initable,
 
   if (ret)
     {
-      if (last_error != NULL)
-        g_error_free (last_error);
-
-      /* Right now we don't have any transport not using the listener... */
-      g_assert (server->is_using_listener);
-      server->run_signal_handler_id = g_signal_connect (G_SOCKET_SERVICE (server->listener),
-                                                        "run",
-                                                        G_CALLBACK (on_run),
-                                                        server);
+      g_clear_error (&last_error);
     }
   else
     {

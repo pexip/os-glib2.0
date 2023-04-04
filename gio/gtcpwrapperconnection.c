@@ -2,6 +2,8 @@
  *
  * Copyright © 2010 Collabora Ltd.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -188,7 +190,7 @@ g_tcp_wrapper_connection_new (GIOStream *base_io_stream,
  * g_tcp_wrapper_connection_get_base_io_stream:
  * @conn: a #GTcpWrapperConnection
  *
- * Get's @conn's base #GIOStream
+ * Gets @conn's base #GIOStream
  *
  * Returns: (transfer none): @conn's base #GIOStream
  */

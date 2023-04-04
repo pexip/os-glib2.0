@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008 Christian Kellner, Samuel Cormier-Iijima
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -34,13 +36,13 @@
  * @short_description: Native GSocketAddress
  * @include: gio/gio.h
  *
- * An socket address of some unknown native type.
+ * A socket address of some unknown native type.
  */
 
 /**
  * GNativeSocketAddress:
  *
- * An socket address, corresponding to a general struct
+ * A socket address, corresponding to a general struct
  * sockadd address of a type not otherwise handled by glib.
  */
 

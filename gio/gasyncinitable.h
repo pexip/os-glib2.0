@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2009 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -95,6 +97,9 @@ void     g_async_initable_new_async        (GType                 object_type,
 					    gpointer              user_data,
 					    const gchar          *first_property_name,
 					    ...);
+
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+
 GLIB_DEPRECATED_IN_2_54_FOR(g_object_new_with_properties and g_async_initable_init_async)
 void     g_async_initable_newv_async       (GType                 object_type,
 					    guint                 n_parameters,
@@ -103,6 +108,9 @@ void     g_async_initable_newv_async       (GType                 object_type,
 					    GCancellable         *cancellable,
 					    GAsyncReadyCallback   callback,
 					    gpointer              user_data);
+
+G_GNUC_END_IGNORE_DEPRECATIONS
+
 GLIB_AVAILABLE_IN_ALL
 void     g_async_initable_new_valist_async (GType                 object_type,
 					    const gchar          *first_property_name,

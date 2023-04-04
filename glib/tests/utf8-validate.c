@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 2001 Matthias Clasen <matthiasc@poet.de>
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -32,7 +34,7 @@ typedef struct {
   gboolean valid;
 } Test;
 
-Test test[] = {
+static Test global_test[] = {
   /* some tests to check max_len handling */
   /* length 1 */
   { "abcde", -1, 5, TRUE },
@@ -268,7 +270,7 @@ Test test[] = {
   { "\x20\xed\xaf\xbf\xed\xb0\x80\x20", -1, 1, FALSE },
   { "\x20\xed\xaf\xbf\xed\xbf\xbf\x20", -1, 1, FALSE },
 
-  { NULL, }
+  { NULL, 0, 0, 0 }
 };
 
 static void
@@ -280,15 +282,22 @@ do_test (gconstpointer d)
 
   result = g_utf8_validate (test->text, test->max_len, &end);
 
-  g_assert (result == test->valid);
-  g_assert (end - test->text == test->offset);
+  g_assert_true (result == test->valid);
+  g_assert_cmpint (end - test->text, ==, test->offset);
 
   if (test->max_len < 0)
     {
       result = g_utf8_validate (test->text, strlen (test->text), &end);
 
-      g_assert (result == test->valid);
-      g_assert (end - test->text == test->offset);
+      g_assert_true (result == test->valid);
+      g_assert_cmpint (end - test->text, ==, test->offset);
+    }
+  else
+    {
+      result = g_utf8_validate_len (test->text, test->max_len, &end);
+
+      g_assert_true (result == test->valid);
+      g_assert_cmpint (end - test->text, ==, test->offset);
     }
 }
 
@@ -309,6 +318,11 @@ test_utf8_get_char_validated (void)
      * that’s how it’s documented: */
     { "", 0, (gunichar) -2 },
     { "", -1, (gunichar) 0 },
+    { "\0", 1, (gunichar) -2 },
+    { "AB\0", 3, 'A' },
+    { "A\0B", 3, 'A' },
+    { "\0AB", 3, (gunichar) -2 },
+    { "\xD8\0", 2, (gunichar) -2 },
     /* Normal inputs: */
     { "hello", 5, (gunichar) 'h' },
     { "hello", -1, (gunichar) 'h' },
@@ -316,6 +330,7 @@ test_utf8_get_char_validated (void)
     { "\xD8\x9F", -1, 0x061F },
     { "\xD8\x9Fmore", 6, 0x061F },
     { "\xD8\x9Fmore", -1, 0x061F },
+    { "\xD8\x9F\0", 3, 0x061F },
     { "\xE2\x96\xB3", 3, 0x25B3 },
     { "\xE2\x96\xB3", -1, 0x25B3 },
     { "\xE2\x96\xB3more", 7, 0x25B3 },
@@ -351,10 +366,10 @@ main (int argc, char *argv[])
 
   g_test_init (&argc, &argv, NULL);
 
-  for (i = 0; test[i].text; i++)
+  for (i = 0; global_test[i].text; i++)
     {
       path = g_strdup_printf ("/utf8/validate/%d", i);
-      g_test_add_data_func (path, &test[i], do_test);
+      g_test_add_data_func (path, &global_test[i], do_test);
       g_free (path);
     }
 

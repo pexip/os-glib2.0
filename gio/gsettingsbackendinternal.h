@@ -2,6 +2,8 @@
  * Copyright © 2009, 2010 Codethink Limited
  * Copyright © 2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -86,6 +88,8 @@ void                    g_settings_backend_sync_default                 (void);
 GType                   g_null_settings_backend_get_type                (void);
 
 GType                   g_memory_settings_backend_get_type              (void);
+
+GType                   g_keyfile_settings_backend_get_type             (void);
 
 #ifdef HAVE_COCOA
 GType                   g_nextstep_settings_backend_get_type            (void);

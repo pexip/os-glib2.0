@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -79,6 +81,8 @@ GLIB_AVAILABLE_IN_ALL
 const char *   g_unix_mount_get_mount_path          (GUnixMountEntry    *mount_entry);
 GLIB_AVAILABLE_IN_ALL
 const char *   g_unix_mount_get_device_path         (GUnixMountEntry    *mount_entry);
+GLIB_AVAILABLE_IN_2_60
+const char *   g_unix_mount_get_root_path           (GUnixMountEntry    *mount_entry);
 GLIB_AVAILABLE_IN_ALL
 const char *   g_unix_mount_get_fs_type             (GUnixMountEntry    *mount_entry);
 GLIB_AVAILABLE_IN_2_58
@@ -130,6 +134,9 @@ GIcon *        g_unix_mount_point_guess_symbolic_icon (GUnixMountPoint    *mount
 
 GLIB_AVAILABLE_IN_ALL
 GList *        g_unix_mount_points_get              (guint64            *time_read);
+GLIB_AVAILABLE_IN_2_66
+GUnixMountPoint *g_unix_mount_point_at              (const char         *mount_path,
+                                                     guint64            *time_read);
 GLIB_AVAILABLE_IN_ALL
 GList *        g_unix_mounts_get                    (guint64            *time_read);
 GLIB_AVAILABLE_IN_ALL

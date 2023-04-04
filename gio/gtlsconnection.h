@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -43,6 +45,20 @@ struct _GTlsConnection {
   GTlsConnectionPrivate *priv;
 };
 
+/**
+ * GTlsConnectionClass:
+ * @parent_class: The parent class.
+ * @accept_certificate: Check whether to accept a certificate.
+ * @handshake: Perform a handshake operation.
+ * @handshake_async: Start an asynchronous handshake operation.
+ * @handshake_finish: Finish an asynchronous handshake operation.
+ * @get_binding_data: Retrieve TLS channel binding data (Since: 2.66)
+ * @get_negotiated_protocol: Get ALPN-negotiated protocol (Since: 2.70)
+ *
+ * The class structure for the #GTlsConnection type.
+ *
+ * Since: 2.28
+ */
 struct _GTlsConnectionClass
 {
   GIOStreamClass parent_class;
@@ -66,9 +82,18 @@ struct _GTlsConnectionClass
 				  GAsyncResult         *result,
 				  GError              **error);
 
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+  gboolean ( *get_binding_data)  (GTlsConnection          *conn,
+                                  GTlsChannelBindingType   type,
+                                  GByteArray              *data,
+                                  GError                 **error);
+G_GNUC_END_IGNORE_DEPRECATIONS
+
+  const gchar *(*get_negotiated_protocol) (GTlsConnection *conn);
+
   /*< private >*/
   /* Padding for future expansion */
-  gpointer padding[8];
+  gpointer padding[6];
 };
 
 GLIB_AVAILABLE_IN_ALL
@@ -109,11 +134,28 @@ void                  g_tls_connection_set_require_close_notify    (GTlsConnecti
 GLIB_AVAILABLE_IN_ALL
 gboolean              g_tls_connection_get_require_close_notify    (GTlsConnection       *conn);
 
-GLIB_AVAILABLE_IN_ALL
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+GLIB_DEPRECATED_IN_2_60
 void                  g_tls_connection_set_rehandshake_mode        (GTlsConnection       *conn,
 								    GTlsRehandshakeMode   mode);
-GLIB_AVAILABLE_IN_ALL
+GLIB_DEPRECATED_IN_2_60
 GTlsRehandshakeMode   g_tls_connection_get_rehandshake_mode        (GTlsConnection       *conn);
+G_GNUC_END_IGNORE_DEPRECATIONS
+
+GLIB_AVAILABLE_IN_2_60
+void                  g_tls_connection_set_advertised_protocols    (GTlsConnection       *conn,
+                                                                    const gchar * const  *protocols);
+
+GLIB_AVAILABLE_IN_2_60
+const gchar *         g_tls_connection_get_negotiated_protocol     (GTlsConnection       *conn);
+
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+GLIB_AVAILABLE_IN_2_66
+gboolean              g_tls_connection_get_channel_binding_data    (GTlsConnection          *conn,
+                                                                    GTlsChannelBindingType   type,
+                                                                    GByteArray              *data,
+                                                                    GError                 **error);
+G_GNUC_END_IGNORE_DEPRECATIONS
 
 GLIB_AVAILABLE_IN_ALL
 gboolean              g_tls_connection_handshake                   (GTlsConnection       *conn,
@@ -131,6 +173,12 @@ gboolean              g_tls_connection_handshake_finish            (GTlsConnecti
 								    GAsyncResult         *result,
 								    GError              **error);
 
+GLIB_AVAILABLE_IN_2_70
+GTlsProtocolVersion   g_tls_connection_get_protocol_version        (GTlsConnection       *conn);
+
+GLIB_AVAILABLE_IN_2_70
+gchar *               g_tls_connection_get_ciphersuite_name        (GTlsConnection       *conn);
+
 /**
  * G_TLS_ERROR:
  *
@@ -142,6 +190,18 @@ gboolean              g_tls_connection_handshake_finish            (GTlsConnecti
 GLIB_AVAILABLE_IN_ALL
 GQuark g_tls_error_quark (void);
 
+/**
+ * G_TLS_CHANNEL_BINDING_ERROR:
+ *
+ * Error domain for TLS channel binding. Errors in this domain will be from the
+ * #GTlsChannelBindingError enumeration. See #GError for more information on error
+ * domains.
+ *
+ * Since: 2.66
+ */
+#define G_TLS_CHANNEL_BINDING_ERROR (g_tls_channel_binding_error_quark ())
+GLIB_AVAILABLE_IN_2_66
+GQuark g_tls_channel_binding_error_quark (void);
 
 /*< protected >*/
 GLIB_AVAILABLE_IN_ALL

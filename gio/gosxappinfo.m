@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2014 Patrick Griffis
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -168,6 +170,7 @@ get_bundle_string_value (NSBundle *bundle,
 static CFStringRef
 create_cfstring_from_cstr (const gchar *cstr)
 {
+  g_return_val_if_fail (cstr != NULL, NULL);
   return CFStringCreateWithCString (NULL, cstr, kCFStringEncodingUTF8);
 }
 
@@ -226,8 +229,8 @@ url_escape_hostname (const char *url)
 }
 
 static CFURLRef
-create_url_from_cstr (gchar    *cstr,
-                      gboolean  is_file)
+create_url_from_cstr (const gchar *cstr,
+                      gboolean     is_file)
 {
   gchar *puny_cstr;
   CFStringRef str;
@@ -279,11 +282,17 @@ create_urlspec_for_appinfo (GOsxAppInfo *info,
                             GList            *uris,
                             gboolean          are_files)
 {
-  LSLaunchURLSpec *urlspec = g_new0 (LSLaunchURLSpec, 1);
-  gchar *app_cstr = g_osx_app_info_get_filename (info);
+  LSLaunchURLSpec *urlspec = NULL;
+  const gchar *app_cstr;
+
+  g_return_val_if_fail (G_IS_OSX_APP_INFO (info), NULL);
+
+  urlspec = g_new0 (LSLaunchURLSpec, 1);
+  app_cstr = g_osx_app_info_get_filename (info);
+  g_assert (app_cstr != NULL);
 
   /* Strip file:// from app url but ensure filesystem url */
-  urlspec->appURL = create_url_from_cstr (app_cstr + 7, TRUE);
+  urlspec->appURL = create_url_from_cstr (app_cstr + strlen ("file://"), TRUE);
   urlspec->launchFlags = kLSLaunchDefaults;
   urlspec->itemURLs = create_url_list_from_glist (uris, are_files);
 
@@ -326,7 +335,7 @@ get_bundle_for_id (CFStringRef bundle_id)
   CFArrayRef urls = LSCopyApplicationURLsForBundleIdentifier (bundle_id, NULL);
   if (urls)
     {
-      /* TODO: if there's multiple, we should perhaps prefer one thats in $HOME,
+      /* TODO: if there's multiple, we should perhaps prefer one that's in $HOME,
        * instead of just always picking the first.
        */
       app_url = CFArrayGetValueAtIndex (urls, 0);
@@ -402,7 +411,7 @@ g_osx_app_info_get_executable (GAppInfo *appinfo)
   return info->executable;
 }
 
-char *
+const char *
 g_osx_app_info_get_filename (GOsxAppInfo *info)
 {
   g_return_val_if_fail (info != NULL, NULL);
@@ -431,7 +440,8 @@ g_osx_app_info_get_icon (GAppInfo *appinfo)
 
   if (!info->icon)
     {
-      gchar *icon_name, *app_uri, *icon_uri;
+      const gchar *app_uri;
+      gchar *icon_name, *icon_uri;
       GFile *file;
 
       icon_name = get_bundle_string_value (info->bundle, @"CFBundleIconFile");
@@ -439,7 +449,7 @@ g_osx_app_info_get_icon (GAppInfo *appinfo)
         return NULL;
 
       app_uri = g_osx_app_info_get_filename (info);
-      icon_uri = g_strconcat (app_uri + 7, "/Contents/Resources/", icon_name,
+      icon_uri = g_strconcat (app_uri + strlen ("file://"), "/Contents/Resources/", icon_name,
                               g_str_has_suffix (icon_name, ".icns") ? NULL : ".icns", NULL);
       g_free (icon_name);
 
@@ -459,8 +469,13 @@ g_osx_app_info_launch_internal (GAppInfo  *appinfo,
                                      GError   **error)
 {
   GOsxAppInfo *info = G_OSX_APP_INFO (appinfo);
-  LSLaunchURLSpec *urlspec = create_urlspec_for_appinfo (info, uris, are_files);
+  LSLaunchURLSpec *urlspec;
   gint ret, success = TRUE;
+
+  g_return_val_if_fail (G_IS_OSX_APP_INFO (appinfo), FALSE);
+  g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+
+  urlspec = create_urlspec_for_appinfo (info, uris, are_files);
 
   if ((ret = LSOpenFromURLSpec (urlspec, NULL)))
     {
@@ -574,6 +589,9 @@ g_app_info_create_from_commandline (const char           *commandline,
                                     GAppInfoCreateFlags   flags,
                                     GError              **error)
 {
+  g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
+                       "Creating an app info from a command line not currently supported");
+
   return NULL;
 }
 

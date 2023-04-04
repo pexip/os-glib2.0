@@ -1,24 +1,117 @@
-configure_file(input : 'glibconfig.h.in', output : 'glibconfig.h',
-  install : true,
+glibconfig_h = configure_file(input : 'glibconfig.h.in', output : 'glibconfig.h',
   install_dir : join_paths(get_option('libdir'), 'glib-2.0/include'),
+  install_tag : 'devel',
   configuration : glibconfig_conf)
 
 subdir('libcharset')
-if not use_system_pcre
-  subdir('pcre')
-endif
 
-# TODO: gnulib_objects, pcre_objects and pcre_deps are a workaround for
-# <https://github.com/mesonbuild/meson/issues/3934> and
-# <https://github.com/mesonbuild/meson/issues/3937>. When we can depend
-# on a meson version where those are fixed, revert the commit that
-# introduced this workaround.
-if have_good_vsnprintf and have_good_snprintf
+# libsysprof-capture support
+libsysprof_capture_dep = dependency('sysprof-capture-4', version: '>= 3.38.0',
+  required: get_option('sysprof'),
+  default_options: [
+    'examples=false',
+    'gtk=false',
+    'tests=false',
+    'tools=false',
+    'libsysprof=false',
+    'sysprofd=none',
+    'help=false',
+  ],
+  fallback: ['sysprof', 'libsysprof_capture_dep'],
+)
+glib_conf.set('HAVE_SYSPROF', libsysprof_capture_dep.found())
+
+if use_system_printf
   gnulib_lib = []
-  gnulib_objects = []
+  gnulib_libm_dependency = []
+  glib_conf.set ('gl_unused', '')
+  glib_conf.set ('gl_extern_inline', '')
 else
+  subdir ('gnulib/gl_extern_inline')
+  subdir ('gnulib/gl_cv_long_double_equals_double')
+  subdir ('gnulib/gl_cv_cc_double_expbit0')
+  subdir ('gnulib/gl_cv_func_printf_precision')
+  subdir ('gnulib/gl_cv_func_printf_enomem')
+  subdir ('gnulib/gl_cv_func_printf_flag_zero')
+  subdir ('gnulib/gl_cv_func_printf_flag_leftadjust')
+  subdir ('gnulib/gl_cv_func_printf_flag_grouping')
+  subdir ('gnulib/gl_cv_func_printf_directive_a')
+  subdir ('gnulib/gl_cv_func_printf_directive_f')
+  subdir ('gnulib/gl_cv_func_printf_directive_ls')
+  subdir ('gnulib/gl_cv_func_printf_long_double')
+  subdir ('gnulib/gl_cv_func_printf_infinite')
+  subdir ('gnulib/gl_cv_func_printf_infinite_long_double')
+
+  gl_unused = '''
+/* Define as a marker that can be attached to declarations that might not
+    be used.  This helps to reduce warnings, such as from
+    GCC -Wunused-parameter.  */
+#if __GNUC__ >= 3 || (__GNUC__ == 2 && __GNUC_MINOR__ >= 7)
+# define _GL_UNUSED __attribute__ ((__unused__))
+#else
+# define _GL_UNUSED
+#endif
+'''
+  glib_conf.set ('gl_unused', gl_unused)
+  glib_conf.set ('gl_extern_inline', gl_extern_inline)
+
+  if (gl_cv_long_double_equals_double)
+    glib_conf.set ('HAVE_SAME_LONG_DOUBLE_AS_DOUBLE', 1)
+  endif
+
+  if (gl_cv_cc_double_expbit0_word >= 0 and
+      gl_cv_cc_double_expbit0_bit >= 0)
+    glib_conf.set('DBL_EXPBIT0_WORD', gl_cv_cc_double_expbit0_word)
+    glib_conf.set('DBL_EXPBIT0_BIT', gl_cv_cc_double_expbit0_bit)
+  endif
+
+  if not gl_cv_func_printf_precision
+    glib_conf.set('NEED_PRINTF_UNBOUNDED_PRECISION', 1)
+  endif
+
+  if not gl_cv_func_printf_enomem
+    glib_conf.set('NEED_PRINTF_ENOMEM', 1)
+  endif
+
+  if not gl_cv_func_printf_flag_leftadjust
+    glib_conf.set('NEED_PRINTF_FLAG_LEFTADJUST', 1)
+  endif
+
+  if not gl_cv_func_printf_flag_zero
+    glib_conf.set('NEED_PRINTF_FLAG_ZERO', 1)
+  endif
+
+  if not gl_cv_func_printf_flag_grouping
+    glib_conf.set('NEED_PRINTF_FLAG_GROUPING', 1)
+  endif
+
+  if not gl_cv_func_printf_directive_a
+    glib_conf.set('NEED_PRINTF_DIRECTIVE_A', 1)
+  endif
+
+  if not gl_cv_func_printf_directive_f
+    glib_conf.set('NEED_PRINTF_DIRECTIVE_F', 1)
+  endif
+
+  if not gl_cv_func_printf_directive_ls
+    glib_conf.set('NEED_PRINTF_DIRECTIVE_LS', 1)
+  endif
+
+  if (not gl_cv_func_printf_precision or
+      not gl_cv_func_printf_enomem)
+    glib_conf.set('NEED_PRINTF_DOUBLE', 1)
+    glib_conf.set('NEED_PRINTF_LONG_DOUBLE', 1)
+  endif
+
+  if not gl_cv_func_printf_infinite
+    glib_conf.set('NEED_PRINTF_INFINITE_DOUBLE', 1)
+  endif
+
+  if gl_cv_func_printf_long_double and gl_cv_func_printf_infinite_long_double
+    glib_conf.set('NEED_PRINTF_INFINITE_LONG_DOUBLE', 1)
+  endif
+
   subdir('gnulib')
-  gnulib_objects = [gnulib_lib.extract_all_objects()]
 endif
 
 glib_headers = files(
@@ -27,6 +120,10 @@ glib_headers = files(
   'glib-object.h',
 )
 install_headers(glib_headers, subdir : 'glib-2.0')
+
+# Expose as variable to be used by gobject-introspection
+# when it includes GLib as a subproject
+glib_unix_h = files('glib-unix.h')
 
 glib_deprecated_headers = files(
   'deprecated/gallocator.h',
@@ -40,6 +137,7 @@ install_headers(glib_deprecated_headers, subdir : 'glib-2.0/glib/deprecated')
 
 glib_sub_headers = files(
   'glib-autocleanups.h',
+  'glib-typeof.h',
   'galloca.h',
   'garray.h',
   'gasyncqueue.h',
@@ -96,6 +194,7 @@ glib_sub_headers = files(
   'gspawn.h',
   'gstdio.h',
   'gstrfuncs.h',
+  'gstrvbuilder.h',
   'gtestutils.h',
   'gstring.h',
   'gstringchunk.h',
@@ -108,7 +207,7 @@ glib_sub_headers = files(
   'gtypes.h',
   'guuid.h',
   'gunicode.h',
-  'gurifuncs.h',
+  'guri.h',
   'gutils.h',
   'gvarianttype.h',
   'gvariant.h',
@@ -184,11 +283,14 @@ glib_sources = files(
   'gstrfuncs.c',
   'gstring.c',
   'gstringchunk.c',
+  'gstrvbuilder.c',
   'gtestutils.c',
   'gthread.c',
   'gthreadpool.c',
   'gtimer.c',
   'gtimezone.c',
+  'gtrace.c',
+  'gtrace-private.h',
   'gtranslit.c',
   'gtrashstack.c',
   'gtree.c',
@@ -197,8 +299,10 @@ glib_sources = files(
   'gunibreak.c',
   'gunicollate.c',
   'gunidecomp.c',
-  'gurifuncs.c',
+  'guri.c',
+  'guriprivate.h',
   'gutils.c',
+  'gutilsprivate.h',
   'guuid.c',
   'gvariant.c',
   'gvariant-core.c',
@@ -211,19 +315,41 @@ glib_sources = files(
   'gprintf.c',
 )
 
+platform_deps = []
+
 if host_system == 'windows'
-  glib_win_rc = configure_file(
-    input: 'glib.rc.in',
-    output: 'glib.rc',
-    configuration: glibconfig_conf,
-  )
-  glib_win_res = windows.compile_resources(glib_win_rc)
-  glib_sources += [glib_win_res]
+  if get_option('default_library') == 'shared'
+    glib_win_rc = configure_file(
+      input: 'glib.rc.in',
+      output: 'glib.rc',
+      configuration: glibconfig_conf,
+    )
+    glib_win_res = windows.compile_resources(glib_win_rc)
+    glib_sources += [glib_win_res]
+  endif
   glib_sources += files('gwin32.c', 'gspawn-win32.c', 'giowin32.c')
   platform_deps = [winsock2, cc.find_library('winmm')]
+  if cc.get_id() == 'msvc' or cc.get_id() == 'clang-cl'
+    glib_sources += files('dirent/wdirent.c')
+  endif
 else
   glib_sources += files('glib-unix.c', 'gspawn.c', 'giounix.c')
   platform_deps = []
+endif
+
+if host_system == 'linux'
+  glib_sources += files('gjournal-private.c')
+endif
+
+if glib_have_cocoa
+  glib_sources += files('gosxutils.m')
+  framework_dep = dependency('appleframeworks', modules : ['Foundation', 'CoreFoundation', 'AppKit'])
+  platform_deps += [framework_dep]
+endif
+
+if glib_have_carbon
+  framework_dep = dependency('appleframeworks', modules : 'Carbon')
+  platform_deps += [framework_dep]
 endif
 
 glib_sources += files('gthread-@0@.c'.format(threads_implementation))
@@ -236,44 +362,38 @@ else
   glib_dtrace_hdr = []
 endif
 
-pcre_static_args = []
+pcre2_static_args = []
 
-if use_pcre_static_flag
-  pcre_static_args = ['-DPCRE_STATIC']
+if use_pcre2_static_flag
+  pcre2_static_args = ['-DPCRE2_STATIC']
 endif
 
-if use_system_pcre
-  pcre_deps = [pcre]
-  pcre_objects = []
-else
-  pcre_deps = []
-  pcre_objects = [libpcre.extract_all_objects()]
-endif
-
+glib_c_args = ['-DG_LOG_DOMAIN="GLib"', '-DGLIB_COMPILATION'] + pcre2_static_args + glib_hidden_visibility_args
 libglib = library('glib-2.0',
   glib_dtrace_obj, glib_dtrace_hdr,
   sources : [deprecated_sources, glib_sources],
-  objects : [charset_lib.extract_all_objects()] + gnulib_objects + pcre_objects,
   version : library_version,
   soversion : soversion,
+  darwin_versions : darwin_versions,
   install : true,
   # intl.lib is not compatible with SAFESEH
   link_args : [noseh_link_args, glib_link_flags, win32_ldflags],
   include_directories : configinc,
-  dependencies : pcre_deps + [thread_dep, libintl, librt] + libiconv + platform_deps,
-  c_args : ['-DG_LOG_DOMAIN="GLib"', '-DGLIB_COMPILATION'] + pcre_static_args + glib_hidden_visibility_args
+  link_with: [charset_lib, gnulib_lib],
+  dependencies : [pcre2, thread_dep, librt] + libintl_deps + libiconv + platform_deps + [gnulib_libm_dependency, libm] + [libsysprof_capture_dep],
+  c_args : glib_c_args,
+  objc_args : glib_c_args,
 )
 
 libglib_dep = declare_dependency(
   link_with : libglib,
-  # thread_dep doesn't get pulled in from libglib atm,
-  # see https://github.com/mesonbuild/meson/issues/1426
-  dependencies : [thread_dep, libintl],
+  dependencies : libintl_deps,
   # We sadly need to export configinc here because everyone includes <glib/*.h>
   include_directories : [configinc, glibinc])
 
-pkg.generate(libraries : [libglib, libintl],
-  libraries_private : [osx_ldflags, win32_ldflags],
+pkg.generate(libglib,
+  libraries : [libintl_deps],
+  libraries_private : [win32_ldflags],
   subdirs : ['glib-2.0'],
   extra_cflags : ['-I${libdir}/glib-2.0/include'] + win32_cflags,
   variables : ['bindir=' + join_paths('${prefix}', get_option('bindir')),
@@ -286,13 +406,14 @@ pkg.generate(libraries : [libglib, libintl],
   name : 'GLib',
   description : 'C Utility Library',
 )
+meson.override_dependency('glib-2.0', libglib_dep)
 
 # On Windows, glib needs a spawn helper for g_spawn* API
 if host_system == 'windows'
   if host_machine.cpu_family() == 'x86'
     executable('gspawn-win32-helper', 'gspawn-win32-helper.c',
       install : true,
-      gui_app : true,
+      win_subsystem : 'windows',
       include_directories : configinc,
       dependencies : [libglib_dep])
     executable('gspawn-win32-helper-console', 'gspawn-win32-helper.c',
@@ -303,7 +424,7 @@ if host_system == 'windows'
   else
     executable('gspawn-win64-helper', 'gspawn-win32-helper.c',
       install : true,
-      gui_app : true,
+      win_subsystem : 'windows',
       include_directories : configinc,
       dependencies : [libglib_dep])
     executable('gspawn-win64-helper-console', 'gspawn-win32-helper.c',
@@ -315,6 +436,8 @@ if host_system == 'windows'
 else
   gtester = executable('gtester', 'gtester.c',
     install : true,
+    install_tag : 'bin-devel',
+    c_args : ['-UG_DISABLE_ASSERT'],
     include_directories : configinc,
     dependencies : [libglib_dep])
 endif
@@ -326,29 +449,43 @@ configure_file(
   input: 'gtester-report.in',
   output: 'gtester-report',
   install_dir: get_option('bindir'),
+  install_tag : 'bin-devel',
   configuration: report_conf,
   install_mode: 'rwxr-xr-x'
 )
 
-install_data('glib_gdb.py', install_dir : join_paths(glib_pkgdatadir, 'gdb'))
+install_data('glib_gdb.py',
+  install_dir : glib_pkgdatadir / 'gdb',
+  install_tag : 'devel',
+)
+
+# This is needed to make gdb find glib_gdb.py
+env = environment()
+env.prepend('PYTHONPATH', meson.current_source_dir())
+meson.add_devenv(env)
 
 gdb_conf = configuration_data()
 gdb_conf.set('datadir', glib_datadir)
 # This is also used in gobject/meson.build
 if host_system != 'windows'
-  # XXX: We add a leading './' because glib_libdir is an absolute path and we
-  # need it to be a relative path so that join_paths appends it to the end.
-  gdb_install_dir = join_paths(glib_datadir, 'gdb', 'auto-load', './' + glib_libdir)
+  gdb_install = true
 else
   # FIXME: Cannot install on Windows because the path will contain a drive
   # letter and colons are not allowed in paths.
-  gdb_install_dir = false
+  gdb_install = false
 endif
+
+# XXX: We add a leading './' because glib_libdir is an absolute path and we
+# need it to be a relative path so that join_paths appends it to the end.
+gdb_install_dir = join_paths(glib_datadir, 'gdb', 'auto-load', './' + glib_libdir)
+
 configure_file(
   input: 'libglib-gdb.py.in',
   output: 'libglib-2.0.so.@0@-gdb.py'.format(library_version),
   configuration: gdb_conf,
   install_dir: gdb_install_dir,
+  install_tag: 'devel',
+  install: gdb_install,
 )
 
 if enable_systemtap
@@ -356,7 +493,10 @@ if enable_systemtap
     output : '@0@.stp'.format(libglib.full_path().split('/').get(-1)),
     configuration : stp_cdata,
     install_dir : tapset_install_dir,
-    install : true)
+    install_tag : 'systemtap',
+  )
 endif
 
-subdir('tests')
+if build_tests
+  subdir('tests')
+endif

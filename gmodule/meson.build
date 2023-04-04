@@ -4,22 +4,7 @@ g_module_need_uscore = 0
 g_module_broken_rtld_global = 0
 g_module_have_dlerror = 0
 
-libdl_dep = [ ]
-g_module_lib_args = [ ]
 g_module_impl = ''
-
-dlopen_dlsym_test_code = '''
-#include <dlfcn.h>
-int glib_underscore_test (void) { return 42; }
-int main (int argc, char ** argv) {
-  void *f1 = (void*)0, *f2 = (void*)0, *handle;
-  handle = dlopen ((void*)0, 0);
-  if (handle) {
-    f1 = dlsym (handle, "glib_underscore_test");
-    f2 = dlsym (handle, "_glib_underscore_test");
-  }
-  return (!f2 || f1);
-}'''
 
 # On Windows force native WIN32 shared lib loader
 if host_system == 'windows'
@@ -28,16 +13,8 @@ if host_system == 'windows'
 # dlopen() filepath must be of the form /path/libname.a(libname.so)
 elif host_system == 'aix'
   g_module_impl = 'G_MODULE_IMPL_AR'
-elif cc.links(dlopen_dlsym_test_code, name : 'dlopen() and dlsym() in system libraries')
+elif have_dlopen_dlsym
   g_module_impl = 'G_MODULE_IMPL_DL'
-# NSLinkModule (dyld) in system libraries (Darwin)
-elif cc.has_function('NSLinkModule')
-  g_module_impl = 'G_MODULE_IMPL_DYLD'
-  g_module_need_uscore = 1
-elif cc.links(dlopen_dlsym_test_code, args : '-ldl', name : 'dlopen() and dlsym() in libdl')
-  g_module_impl = 'G_MODULE_IMPL_DL'
-  libdl_dep = cc.find_library('dl')
-  g_module_lib_args = '-ldl'
 endif
 
 # additional checks for G_MODULE_IMPL_DL
@@ -45,15 +22,15 @@ if g_module_impl == 'G_MODULE_IMPL_DL'
   # FIXME: check for OSF1/5.0 RTLD_GLOBAL brokenness (is this still relevant?)
 
   # Check whether we need preceding underscores
-  if cc.get_id() == 'msvc'
+  if cc.get_id() == 'msvc' or cc.get_id() == 'clang-cl'
     message('Building for MSVC: assuming that symbols are prefixed with underscore')
     g_module_need_uscore = 1
-  elif meson.has_exe_wrapper()
+  elif meson.can_run_host_binaries()
     # FIXME: communicate result via stdout instead of return value, so non-0 return is not printed in bold red
     rres = cc.run(dlopen_dlsym_test_code,
-                  args : g_module_lib_args,
+                  dependencies : libdl_dep,
                   name : 'dlsym() preceding underscores')
-    if host_system == 'windows' or rres.returncode() == 0
+    if host_system == 'windows' or (rres.compiled() and rres.returncode() == 0)
       g_module_need_uscore = 1
     endif
   else
@@ -61,7 +38,7 @@ if g_module_impl == 'G_MODULE_IMPL_DL'
     g_module_need_uscore = 0
   endif
 
-  if cc.has_function('dlerror', args : g_module_lib_args)
+  if cc.has_function('dlerror', dependencies : libdl_dep)
     g_module_have_dlerror = 1
   endif
 endif
@@ -82,9 +59,14 @@ gmoduleconf_h = configure_file(input : 'gmoduleconf.h.in',
                                output : 'gmoduleconf.h',
                                configuration : gmoduleconf_conf)
 
-install_headers(['gmodule.h'], subdir : 'glib-2.0')
+# Expose as variable to be used by gobject-introspection
+# when it includes GLib as a subproject
+gmodule_h = files('gmodule.h')
+gmodule_c = files('gmodule.c')
 
-gmodule_sources = ['gmodule.c']
+install_headers([gmodule_h], subdir : 'glib-2.0')
+
+gmodule_sources = [gmodule_c]
 if host_system == 'windows'
   gmodule_win_rc = configure_file(
     input: 'gmodule.rc.in',
@@ -99,16 +81,18 @@ libgmodule = library('gmodule-2.0',
   sources : gmodule_sources,
   version : library_version,
   soversion : soversion,
+  darwin_versions : darwin_versions,
   install : true,
   include_directories : [configinc, gmoduleinc],
   dependencies : [libdl_dep, libglib_dep],
-  c_args : ['-DG_LOG_DOMAIN="GModule"', '-DG_DISABLE_DEPRECATED'] + glib_hidden_visibility_args,
+  c_args : ['-DG_LOG_DOMAIN="GModule"'] + glib_hidden_visibility_args,
   link_args : [glib_link_flags],
 )
 
 supported_var = 'gmodule_supported=@0@'.format(g_module_impl != '0')
 
-pkg.generate(libraries : [libgmodule, thread_dep],
+pkg.generate(libgmodule,
+  libraries : [thread_dep],
   requires : ['glib-2.0'],
   version : glib_version,
   variables : [supported_var],
@@ -139,4 +123,13 @@ pkg.generate(libraries : [libgmodule, export_dynamic_ldflags],
 )
 
 libgmodule_dep = declare_dependency(link_with : libgmodule,
-  include_directories : gmoduleinc)
+  include_directories : [gmoduleinc],
+  dependencies : [libglib_dep])
+
+meson.override_dependency('gmodule-no-export-2.0', libgmodule_dep)
+meson.override_dependency('gmodule-export-2.0', libgmodule_dep)
+meson.override_dependency('gmodule-2.0', libgmodule_dep)
+
+if build_tests
+  subdir('tests')
+endif

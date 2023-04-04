@@ -58,13 +58,18 @@ create_cfstring_from_cstr (const gchar *cstr)
 static gchar *
 create_cstr_from_cfstring (CFStringRef str)
 {
+  CFIndex length;
+  CFIndex maxlen;
+  gchar *buffer;
+  Boolean success;
+
   g_return_val_if_fail (str != NULL, NULL);
 
-  CFIndex length = CFStringGetLength (str);
-  CFIndex maxlen = CFStringGetMaximumSizeForEncoding (length, kCFStringEncodingUTF8);
-  gchar *buffer = g_malloc (maxlen + 1);
-  Boolean success = CFStringGetCString (str, (char *) buffer, maxlen,
-                                        kCFStringEncodingUTF8);
+  length = CFStringGetLength (str);
+  maxlen = CFStringGetMaximumSizeForEncoding (length, kCFStringEncodingUTF8);
+  buffer = g_malloc (maxlen + 1);
+  success = CFStringGetCString (str, (char *) buffer, maxlen, 
+                                kCFStringEncodingUTF8);
   CFRelease (str);
   if (success)
     return buffer;
@@ -98,6 +103,21 @@ create_cstr_from_cfstring_with_fallback (CFStringRef  str,
     return g_strdup (fallback);
 
   return cstr;
+}
+
+/*< private >*/
+void
+g_content_type_set_mime_dirs (const gchar * const *dirs)
+{
+  /* noop on macOS */
+}
+
+/*< private >*/
+const gchar * const *
+g_content_type_get_mime_dirs (void)
+{
+  const gchar * const *mime_dirs = { NULL };
+  return mime_dirs;
 }
 
 gboolean

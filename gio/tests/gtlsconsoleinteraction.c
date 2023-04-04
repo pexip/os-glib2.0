@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2011 Collabora, Ltd.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -32,7 +34,7 @@
 
 /*
  * WARNING: This is not the example you're looking for [slow hand wave]. This
- * is not industrial strength, it's just for testing. It uses embarassing
+ * is not industrial strength, it's just for testing. It uses embarrassing
  * functions like getpass() and does lazy things with threads.
  */
 

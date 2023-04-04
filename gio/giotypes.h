@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -194,7 +196,7 @@ typedef struct _GSocketListener                             GSocketListener;
 /**
  * GSocketService:
  *
- * A helper class for handling accepting incomming connections in the
+ * A helper class for handling accepting incoming connections in the
  * glib mainloop.
  *
  * Since: 2.22
@@ -271,6 +273,10 @@ typedef struct _GVolumeMonitor                GVolumeMonitor;
  * where the #GTask was created. All other users of
  * #GAsyncReadyCallback must likewise call it asynchronously in a
  * later iteration of the main context.
+ *
+ * The asynchronous operation is guaranteed to have held a reference to
+ * @source_object from the time when the `*_async()` function was called, until
+ * after this callback returns.
  **/
 typedef void (*GAsyncReadyCallback) (GObject *source_object,
 				     GAsyncResult *res,
@@ -294,7 +300,7 @@ typedef void (*GFileProgressCallback) (goffset current_num_bytes,
  * GFileReadMoreCallback:
  * @file_contents: the data as currently read.
  * @file_size: the size of the data currently read.
- * @callback_data: (closure): data passed to the callback.
+ * @user_data: data passed to the callback.
  *
  * When loading the partial contents of a file with g_file_load_partial_contents_async(),
  * it may become necessary to determine if any more data from the file should be loaded.
@@ -305,7 +311,7 @@ typedef void (*GFileProgressCallback) (goffset current_num_bytes,
  **/
 typedef gboolean (* GFileReadMoreCallback) (const char *file_contents,
                                             goffset file_size,
-                                            gpointer callback_data);
+                                            gpointer user_data);
 
 /**
  * GFileMeasureProgressCallback:
@@ -335,7 +341,7 @@ typedef gboolean (* GFileReadMoreCallback) (const char *file_contents,
  * final async result would be reported).
  *
  * @current_size is in the same units as requested by the operation (see
- * %G_FILE_DISK_USAGE_APPARENT_SIZE).
+ * %G_FILE_MEASURE_APPARENT_SIZE).
  *
  * The frequency of the updates is implementation defined, but is
  * ideally about once every 200ms.

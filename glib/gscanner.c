@@ -4,6 +4,8 @@
  * GScanner: Flexible lexical scanner for general purpose.
  * Copyright (C) 1997, 1998 Tim Janik
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -216,11 +218,11 @@
  *     by the scanner (the default is the whitespace characters: space,
  *     tab, carriage-return and line-feed).
  * @cset_identifier_first: specifies the characters which can start
- *     identifiers (the default is #G_CSET_a_2_z, "_", and #G_CSET_A_2_Z).
+ *     identifiers (the default is %G_CSET_a_2_z, "_", and %G_CSET_A_2_Z).
  * @cset_identifier_nth: specifies the characters which can be used
  *     in identifiers, after the first character (the default is
- *     #G_CSET_a_2_z, "_0123456789", #G_CSET_A_2_Z, #G_CSET_LATINS,
- *     #G_CSET_LATINC).
+ *     %G_CSET_a_2_z, "_0123456789", %G_CSET_A_2_Z, %G_CSET_LATINS,
+ *     %G_CSET_LATINC).
  * @cpair_comment_single: specifies the characters at the start and
  *     end of single-line comments. The default is "#\n" which means
  *     that single-line comments start with a '#' and continue until
@@ -256,7 +258,7 @@
  * @scan_string_dq: specifies if strings can be enclosed in double
  *     quotes (the default is %TRUE).
  * @numbers_2_int: specifies if binary, octal and hexadecimal numbers
- *     are reported as #G_TOKEN_INT (the default is %TRUE).
+ *     are reported as %G_TOKEN_INT (the default is %TRUE).
  * @int_2_float: specifies if all numbers are reported as %G_TOKEN_FLOAT
  *     (the default is %FALSE).
  * @identifier_2_string: specifies if identifiers are reported as strings
@@ -341,6 +343,7 @@ static const GScannerConfig g_scanner_config_template =
   FALSE			/* symbol_2_token */,
   FALSE			/* scope_0_fallback */,
   FALSE			/* store_int64 */,
+  0    			/* padding_dummy */
 };
 
 
@@ -1377,7 +1380,7 @@ g_scanner_unexp_token (GScanner		*scanner,
 	  _g_snprintf (token_string, token_string_len, "(unknown) token <%d>", scanner->token);
 	  break;
 	}
-      /* fall through */
+      G_GNUC_FALLTHROUGH;
     case G_TOKEN_SYMBOL:
       if (expected_token == G_TOKEN_SYMBOL ||
 	  (scanner->config->symbol_2_token &&
@@ -1522,7 +1525,7 @@ g_scanner_unexp_token (GScanner		*scanner,
 	  _g_snprintf (expected_string, expected_string_len, "(unknown) token <%d>", expected_token);
 	  break;
 	}
-      /* fall through */
+      G_GNUC_FALLTHROUGH;
     case G_TOKEN_SYMBOL:
       need_valid = (scanner->token == G_TOKEN_SYMBOL ||
 		    (scanner->config->symbol_2_token &&
@@ -1532,7 +1535,7 @@ g_scanner_unexp_token (GScanner		*scanner,
 		   "%s%s",
 		   need_valid ? "valid " : "",
 		   symbol_spec);
-      /* FIXME: should we attempt to lookup the symbol_name for symbol_2_token? */
+      /* FIXME: should we attempt to look up the symbol_name for symbol_2_token? */
       break;
     case G_TOKEN_CHAR:
       _g_snprintf (expected_string, expected_string_len, "%scharacter",
@@ -1677,7 +1680,7 @@ g_scanner_get_token_i (GScanner	*scanner,
       
     case G_TOKEN_SYMBOL:
       if (scanner->config->symbol_2_token)
-	*token_p = (GTokenType) value_p->v_symbol;
+        *token_p = (GTokenType) ((size_t) value_p->v_symbol);
       break;
       
     case G_TOKEN_BINARY:
@@ -1695,12 +1698,19 @@ g_scanner_get_token_i (GScanner	*scanner,
       scanner->config->int_2_float)
     {
       *token_p = G_TOKEN_FLOAT;
+
+      /* Have to assign through a temporary variable to avoid undefined behaviour
+       * by copying between potentially-overlapping union members. */
       if (scanner->config->store_int64)
         {
-          value_p->v_float = value_p->v_int64;
+          gint64 temp = value_p->v_int64;
+          value_p->v_float = temp;
         }
       else
-	value_p->v_float = value_p->v_int;
+        {
+          gint temp = value_p->v_int;
+          value_p->v_float = temp;
+        }
     }
   
   errno = 0;
@@ -1954,7 +1964,7 @@ g_scanner_get_token_ll	(GScanner	*scanner,
 	    }
 	  else
 	    ch = '0';
-	  /* fall through */
+          G_GNUC_FALLTHROUGH;
 	case '1':
 	case '2':
 	case '3':

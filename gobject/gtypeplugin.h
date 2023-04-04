@@ -1,6 +1,8 @@
 /* GObject - GLib Type, Object, Parameter and Signal Library
  * Copyright (C) 2000 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -67,7 +69,7 @@ typedef void  (*GTypePluginCompleteTypeInfo)	  (GTypePlugin     *plugin,
 /**
  * GTypePluginCompleteInterfaceInfo:
  * @plugin: the #GTypePlugin
- * @instance_type: the #GType of an instantiable type to which the interface
+ * @instance_type: the #GType of an instantiatable type to which the interface
  *  is added
  * @interface_type: the #GType of the interface whose info is completed
  * @info: the #GInterfaceInfo to fill in

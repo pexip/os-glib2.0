@@ -3,6 +3,8 @@
  * Copyright © 2008, 2009 Codethink Limited
  * Copyright © 2009 Red Hat, Inc
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -110,9 +112,9 @@ gboolean                g_socket_client_get_tls                         (GSocket
 GLIB_AVAILABLE_IN_2_28
 void                    g_socket_client_set_tls                         (GSocketClient        *client,
 									 gboolean              tls);
-GLIB_AVAILABLE_IN_2_28
+GLIB_DEPRECATED_IN_2_72
 GTlsCertificateFlags    g_socket_client_get_tls_validation_flags        (GSocketClient        *client);
-GLIB_AVAILABLE_IN_2_28
+GLIB_DEPRECATED_IN_2_72
 void                    g_socket_client_set_tls_validation_flags        (GSocketClient        *client,
 									 GTlsCertificateFlags  flags);
 GLIB_AVAILABLE_IN_2_36

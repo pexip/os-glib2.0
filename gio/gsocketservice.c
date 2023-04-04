@@ -3,6 +3,8 @@
  * Copyright © 2009 Codethink Limited
  * Copyright © 2009 Red Hat, Inc
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -64,6 +66,7 @@
 #include "gsocketlistener.h"
 #include "gsocketconnection.h"
 #include "glibintl.h"
+#include "gmarshal-internal.h"
 
 struct _GSocketServicePrivate
 {
@@ -346,8 +349,12 @@ g_socket_service_class_init (GSocketServiceClass *class)
     g_signal_new (I_("incoming"), G_TYPE_FROM_CLASS (class), G_SIGNAL_RUN_LAST,
                   G_STRUCT_OFFSET (GSocketServiceClass, incoming),
                   g_signal_accumulator_true_handled, NULL,
-                  NULL, G_TYPE_BOOLEAN,
+                  _g_cclosure_marshal_BOOLEAN__OBJECT_OBJECT,
+                  G_TYPE_BOOLEAN,
                   2, G_TYPE_SOCKET_CONNECTION, G_TYPE_OBJECT);
+  g_signal_set_va_marshaller (g_socket_service_incoming_signal,
+                              G_TYPE_FROM_CLASS (class),
+                              _g_cclosure_marshal_BOOLEAN__OBJECT_OBJECTv);
 
   /**
    * GSocketService:active:

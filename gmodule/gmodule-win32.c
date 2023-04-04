@@ -4,6 +4,8 @@
  * Win32 GMODULE implementation
  * Copyright (C) 1998 Tor Lillqvist
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -30,6 +32,7 @@
  */
 #include "config.h"
 
+#include <glib.h>
 #include <stdio.h>
 #include <windows.h>
 
@@ -39,34 +42,38 @@
 #include <sys/cygwin.h>
 #endif
 
-static void
-set_error (const gchar *format,
-	   ...)
+static void G_GNUC_PRINTF (2, 3)
+set_error (GError      **error,
+           const gchar  *format,
+           ...)
 {
-  gchar *error;
+  gchar *win32_error;
   gchar *detail;
   gchar *message;
   va_list args;
 
-  error = g_win32_error_message (GetLastError ());
+  win32_error = g_win32_error_message (GetLastError ());
 
   va_start (args, format);
   detail = g_strdup_vprintf (format, args);
   va_end (args);
 
-  message = g_strconcat (detail, error, NULL);
+  message = g_strconcat (detail, win32_error, NULL);
 
   g_module_set_error (message);
+  g_set_error_literal (error, G_MODULE_ERROR, G_MODULE_ERROR_FAILED, message);
+
   g_free (message);
   g_free (detail);
-  g_free (error);
+  g_free (win32_error);
 }
 
 /* --- functions --- */
 static gpointer
 _g_module_open (const gchar *file_name,
 		gboolean     bind_lazy,
-		gboolean     bind_local)
+		gboolean     bind_local,
+                GError     **error)
 {
   HINSTANCE handle;
   wchar_t *wfilename;
@@ -83,14 +90,22 @@ _g_module_open (const gchar *file_name,
   /* suppress error dialog */
   success = SetThreadErrorMode (SEM_NOOPENFILEERRORBOX | SEM_FAILCRITICALERRORS, &old_mode);
   if (!success)
-    set_error ("");
+    set_error (error, "");
+
+  /* When building for UWP, load app asset DLLs instead of filesystem DLLs.
+   * Needs MSVC, Windows 8 and newer, and is only usable from apps. */
+#if _WIN32_WINNT >= 0x0602 && defined(G_WINAPI_ONLY_APP)
+  handle = LoadPackagedLibrary (wfilename, 0);
+#else
   handle = LoadLibraryW (wfilename);
+#endif
+
   if (success)
     SetThreadErrorMode (old_mode, NULL);
   g_free (wfilename);
       
   if (!handle)
-    set_error ("'%s': ", file_name);
+    set_error (error, "'%s': ", file_name);
 
   return handle;
 }
@@ -105,12 +120,11 @@ _g_module_self (void)
 }
 
 static void
-_g_module_close (gpointer handle,
-		 gboolean is_unref)
+_g_module_close (gpointer handle)
 {
   if (handle != null_module_handle)
     if (!FreeLibrary (handle))
-      set_error ("");
+      set_error (NULL, "");
 }
 
 static gpointer
@@ -119,9 +133,25 @@ find_in_any_module_using_toolhelp (const gchar *symbol_name)
   HANDLE snapshot; 
   MODULEENTRY32 me32;
 
-  gpointer p;
+  gpointer p = NULL;
 
-  if ((snapshot = CreateToolhelp32Snapshot (TH32CS_SNAPMODULE, 0)) == (HANDLE) -1)
+  /* Under UWP, Module32Next and Module32First are not available since we're
+   * not allowed to search in the address space of arbitrary loaded DLLs */
+#if !defined(G_WINAPI_ONLY_APP)
+  /* https://docs.microsoft.com/en-us/windows/win32/api/tlhelp32/nf-tlhelp32-createtoolhelp32snapshot#remarks
+   * If the function fails with ERROR_BAD_LENGTH, retry the function until it succeeds. */
+  while (TRUE)
+    {
+      snapshot = CreateToolhelp32Snapshot (TH32CS_SNAPMODULE, 0);
+      if (snapshot == INVALID_HANDLE_VALUE && GetLastError () == ERROR_BAD_LENGTH)
+        {
+          g_thread_yield ();
+          continue;
+        }
+      break;
+    }
+
+  if (snapshot == INVALID_HANDLE_VALUE)
     return NULL;
 
   me32.dwSize = sizeof (me32);
@@ -135,6 +165,7 @@ find_in_any_module_using_toolhelp (const gchar *symbol_name)
     }
 
   CloseHandle (snapshot);
+#endif
 
   return p;
 }
@@ -165,7 +196,7 @@ _g_module_symbol (gpointer     handle,
     p = GetProcAddress (handle, symbol_name);
 
   if (!p)
-    set_error ("");
+    set_error (NULL, "");
 
   return p;
 }

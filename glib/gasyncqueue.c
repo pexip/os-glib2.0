@@ -4,6 +4,8 @@
  * GAsyncQueue: asynchronous queue implementation, based on GQueue.
  * Copyright (C) 2000 Sebastian Wilhelmi; University of Karlsruhe
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -88,9 +90,9 @@
 /**
  * GAsyncQueue:
  *
- * The GAsyncQueue struct is an opaque data structure which represents
- * an asynchronous queue. It should only be accessed through the
- * g_async_queue_* functions.
+ * An opaque data structure which represents an asynchronous queue.
+ *
+ * It should only be accessed through the `g_async_queue_*` functions.
  */
 struct _GAsyncQueue
 {
@@ -123,7 +125,7 @@ g_async_queue_new (void)
 
 /**
  * g_async_queue_new_full:
- * @item_free_func: function to free queue elements
+ * @item_free_func: (nullable): function to free queue elements
  *
  * Creates a new asynchronous queue and sets up a destroy notify
  * function that is used to free any remaining queue items when
@@ -279,9 +281,11 @@ g_async_queue_unlock (GAsyncQueue *queue)
 /**
  * g_async_queue_push:
  * @queue: a #GAsyncQueue
- * @data: @data to push into the @queue
+ * @data: (not nullable): data to push onto the @queue
  *
- * Pushes the @data into the @queue. @data must not be %NULL.
+ * Pushes the @data into the @queue.
+ *
+ * The @data parameter must not be %NULL.
  */
 void
 g_async_queue_push (GAsyncQueue *queue,
@@ -298,9 +302,11 @@ g_async_queue_push (GAsyncQueue *queue,
 /**
  * g_async_queue_push_unlocked:
  * @queue: a #GAsyncQueue
- * @data: @data to push into the @queue
+ * @data: (not nullable): data to push onto the @queue
  *
- * Pushes the @data into the @queue. @data must not be %NULL.
+ * Pushes the @data into the @queue.
+ *
+ * The @data parameter must not be %NULL.
  *
  * This function must be called while holding the @queue's lock.
  */
@@ -319,7 +325,7 @@ g_async_queue_push_unlocked (GAsyncQueue *queue,
 /**
  * g_async_queue_push_sorted:
  * @queue: a #GAsyncQueue
- * @data: the @data to push into the @queue
+ * @data: (not nullable): the @data to push into the @queue
  * @func: the #GCompareDataFunc is used to sort @queue
  * @user_data: user data passed to @func.
  *
@@ -360,7 +366,7 @@ g_async_queue_invert_compare (gpointer  v1,
 /**
  * g_async_queue_push_sorted_unlocked:
  * @queue: a #GAsyncQueue
- * @data: the @data to push into the @queue
+ * @data: the data to push into the @queue
  * @func: the #GCompareDataFunc is used to sort @queue
  * @user_data: user data passed to @func.
  *
@@ -482,8 +488,8 @@ g_async_queue_pop_unlocked (GAsyncQueue *queue)
  * Tries to pop data from the @queue. If no data is available,
  * %NULL is returned.
  *
- * Returns: data from the queue or %NULL, when no data is
- *     available immediately.
+ * Returns: (nullable): data from the queue or %NULL, when no data is
+ *   available immediately.
  */
 gpointer
 g_async_queue_try_pop (GAsyncQueue *queue)
@@ -508,8 +514,8 @@ g_async_queue_try_pop (GAsyncQueue *queue)
  *
  * This function must be called while holding the @queue's lock.
  *
- * Returns: data from the queue or %NULL, when no data is
- *     available immediately.
+ * Returns: (nullable): data from the queue or %NULL, when no data is
+ *   available immediately.
  */
 gpointer
 g_async_queue_try_pop_unlocked (GAsyncQueue *queue)
@@ -529,8 +535,8 @@ g_async_queue_try_pop_unlocked (GAsyncQueue *queue)
  *
  * If no data is received before the timeout, %NULL is returned.
  *
- * Returns: data from the queue or %NULL, when no data is
- *     received before the timeout.
+ * Returns: (nullable): data from the queue or %NULL, when no data is
+ *   received before the timeout.
  */
 gpointer
 g_async_queue_timeout_pop (GAsyncQueue *queue,
@@ -560,8 +566,8 @@ g_async_queue_timeout_pop (GAsyncQueue *queue,
  *
  * This function must be called while holding the @queue's lock.
  *
- * Returns: data from the queue or %NULL, when no data is
- *     received before the timeout.
+ * Returns: (nullable): data from the queue or %NULL, when no data is
+ *   received before the timeout.
  */
 gpointer
 g_async_queue_timeout_pop_unlocked (GAsyncQueue *queue,
@@ -584,14 +590,15 @@ g_async_queue_timeout_pop_unlocked (GAsyncQueue *queue,
  *
  * If no data is received before @end_time, %NULL is returned.
  *
- * To easily calculate @end_time, a combination of g_get_current_time()
+ * To easily calculate @end_time, a combination of g_get_real_time()
  * and g_time_val_add() can be used.
  *
- * Returns: data from the queue or %NULL, when no data is
- *     received before @end_time.
+ * Returns: (nullable): data from the queue or %NULL, when no data is
+ *   received before @end_time.
  *
  * Deprecated: use g_async_queue_timeout_pop().
  */
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 gpointer
 g_async_queue_timed_pop (GAsyncQueue *queue,
                          GTimeVal    *end_time)
@@ -615,6 +622,7 @@ g_async_queue_timed_pop (GAsyncQueue *queue,
 
   return retval;
 }
+G_GNUC_END_IGNORE_DEPRECATIONS
 
 /**
  * g_async_queue_timed_pop_unlocked:
@@ -626,16 +634,17 @@ g_async_queue_timed_pop (GAsyncQueue *queue,
  *
  * If no data is received before @end_time, %NULL is returned.
  *
- * To easily calculate @end_time, a combination of g_get_current_time()
+ * To easily calculate @end_time, a combination of g_get_real_time()
  * and g_time_val_add() can be used.
  *
  * This function must be called while holding the @queue's lock.
  *
- * Returns: data from the queue or %NULL, when no data is
- *     received before @end_time.
+ * Returns: (nullable): data from the queue or %NULL, when no data is
+ *   received before @end_time.
  *
  * Deprecated: use g_async_queue_timeout_pop_unlocked().
  */
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 gpointer
 g_async_queue_timed_pop_unlocked (GAsyncQueue *queue,
                                   GTimeVal    *end_time)
@@ -654,6 +663,7 @@ g_async_queue_timed_pop_unlocked (GAsyncQueue *queue,
 
   return g_async_queue_pop_intern_unlocked (queue, TRUE, m_end_time);
 }
+G_GNUC_END_IGNORE_DEPRECATIONS
 
 /**
  * g_async_queue_length:
@@ -792,7 +802,7 @@ g_async_queue_sort_unlocked (GAsyncQueue      *queue,
 /**
  * g_async_queue_remove:
  * @queue: a #GAsyncQueue
- * @item: the data to remove from the @queue
+ * @item: (not nullable): the data to remove from the @queue
  *
  * Remove an item from the queue.
  *
@@ -842,7 +852,7 @@ g_async_queue_remove_unlocked (GAsyncQueue *queue,
 /**
  * g_async_queue_push_front:
  * @queue: a #GAsyncQueue
- * @item: data to push into the @queue
+ * @item: (not nullable): data to push into the @queue
  *
  * Pushes the @item into the @queue. @item must not be %NULL.
  * In contrast to g_async_queue_push(), this function
@@ -866,7 +876,7 @@ g_async_queue_push_front (GAsyncQueue *queue,
 /**
  * g_async_queue_push_front_unlocked:
  * @queue: a #GAsyncQueue
- * @item: data to push into the @queue
+ * @item: (not nullable): data to push into the @queue
  *
  * Pushes the @item into the @queue. @item must not be %NULL.
  * In contrast to g_async_queue_push_unlocked(), this function

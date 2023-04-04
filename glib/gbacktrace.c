@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -43,6 +45,7 @@
 #include <time.h>
 
 #ifdef G_OS_UNIX
+#include <errno.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #ifdef HAVE_SYS_SELECT_H
@@ -66,10 +69,22 @@
 #include "gtypes.h"
 #include "gmain.h"
 #include "gprintfint.h"
+#include "gunicode.h"
 #include "gutils.h"
 
 #ifndef G_OS_WIN32
 static void stack_trace (const char * const *args);
+#endif
+
+/* Default to using LLDB for backtraces on macOS. */
+#ifdef __APPLE__
+#define USE_LLDB
+#endif
+
+#ifdef USE_LLDB
+#define DEBUGGER "lldb"
+#else
+#define DEBUGGER "gdb"
 #endif
 
 /* People want to hit this from their debugger... */
@@ -125,6 +140,10 @@ volatile gboolean glib_on_error_halt = TRUE;
  * If "[P]roceed" is selected, the function returns.
  *
  * This function may cause different actions on non-UNIX platforms.
+ *
+ * On Windows consider using the `G_DEBUGGER` environment
+ * variable (see [Running GLib Applications](glib-running.html)) and
+ * calling g_on_error_stack_trace() instead.
  */
 void
 g_on_error_query (const gchar *prg_name)
@@ -157,9 +176,14 @@ g_on_error_query (const gchar *prg_name)
   fflush (stdout);
 
   if (isatty(0) && isatty(1))
-    fgets (buf, 8, stdin);
+    {
+      if (fgets (buf, 8, stdin) == NULL)
+        _exit (0);
+    }
   else
-    strcpy (buf, "E\n");
+    {
+      strcpy (buf, "E\n");
+    }
 
   if ((buf[0] == 'E' || buf[0] == 'e')
       && buf[1] == '\n')
@@ -188,9 +212,27 @@ g_on_error_query (const gchar *prg_name)
   if (!prg_name)
     prg_name = g_get_prgname ();
 
-  MessageBox (NULL, "g_on_error_query called, program terminating",
-              (prg_name && *prg_name) ? prg_name : NULL,
-              MB_OK|MB_ICONERROR);
+  /* MessageBox is allowed on UWP apps only when building against
+   * the debug CRT, which will set -D_DEBUG */
+#if defined(_DEBUG) || !defined(G_WINAPI_ONLY_APP)
+  {
+    WCHAR *caption = NULL;
+
+    if (prg_name && *prg_name)
+      {
+        caption = g_utf8_to_utf16 (prg_name, -1, NULL, NULL, NULL);
+      }
+
+    MessageBoxW (NULL, L"g_on_error_query called, program terminating",
+                 caption,
+                 MB_OK|MB_ICONERROR);
+
+    g_free (caption);
+  }
+#else
+  printf ("g_on_error_query called, program '%s' terminating\n",
+      (prg_name && *prg_name) ? prg_name : "(null)");
+#endif
   _exit(0);
 #endif
 }
@@ -207,6 +249,12 @@ g_on_error_query (const gchar *prg_name)
  * gdk_init().
  *
  * This function may cause different actions on non-UNIX platforms.
+ *
+ * When running on Windows, this function is *not* called by
+ * g_on_error_query(). If called directly, it will raise an
+ * exception, which will crash the program. If the `G_DEBUGGER` environment
+ * variable is set, a debugger will be invoked to attach and
+ * handle that exception (see [Running GLib Applications](glib-running.html)).
  */
 void
 g_on_error_stack_trace (const gchar *prg_name)
@@ -214,7 +262,7 @@ g_on_error_stack_trace (const gchar *prg_name)
 #if defined(G_OS_UNIX)
   pid_t pid;
   gchar buf[16];
-  const gchar *args[4] = { "gdb", NULL, NULL, NULL };
+  const gchar *args[5] = { DEBUGGER, NULL, NULL, NULL, NULL };
   int status;
 
   if (!prg_name)
@@ -222,8 +270,14 @@ g_on_error_stack_trace (const gchar *prg_name)
 
   _g_sprintf (buf, "%u", (guint) getpid ());
 
+#ifdef USE_LLDB
+  args[1] = prg_name;
+  args[2] = "-p";
+  args[3] = buf;
+#else
   args[1] = prg_name;
   args[2] = buf;
+#endif
 
   pid = fork ();
   if (pid == 0)
@@ -233,11 +287,19 @@ g_on_error_stack_trace (const gchar *prg_name)
     }
   else if (pid == (pid_t) -1)
     {
-      perror ("unable to fork gdb");
+      perror ("unable to fork " DEBUGGER);
       return;
     }
 
-  waitpid (pid, &status, 0);
+  /* Wait until the child really terminates. On Mac OS X waitpid ()
+   * will also return when the child is being stopped due to tracing.
+   */
+  while (1)
+    {
+      pid_t retval = waitpid (pid, &status, 0);
+      if (WIFEXITED (retval) || WIFSIGNALED (retval))
+        break;
+    }
 #else
   if (IsDebuggerPresent ())
     G_BREAKPOINT ();
@@ -256,6 +318,66 @@ stack_trace_sigchld (int signum)
   stack_trace_done = TRUE;
 }
 
+#define BUFSIZE 1024
+
+static inline const char *
+get_strerror (char *buffer, gsize n)
+{
+#if defined(STRERROR_R_CHAR_P)
+  return strerror_r (errno, buffer, n);
+#elif defined(HAVE_STRERROR_R)
+  int ret = strerror_r (errno, buffer, n);
+  if (ret == 0 || ret == EINVAL)
+    return buffer;
+  return NULL;
+#else
+  const char *error_str = strerror (errno);
+  if (!error_str)
+    return NULL;
+
+  strncpy (buffer, error_str, n);
+  return buffer;
+#endif
+}
+
+static gssize
+checked_write (int fd, gconstpointer buf, gsize n)
+{
+  gssize written = write (fd, buf, n);
+
+  if (written == -1)
+    {
+      char msg[BUFSIZE] = {0};
+      char error_str[BUFSIZE / 2] = {0};
+
+      get_strerror (error_str, sizeof (error_str) - 1);
+      snprintf (msg, sizeof (msg) - 1, "Unable to write to fd %d: %s", fd, error_str);
+      perror (msg);
+      _exit (0);
+    }
+
+  return written;
+}
+
+static int
+checked_dup (int fd)
+{
+  int new_fd = dup (fd);
+
+  if (new_fd == -1)
+    {
+      char msg[BUFSIZE] = {0};
+      char error_str[BUFSIZE / 2] = {0};
+
+      get_strerror (error_str, sizeof (error_str) - 1);
+      snprintf (msg, sizeof (msg) - 1, "Unable to duplicate fd %d: %s", fd, error_str);
+      perror (msg);
+      _exit (0);
+    }
+
+  return new_fd;
+}
+
 static void
 stack_trace (const char * const *args)
 {
@@ -266,7 +388,10 @@ stack_trace (const char * const *args)
   fd_set readset;
   struct timeval tv;
   int sel, idx, state;
-  char buffer[256];
+#ifdef USE_LLDB
+  int line_idx;
+#endif
+  char buffer[BUFSIZE];
   char c;
 
   stack_trace_done = FALSE;
@@ -283,17 +408,30 @@ stack_trace (const char * const *args)
     {
       /* Save stderr for printing failure below */
       int old_err = dup (2);
-      fcntl (old_err, F_SETFD, fcntl (old_err, F_GETFD) | FD_CLOEXEC);
+      if (old_err != -1)
+	{
+	  int getfd = fcntl (old_err, F_GETFD);
+	  if (getfd != -1)
+	    (void) fcntl (old_err, F_SETFD, getfd | FD_CLOEXEC);
+	}
 
-      close (0); dup (in_fd[0]);   /* set the stdin to the in pipe */
-      close (1); dup (out_fd[1]);  /* set the stdout to the out pipe */
-      close (2); dup (out_fd[1]);  /* set the stderr to the out pipe */
+      close (0);
+      checked_dup (in_fd[0]);   /* set the stdin to the in pipe */
+      close (1);
+      checked_dup (out_fd[1]);  /* set the stdout to the out pipe */
+      close (2);
+      checked_dup (out_fd[1]);  /* set the stderr to the out pipe */
 
       execvp (args[0], (char **) args);      /* exec gdb */
 
       /* Print failure to original stderr */
-      close (2); dup (old_err);
-      perror ("exec gdb failed");
+      if (old_err != -1)
+        {
+          close (2);
+          /* We can ignore the return value here as we're failing anyways */
+          (void) !dup (old_err);
+        }
+      perror ("exec " DEBUGGER " failed");
       _exit (0);
     }
   else if (pid == (pid_t) -1)
@@ -305,11 +443,23 @@ stack_trace (const char * const *args)
   FD_ZERO (&fdset);
   FD_SET (out_fd[0], &fdset);
 
-  write (in_fd[1], "backtrace\n", 10);
-  write (in_fd[1], "p x = 0\n", 8);
-  write (in_fd[1], "quit\n", 5);
+#ifdef USE_LLDB
+  checked_write (in_fd[1], "bt\n", 3);
+  checked_write (in_fd[1], "p x = 0\n", 8);
+  checked_write (in_fd[1], "process detach\n", 15);
+  checked_write (in_fd[1], "quit\n", 5);
+#else
+  /* Don't wrap so that lines are not truncated */
+  checked_write (in_fd[1], "set width unlimited\n", 20);
+  checked_write (in_fd[1], "backtrace\n", 10);
+  checked_write (in_fd[1], "p x = 0\n", 8);
+  checked_write (in_fd[1], "quit\n", 5);
+#endif
 
   idx = 0;
+#ifdef USE_LLDB
+  line_idx = 0;
+#endif
   state = 0;
 
   while (1)
@@ -326,10 +476,18 @@ stack_trace (const char * const *args)
         {
           if (read (out_fd[0], &c, 1))
             {
+#ifdef USE_LLDB
+              line_idx += 1;
+#endif
+
               switch (state)
                 {
                 case 0:
+#ifdef USE_LLDB
+                  if (c == '*' || (c == ' ' && line_idx == 1))
+#else
                   if (c == '#')
+#endif
                     {
                       state = 1;
                       idx = 0;
@@ -337,13 +495,17 @@ stack_trace (const char * const *args)
                     }
                   break;
                 case 1:
-                  buffer[idx++] = c;
+                  if (idx < BUFSIZE)
+                    buffer[idx++] = c;
                   if ((c == '\n') || (c == '\r'))
                     {
                       buffer[idx] = 0;
                       _g_fprintf (stdout, "%s", buffer);
                       state = 0;
                       idx = 0;
+#ifdef USE_LLDB
+                      line_idx = 0;
+#endif
                     }
                   break;
                 default:

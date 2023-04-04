@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -38,7 +40,7 @@
  *
  * Keys are strings that contain a key namespace and a key name, separated
  * by a colon, e.g. "namespace::keyname". Namespaces are included to sort
- * key-value pairs by namespaces for relevance. Keys can be retrived
+ * key-value pairs by namespaces for relevance. Keys can be retrieved
  * using wildcards, e.g. "standard::*" will return all of the keys in the
  * "standard" namespace.
  *
@@ -274,8 +276,8 @@ valid_char (char c)
 static char *
 escape_byte_string (const char *str)
 {
-  size_t len;
-  int num_invalid, i;
+  size_t i, len;
+  int num_invalid;
   char *escaped_val, *p;
   unsigned char c;
   const char hex_digits[] = "0123456789abcdef";
@@ -857,11 +859,12 @@ GFileAttributeInfoList *
 g_file_attribute_info_list_ref (GFileAttributeInfoList *list)
 {
   GFileAttributeInfoListPriv *priv = (GFileAttributeInfoListPriv *)list;
+  int old_ref_count;
 
   g_return_val_if_fail (list != NULL, NULL);
-  g_return_val_if_fail (priv->ref_count > 0, NULL);
 
-  g_atomic_int_inc (&priv->ref_count);
+  old_ref_count = g_atomic_int_add (&priv->ref_count, 1);
+  g_return_val_if_fail (old_ref_count > 0, NULL);
 
   return list;
 }
@@ -917,7 +920,7 @@ g_file_attribute_info_list_bsearch (GFileAttributeInfoList *list,
 /**
  * g_file_attribute_info_list_lookup:
  * @list: a #GFileAttributeInfoList.
- * @name: the name of the attribute to lookup.
+ * @name: the name of the attribute to look up.
  *
  * Gets the file attribute with the name @name from @list.
  *

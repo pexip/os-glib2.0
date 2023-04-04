@@ -1,6 +1,8 @@
 /*
  * Copyright © 2010 Codethink Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -93,8 +95,11 @@ struct _GApplicationClass
                                                      gchar                   ***arguments,
                                                      int                       *exit_status);
 
+  /* @platform_data comes from an external process and is untrusted. All value types
+   * must be validated before being used. */
   void                      (* before_emit)         (GApplication              *application,
                                                      GVariant                  *platform_data);
+  /* Same as for @before_emit. */
   void                      (* after_emit)          (GApplication              *application,
                                                      GVariant                  *platform_data);
   void                      (* add_platform_data)   (GApplication              *application,
@@ -112,9 +117,10 @@ struct _GApplicationClass
                                                      const gchar               *object_path);
   gint                      (* handle_local_options)(GApplication              *application,
                                                      GVariantDict              *options);
+  gboolean                  (* name_lost)           (GApplication              *application);
 
   /*< private >*/
-  gpointer padding[8];
+  gpointer padding[7];
 };
 
 GLIB_AVAILABLE_IN_ALL

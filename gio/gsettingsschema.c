@@ -2,6 +2,8 @@
  * Copyright © 2010 Codethink Limited
  * Copyright © 2011 Canonical Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -18,6 +20,7 @@
 
 #include "config.h"
 
+#include "glib-private.h"
 #include "gsettingsschema-internal.h"
 #include "gsettings.h"
 
@@ -201,7 +204,7 @@ static GSettingsSchemaSource *schema_sources;
  *
  * Increase the reference count of @source, returning a new reference.
  *
- * Returns: a new reference to @source
+ * Returns: (transfer full) (not nullable): a new reference to @source
  *
  * Since: 2.32
  **/
@@ -343,8 +346,10 @@ initialise_schema_sources (void)
    */
   if G_UNLIKELY (g_once_init_enter (&initialised))
     {
+      gboolean is_setuid = GLIB_PRIVATE_CALL (g_check_setuid) ();
       const gchar * const *dirs;
       const gchar *path;
+      gchar **extra_schema_dirs;
       gint i;
 
       /* iterate in reverse: count up, then count down */
@@ -356,8 +361,18 @@ initialise_schema_sources (void)
 
       try_prepend_data_dir (g_get_user_data_dir ());
 
-      if ((path = g_getenv ("GSETTINGS_SCHEMA_DIR")) != NULL)
-        try_prepend_dir (path);
+      /* Disallow loading extra schemas if running as setuid, as that could
+       * allow reading privileged files. */
+      if (!is_setuid && (path = g_getenv ("GSETTINGS_SCHEMA_DIR")) != NULL)
+        {
+          extra_schema_dirs = g_strsplit (path, G_SEARCHPATH_SEPARATOR_S, 0);
+          for (i = 0; extra_schema_dirs[i]; i++);
+
+          while (i--)
+            try_prepend_dir (extra_schema_dirs[i]);
+
+          g_strfreev (extra_schema_dirs);
+        }
 
       g_once_init_leave (&initialised, TRUE);
     }
@@ -564,10 +579,14 @@ normalise_whitespace (const gchar *orig)
     {
       GRegex *s;
 
-      cleanup[0] = g_regex_new ("^\\s+", 0, 0, 0);
-      cleanup[1] = g_regex_new ("\\s+$", 0, 0, 0);
-      cleanup[2] = g_regex_new ("\\s+", 0, 0, 0);
-      s = g_regex_new ("\\n\\s*\\n+", 0, 0, 0);
+      cleanup[0] = g_regex_new ("^\\s+", G_REGEX_DEFAULT,
+                                G_REGEX_MATCH_DEFAULT, NULL);
+      cleanup[1] = g_regex_new ("\\s+$", G_REGEX_DEFAULT,
+                                G_REGEX_MATCH_DEFAULT, NULL);
+      cleanup[2] = g_regex_new ("\\s+", G_REGEX_DEFAULT,
+                                G_REGEX_MATCH_DEFAULT, NULL);
+      s = g_regex_new ("\\n\\s*\\n+", G_REGEX_DEFAULT,
+                       G_REGEX_MATCH_DEFAULT, NULL);
 
       g_once_init_leave (&splitter, s);
     }
@@ -670,8 +689,8 @@ parse_into_text_tables (const gchar *directory,
                         GHashTable  *summaries,
                         GHashTable  *descriptions)
 {
-  GMarkupParser parser = { start_element, end_element, text };
-  TextTableParseInfo info = { summaries, descriptions };
+  GMarkupParser parser = { start_element, end_element, text, NULL, NULL };
+  TextTableParseInfo info = { summaries, descriptions, NULL, NULL, NULL, NULL };
   const gchar *basename;
   GDir *dir;
 
@@ -742,9 +761,9 @@ g_settings_schema_source_get_text_tables (GSettingsSchemaSource *source)
  * @source: a #GSettingsSchemaSource
  * @recursive: if we should recurse
  * @non_relocatable: (out) (transfer full) (array zero-terminated=1): the
- *   list of non-relocatable schemas
+ *   list of non-relocatable schemas, in no defined order
  * @relocatable: (out) (transfer full) (array zero-terminated=1): the list
- *   of relocatable schemas
+ *   of relocatable schemas, in no defined order
  *
  * Lists the schemas in a given source.
  *
@@ -856,9 +875,9 @@ ensure_schema_lists (void)
  *
  * Deprecated.
  *
- * Returns: (element-type utf8) (transfer none):  a list of #GSettings
- *   schemas that are available.  The list must not be modified or
- *   freed.
+ * Returns: (element-type utf8) (transfer none) (not nullable): a list of
+ *   #GSettings schemas that are available, in no defined order.  The list
+ *   must not be modified or freed.
  *
  * Since: 2.26
  *
@@ -880,9 +899,9 @@ g_settings_list_schemas (void)
  *
  * Deprecated.
  *
- * Returns: (element-type utf8) (transfer none): a list of relocatable
- *   #GSettings schemas that are available.  The list must not be
- *   modified or freed.
+ * Returns: (element-type utf8) (transfer none) (not nullable): a list of
+ *   relocatable #GSettings schemas that are available, in no defined order.
+ *   The list must not be modified or freed.
  *
  * Since: 2.28
  *
@@ -902,7 +921,7 @@ g_settings_list_relocatable_schemas (void)
  *
  * Increase the reference count of @schema, returning a new reference.
  *
- * Returns: a new reference to @schema
+ * Returns: (transfer full) (not nullable): a new reference to @schema
  *
  * Since: 2.32
  **/
@@ -955,6 +974,24 @@ g_settings_schema_get_string (GSettingsSchema *schema,
   return result;
 }
 
+GSettingsSchema *
+g_settings_schema_get_child_schema (GSettingsSchema *schema,
+                                    const gchar     *name)
+{
+  const gchar *child_id;
+  gchar *child_name;
+
+  child_name = g_strconcat (name, "/", NULL);
+  child_id = g_settings_schema_get_string (schema, child_name);
+
+  g_free (child_name);
+
+  if (child_id == NULL)
+    return NULL;
+
+  return g_settings_schema_source_lookup (schema->source, child_id, TRUE);
+}
+
 GVariantIter *
 g_settings_schema_get_value (GSettingsSchema *schema,
                              const gchar     *key)
@@ -989,10 +1026,10 @@ g_settings_schema_get_value (GSettingsSchema *schema,
  * database: those located at the path returned by this function.
  *
  * Relocatable schemas can be referenced by other schemas and can
- * threfore describe multiple sets of keys at different locations.  For
+ * therefore describe multiple sets of keys at different locations.  For
  * relocatable schemas, this function will return %NULL.
  *
- * Returns: (transfer none): the path of the schema, or %NULL
+ * Returns: (nullable) (transfer none): the path of the schema, or %NULL
  *
  * Since: 2.32
  **/
@@ -1035,7 +1072,8 @@ g_settings_schema_has_key (GSettingsSchema *schema,
  * You should free the return value with g_strfreev() when you are done
  * with it.
  *
- * Returns: (transfer full) (element-type utf8): a list of the children on @settings
+ * Returns: (not nullable) (transfer full) (element-type utf8): a list of
+ *    the children on @settings, in no defined order
  *
  * Since: 2.44
  */
@@ -1057,9 +1095,9 @@ g_settings_schema_list_children (GSettingsSchema *schema)
 
       if (g_str_has_suffix (key, "/"))
         {
-          gint length = strlen (key);
+          gsize length = strlen (key);
 
-          strv[j] = g_memdup (key, length);
+          strv[j] = g_memdup2 (key, length);
           strv[j][length - 1] = '\0';
           j++;
         }
@@ -1079,8 +1117,8 @@ g_settings_schema_list_children (GSettingsSchema *schema)
  * (since you should already know what keys are in your schema).  This
  * function is intended for introspection reasons.
  *
- * Returns: (transfer full) (element-type utf8): a list of the keys on
- *   @schema
+ * Returns: (not nullable) (transfer full) (element-type utf8): a list
+ *   of the keys on @schema, in no defined order
  *
  * Since: 2.46
  */
@@ -1218,7 +1256,7 @@ g_settings_schema_list (GSettingsSchema *schema,
  *
  * Get the ID of @schema.
  *
- * Returns: (transfer none): the ID
+ * Returns: (not nullable) (transfer none): the ID
  **/
 const gchar *
 g_settings_schema_get_id (GSettingsSchema *schema)
@@ -1455,7 +1493,7 @@ gint
 g_settings_schema_key_to_enum (GSettingsSchemaKey *key,
                                GVariant           *value)
 {
-  gboolean it_worked;
+  gboolean it_worked G_GNUC_UNUSED  /* when compiling with G_DISABLE_ASSERT */;
   guint result;
 
   it_worked = strinfo_enum_from_string (key->strinfo, key->strinfo_length,
@@ -1472,6 +1510,7 @@ g_settings_schema_key_to_enum (GSettingsSchemaKey *key,
   return result;
 }
 
+/* Returns a new floating #GVariant. */
 GVariant *
 g_settings_schema_key_from_enum (GSettingsSchemaKey *key,
                                  gint                value)
@@ -1498,7 +1537,7 @@ g_settings_schema_key_to_flags (GSettingsSchemaKey *key,
   g_variant_iter_init (&iter, value);
   while (g_variant_iter_next (&iter, "&s", &flag))
     {
-      gboolean it_worked;
+      gboolean it_worked G_GNUC_UNUSED  /* when compiling with G_DISABLE_ASSERT */;
       guint flag_value;
 
       it_worked = strinfo_enum_from_string (key->strinfo, key->strinfo_length, flag, &flag_value);
@@ -1511,6 +1550,7 @@ g_settings_schema_key_to_flags (GSettingsSchemaKey *key,
   return result;
 }
 
+/* Returns a new floating #GVariant. */
 GVariant *
 g_settings_schema_key_from_flags (GSettingsSchemaKey *key,
                                   guint               value)
@@ -1547,7 +1587,7 @@ G_DEFINE_BOXED_TYPE (GSettingsSchemaKey, g_settings_schema_key, g_settings_schem
  *
  * Increase the reference count of @key, returning a new reference.
  *
- * Returns: a new reference to @key
+ * Returns: (not nullable) (transfer full): a new reference to @key
  *
  * Since: 2.40
  **/
@@ -1592,7 +1632,7 @@ g_settings_schema_key_unref (GSettingsSchemaKey *key)
  * It is a programmer error to request a key that does not exist.  See
  * g_settings_schema_list_keys().
  *
- * Returns: (transfer full): the #GSettingsSchemaKey for @name
+ * Returns: (not nullable) (transfer full): the #GSettingsSchemaKey for @name
  *
  * Since: 2.40
  **/
@@ -1618,7 +1658,7 @@ g_settings_schema_get_key (GSettingsSchema *schema,
  *
  * Gets the name of @key.
  *
- * Returns: the name of @key.
+ * Returns: (not nullable) (transfer none): the name of @key.
  *
  * Since: 2.44
  */
@@ -1648,7 +1688,7 @@ g_settings_schema_key_get_name (GSettingsSchemaKey *key)
  * function has to parse all of the source XML files in the schema
  * directory.
  *
- * Returns: the summary for @key, or %NULL
+ * Returns: (nullable) (transfer none): the summary for @key, or %NULL
  *
  * Since: 2.34
  **/
@@ -1683,7 +1723,7 @@ g_settings_schema_key_get_summary (GSettingsSchemaKey *key)
  * function has to parse all of the source XML files in the schema
  * directory.
  *
- * Returns: the description for @key, or %NULL
+ * Returns: (nullable) (transfer none): the description for @key, or %NULL
  *
  * Since: 2.34
  **/
@@ -1705,7 +1745,7 @@ g_settings_schema_key_get_description (GSettingsSchemaKey *key)
  *
  * Gets the #GVariantType of @key.
  *
- * Returns: (transfer none): the type of @key
+ * Returns: (not nullable) (transfer none): the type of @key
  *
  * Since: 2.40
  **/
@@ -1726,7 +1766,7 @@ g_settings_schema_key_get_value_type (GSettingsSchemaKey *key)
  * Note that this is the default value according to the schema.  System
  * administrator defaults and lockdown are not visible via this API.
  *
- * Returns: (transfer full): the default value for the key
+ * Returns: (not nullable) (transfer full): the default value for the key
  *
  * Since: 2.40
  **/
@@ -1789,7 +1829,7 @@ g_settings_schema_key_get_default_value (GSettingsSchemaKey *key)
  * You should free the returned value with g_variant_unref() when it is
  * no longer needed.
  *
- * Returns: (transfer full): a #GVariant describing the range
+ * Returns: (not nullable) (transfer full): a #GVariant describing the range
  *
  * Since: 2.40
  **/
@@ -1823,10 +1863,10 @@ g_settings_schema_key_get_range (GSettingsSchemaKey *key)
  * @key: a #GSettingsSchemaKey
  * @value: the value to check
  *
- * Checks if the given @value is of the correct type and within the
+ * Checks if the given @value is within the
  * permitted range for @key.
  *
- * It is a programmer error if @value is not of the correct type -- you
+ * It is a programmer error if @value is not of the correct type — you
  * must check for this first.
  *
  * Returns: %TRUE if @value is valid for @key

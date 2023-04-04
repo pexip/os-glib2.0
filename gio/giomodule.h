@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -104,7 +106,7 @@ GTypeClass*        g_io_extension_ref_class                   (GIOExtension     
 /* API for the modules to implement */
 
 /**
- * g_io_module_load:
+ * g_io_module_load: (skip)
  * @module: a #GIOModule.
  *
  * Required API for GIO modules to implement.
@@ -125,7 +127,7 @@ GLIB_AVAILABLE_IN_ALL
 void   g_io_module_load   (GIOModule *module);
 
 /**
- * g_io_module_unload:
+ * g_io_module_unload: (skip)
  * @module: a #GIOModule.
  *
  * Required API for GIO modules to implement.

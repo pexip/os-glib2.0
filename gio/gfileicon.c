@@ -2,6 +2,8 @@
  * 
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -112,6 +114,19 @@ g_file_icon_set_property (GObject      *object,
 }
 
 static void
+g_file_icon_constructed (GObject *object)
+{
+#ifndef G_DISABLE_ASSERT
+  GFileIcon *icon = G_FILE_ICON (object);
+#endif
+
+  G_OBJECT_CLASS (g_file_icon_parent_class)->constructed (object);
+
+  /* Must have be set during construction */
+  g_assert (icon->file != NULL);
+}
+
+static void
 g_file_icon_finalize (GObject *object)
 {
   GFileIcon *icon;
@@ -132,6 +147,7 @@ g_file_icon_class_init (GFileIconClass *klass)
   gobject_class->get_property = g_file_icon_get_property;
   gobject_class->set_property = g_file_icon_set_property;
   gobject_class->finalize = g_file_icon_finalize;
+  gobject_class->constructed = g_file_icon_constructed;
 
   /**
    * GFileIcon:file:
@@ -174,7 +190,7 @@ g_file_icon_new (GFile *file)
  * 
  * Gets the #GFile associated with the given @icon.
  * 
- * Returns: (transfer none): a #GFile, or %NULL.
+ * Returns: (transfer none): a #GFile.
  **/
 GFile *
 g_file_icon_get_file (GFileIcon *icon)

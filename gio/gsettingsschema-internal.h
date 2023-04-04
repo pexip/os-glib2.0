@@ -1,6 +1,8 @@
 /*
  * Copyright © 2010 Codethink Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -49,6 +51,9 @@ const GQuark *          g_settings_schema_list                          (GSettin
                                                                          gint             *n_items);
 const gchar *           g_settings_schema_get_string                    (GSettingsSchema  *schema,
                                                                          const gchar      *key);
+
+GSettingsSchema *       g_settings_schema_get_child_schema              (GSettingsSchema *schema,
+                                                                         const gchar     *name);
 
 void                    g_settings_schema_key_init                      (GSettingsSchemaKey *key,
                                                                          GSettingsSchema    *schema,

@@ -3,6 +3,8 @@
  *  Copyright 2000 Red Hat, Inc.
  *  Copyright 2003 Tor Lillqvist
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -42,10 +44,11 @@
 
 #include "config.h"
 
-#include "glib.h"
+#include "glib-init.h"
 #include "glib-private.h"
-#include "gprintfint.h"
+#include "glib.h"
 #include "glibintl.h"
+#include "gprintfint.h"
 #include "gspawn-private.h"
 #include "gthread.h"
 
@@ -61,6 +64,10 @@
 #include <direct.h>
 #include <wchar.h>
 
+#ifdef _MSC_VER
+#include <vcruntime.h> /* for _UCRT */
+#endif
+
 #ifndef GSPAWN_HELPER
 #ifdef G_SPAWN_WIN32_DEBUG
   static int debug = 1;
@@ -72,7 +79,7 @@
       {							\
 	if (debug == -1)				\
 	  {						\
-	    if (getenv ("G_SPAWN_WIN32_DEBUG") != NULL)	\
+	    if (g_getenv ("G_SPAWN_WIN32_DEBUG") != NULL)	\
 	      debug = 1;				\
 	    else					\
 	      debug = 0;				\
@@ -88,6 +95,7 @@ enum
   CHILD_CHDIR_FAILED,
   CHILD_SPAWN_FAILED,
   CHILD_SPAWN_NOENT,
+  CHILD_DUP_FAILED,
 };
 
 enum {
@@ -100,22 +108,10 @@ enum {
   ARG_CLOSE_DESCRIPTORS,
   ARG_USE_PATH,
   ARG_WAIT,
+  ARG_FDS,
   ARG_PROGRAM,
   ARG_COUNT = ARG_PROGRAM
 };
-
-static int
-dup_noninherited (int fd,
-		  int mode)
-{
-  HANDLE filehandle;
-
-  DuplicateHandle (GetCurrentProcess (), (LPHANDLE) _get_osfhandle (fd),
-		   GetCurrentProcess (), &filehandle,
-		   0, FALSE, DUPLICATE_SAME_ACCESS);
-  close (fd);
-  return _open_osfhandle ((gintptr) filehandle, mode | _O_NOINHERIT);
-}
 
 #ifndef GSPAWN_HELPER
 
@@ -125,28 +121,71 @@ dup_noninherited (int fd,
 #define HELPER_PROCESS "gspawn-win32-helper"
 #endif
 
+#ifndef _UCRT
+
+/* The wspawn*e functions are thread-safe only in the Universal
+ * CRT (UCRT). If we are linking against the MSVCRT.dll or the
+ * pre-2015 MSVC runtime (MSVCRXXX.dll), then we have to use a
+ * mutex.
+ */
+
+static GMutex safe_wspawn_e_mutex;
+
+static intptr_t
+safe_wspawnve (int _Mode,
+               const wchar_t *_Filename,
+               const wchar_t *const *_ArgList,
+               const wchar_t *const *_Env)
+{
+  intptr_t ret_val = -1;
+
+  g_mutex_lock (&safe_wspawn_e_mutex);
+  ret_val = _wspawnve (_Mode, _Filename, _ArgList, _Env);
+  g_mutex_unlock (&safe_wspawn_e_mutex);
+
+  return ret_val;
+}
+
+static intptr_t
+safe_wspawnvpe (int _Mode,
+                const wchar_t *_Filename,
+                const wchar_t *const *_ArgList,
+                const wchar_t *const *_Env)
+{
+  intptr_t ret_val = -1;
+
+  g_mutex_lock (&safe_wspawn_e_mutex);
+  ret_val = _wspawnvpe (_Mode, _Filename, _ArgList, _Env);
+  g_mutex_unlock (&safe_wspawn_e_mutex);
+
+  return ret_val;
+}
+
+#else
+
+#define safe_wspawnve _wspawnve
+#define safe_wspawnvpe _wspawnvpe
+
+#endif /* _UCRT */
+
+/* This logic has a copy for wchar_t in gspawn-win32-helper.c, protect_wargv() */
 static gchar *
 protect_argv_string (const gchar *string)
 {
   const gchar *p = string;
   gchar *retval, *q;
   gint len = 0;
+  gint pre_bslash = 0;
   gboolean need_dblquotes = FALSE;
   while (*p)
     {
       if (*p == ' ' || *p == '\t')
 	need_dblquotes = TRUE;
-      else if (*p == '"')
-	len++;
-      else if (*p == '\\')
-	{
-	  const gchar *pp = p;
-	  while (*pp && *pp == '\\')
-	    pp++;
-	  if (*pp == '"')
-	    len++;
-	}
-      len++;
+      /* estimate max len, assuming that all escapable characters will be escaped */
+      if (*p == '"' || *p == '\\')
+	len += 2;
+      else
+	len += 1;
       p++;
     }
   
@@ -155,33 +194,48 @@ protect_argv_string (const gchar *string)
 
   if (need_dblquotes)
     *q++ = '"';
-  
+  /* Only quotes and backslashes preceding quotes are escaped:
+   * see "Parsing C Command-Line Arguments" at
+   * https://docs.microsoft.com/en-us/cpp/c-language/parsing-c-command-line-arguments
+   */
   while (*p)
     {
       if (*p == '"')
-	*q++ = '\\';
-      else if (*p == '\\')
 	{
-	  const gchar *pp = p;
-	  while (*pp && *pp == '\\')
-	    pp++;
-	  if (*pp == '"')
+	  /* Add backslash for escaping quote itself */
+	  *q++ = '\\';
+	  /* Add backslash for every preceding backslash for escaping it */
+	  for (;pre_bslash > 0; --pre_bslash)
 	    *q++ = '\\';
 	}
+
+      /* Count length of continuous sequence of preceding backslashes. */
+      if (*p == '\\')
+	++pre_bslash;
+      else
+	pre_bslash = 0;
+
       *q++ = *p;
       p++;
     }
   
   if (need_dblquotes)
-    *q++ = '"';
+    {
+      /* Add backslash for every preceding backslash for escaping it,
+       * do NOT escape quote itself.
+       */
+      for (;pre_bslash > 0; --pre_bslash)
+	*q++ = '\\';
+      *q++ = '"';
+    }
   *q++ = '\0';
 
   return retval;
 }
 
 static gint
-protect_argv (gchar  **argv,
-	      gchar ***new_argv)
+protect_argv (const gchar * const   *argv,
+              gchar               ***new_argv)
 {
   gint i;
   gint argc = 0;
@@ -196,7 +250,7 @@ protect_argv (gchar  **argv,
    * rather different than what Unix shells do. See stdargv.c in the C
    * runtime sources (in the Platform SDK, in src/crt).
    *
-   * Note that an new_argv[0] constructed by this function should
+   * Note that a new_argv[0] constructed by this function should
    * *not* be passed as the filename argument to a spawn* or exec*
    * family function. That argument should be the real file name
    * without any quoting.
@@ -219,17 +273,17 @@ g_spawn_async (const gchar          *working_directory,
                GSpawnFlags           flags,
                GSpawnChildSetupFunc  child_setup,
                gpointer              user_data,
-               GPid                 *child_handle,
+               GPid                 *child_pid,
                GError              **error)
 {
-  g_return_val_if_fail (argv != NULL, FALSE);
+  g_return_val_if_fail (argv != NULL && argv[0] != NULL, FALSE);
   
   return g_spawn_async_with_pipes (working_directory,
                                    argv, envp,
                                    flags,
                                    child_setup,
                                    user_data,
-                                   child_handle,
+                                   child_pid,
                                    NULL, NULL, NULL,
                                    error);
 }
@@ -313,7 +367,7 @@ read_helper_report (int      fd,
 		    gintptr  report[2],
 		    GError **error)
 {
-  gint bytes = 0;
+  gsize bytes = 0;
   
   while (bytes < sizeof(gintptr)*2)
     {
@@ -381,16 +435,21 @@ set_child_error (gintptr      report[2],
                    _("Failed to execute child process (%s)"),
                    g_strerror (report[1]));
       break;
+    case CHILD_DUP_FAILED:
+      g_set_error (error, G_SPAWN_ERROR, G_SPAWN_ERROR_FAILED,
+                   _("Failed to dup() in child process (%s)"),
+                   g_strerror (report[1]));
+      break;
     default:
       g_assert_not_reached ();
     }
 }
 
 static gboolean
-utf8_charv_to_wcharv (char     **utf8_charv,
-		      wchar_t ***wcharv,
-		      int       *error_index,
-		      GError   **error)
+utf8_charv_to_wcharv (const gchar * const   *utf8_charv,
+                      wchar_t             ***wcharv,
+                      int                   *error_index,
+                      GError               **error)
 {
   wchar_t **retval = NULL;
 
@@ -425,21 +484,23 @@ utf8_charv_to_wcharv (char     **utf8_charv,
 
 static gboolean
 do_spawn_directly (gint                 *exit_status,
-		   gboolean		 do_return_handle,
-		   GSpawnFlags           flags,
-		   gchar               **argv,
-		   char                **envp,
-		   char                **protected_argv,
-		   GPid                 *child_handle,
-		   GError              **error)     
+                   gboolean              do_return_handle,
+                   GSpawnFlags           flags,
+                   const gchar * const  *argv,
+                   const gchar * const  *envp,
+                   const gchar * const  *protected_argv,
+                   GPid                 *child_pid,
+                   GError              **error)
 {
   const int mode = (exit_status == NULL) ? P_NOWAIT : P_WAIT;
-  char **new_argv;
+  const gchar * const *new_argv;
   gintptr rc = -1;
   int errsv;
   GError *conv_error = NULL;
   gint conv_error_index;
   wchar_t *wargv0, **wargv, **wenvp;
+
+  g_assert (argv != NULL && argv[0] != NULL);
 
   new_argv = (flags & G_SPAWN_FILE_AND_ARGV_ZERO) ? protected_argv + 1 : protected_argv;
       
@@ -479,12 +540,12 @@ do_spawn_directly (gint                 *exit_status,
 
   if (flags & G_SPAWN_SEARCH_PATH)
     if (wenvp != NULL)
-      rc = _wspawnvpe (mode, wargv0, (const wchar_t **) wargv, (const wchar_t **) wenvp);
+      rc = safe_wspawnvpe (mode, wargv0, (const wchar_t **) wargv, (const wchar_t **) wenvp);
     else
       rc = _wspawnvp (mode, wargv0, (const wchar_t **) wargv);
   else
     if (wenvp != NULL)
-      rc = _wspawnve (mode, wargv0, (const wchar_t **) wargv, (const wchar_t **) wenvp);
+      rc = safe_wspawnve (mode, wargv0, (const wchar_t **) wargv, (const wchar_t **) wenvp);
     else
       rc = _wspawnv (mode, wargv0, (const wchar_t **) wargv);
 
@@ -504,13 +565,13 @@ do_spawn_directly (gint                 *exit_status,
 
   if (exit_status == NULL)
     {
-      if (child_handle && do_return_handle)
-	*child_handle = (GPid) rc;
+      if (child_pid && do_return_handle)
+	*child_pid = (GPid) rc;
       else
 	{
 	  CloseHandle ((HANDLE) rc);
-	  if (child_handle)
-	    *child_handle = 0;
+	  if (child_pid)
+	    *child_pid = 0;
 	}
     }
   else
@@ -520,19 +581,48 @@ do_spawn_directly (gint                 *exit_status,
 }
 
 static gboolean
-do_spawn_with_fds (gint                 *exit_status,
-		   gboolean		   do_return_handle,
-		   const gchar          *working_directory,
-		   gchar               **argv,
-		   char                **envp,
-		   GSpawnFlags           flags,
-		   GSpawnChildSetupFunc  child_setup,
-		   GPid                 *child_handle,
-		   gint                  stdin_fd,
-		   gint                  stdout_fd,
-		   gint                  stderr_fd,
-		   gint		  *err_report,
-		   GError              **error)
+might_be_console_process (void)
+{
+  // we should always fail to attach ourself to a console (because we're
+  // either already attached, or we do not have a console)
+  gboolean attached_to_self = AttachConsole (GetCurrentProcessId ());
+  g_return_val_if_fail (!attached_to_self, TRUE);
+
+  switch (GetLastError ())
+    {
+    // current process is already attached to a console
+    case ERROR_ACCESS_DENIED:
+      return TRUE;
+    // current process does not have a console
+    case ERROR_INVALID_HANDLE:
+      return FALSE;
+    // we should not get ERROR_INVALID_PARAMETER
+    }
+
+  g_return_val_if_reached (FALSE);
+}
+
+static gboolean
+fork_exec (gint                  *exit_status,
+           gboolean               do_return_handle,
+           const gchar           *working_directory,
+           const gchar * const   *argv,
+           const gchar * const   *envp,
+           GSpawnFlags            flags,
+           GSpawnChildSetupFunc   child_setup,
+           gpointer               user_data,
+           GPid                  *child_pid,
+           gint                  *stdin_pipe_out,
+           gint                  *stdout_pipe_out,
+           gint                  *stderr_pipe_out,
+           gint                   stdin_fd,
+           gint                   stdout_fd,
+           gint                   stderr_fd,
+           const gint            *source_fds,
+           const gint            *target_fds,
+           gsize                  n_fds,
+           gint                  *err_report,
+           GError               **error)
 {
   char **protected_argv;
   char args[ARG_COUNT][10];
@@ -549,7 +639,14 @@ do_spawn_with_fds (gint                 *exit_status,
   gint conv_error_index;
   gchar *helper_process;
   wchar_t *whelper, **wargv, **wenvp;
-  gchar *glib_dll_directory;
+  int stdin_pipe[2] = { -1, -1 };
+  int stdout_pipe[2] = { -1, -1 };
+  int stderr_pipe[2] = { -1, -1 };
+
+  g_assert (argv != NULL && argv[0] != NULL);
+  g_assert (stdin_pipe_out == NULL || stdin_fd < 0);
+  g_assert (stdout_pipe_out == NULL || stdout_fd < 0);
+  g_assert (stderr_pipe_out == NULL || stderr_fd < 0);
 
   if (child_setup && !warned_about_child_setup)
     {
@@ -557,20 +654,49 @@ do_spawn_with_fds (gint                 *exit_status,
       g_warning ("passing a child setup function to the g_spawn functions is pointless on Windows and it is ignored");
     }
 
+  if (stdin_pipe_out != NULL)
+    {
+      if (!make_pipe (stdin_pipe, error))
+        goto cleanup_and_fail;
+      stdin_fd = stdin_pipe[0];
+    }
+
+  if (stdout_pipe_out != NULL)
+    {
+      if (!make_pipe (stdout_pipe, error))
+        goto cleanup_and_fail;
+      stdout_fd = stdout_pipe[1];
+    }
+
+  if (stderr_pipe_out != NULL)
+    {
+      if (!make_pipe (stderr_pipe, error))
+        goto cleanup_and_fail;
+      stderr_fd = stderr_pipe[1];
+    }
+
   argc = protect_argv (argv, &protected_argv);
+
+  /*
+   * FIXME: Workaround broken spawnvpe functions that SEGV when "=X:="
+   * environment variables are missing. Calling chdir() will set the magic
+   * environment variable again.
+   */
+  _chdir (".");
 
   if (stdin_fd == -1 && stdout_fd == -1 && stderr_fd == -1 &&
       (flags & G_SPAWN_CHILD_INHERITS_STDIN) &&
       !(flags & G_SPAWN_STDOUT_TO_DEV_NULL) &&
       !(flags & G_SPAWN_STDERR_TO_DEV_NULL) &&
       (working_directory == NULL || !*working_directory) &&
-      (flags & G_SPAWN_LEAVE_DESCRIPTORS_OPEN))
+      (flags & G_SPAWN_LEAVE_DESCRIPTORS_OPEN) &&
+      n_fds == 0)
     {
       /* We can do without the helper process */
       gboolean retval =
 	do_spawn_directly (exit_status, do_return_handle, flags,
-			   argv, envp, protected_argv,
-			   child_handle, error);
+			   argv, envp, (const gchar * const *) protected_argv,
+			   child_pid, error);
       g_strfreev (protected_argv);
       return retval;
     }
@@ -582,20 +708,12 @@ do_spawn_with_fds (gint                 *exit_status,
     goto cleanup_and_fail;
   
   new_argv = g_new (char *, argc + 1 + ARG_COUNT);
-  if (GetConsoleWindow () != NULL)
+  if (might_be_console_process ())
     helper_process = HELPER_PROCESS "-console.exe";
   else
     helper_process = HELPER_PROCESS ".exe";
-  
-  glib_dll_directory = _glib_get_dll_directory ();
-  if (glib_dll_directory != NULL)
-    {
-      helper_process = g_build_filename (glib_dll_directory, helper_process, NULL);
-      g_free (glib_dll_directory);
-    }
-  else
-    helper_process = g_strdup (helper_process);
 
+  helper_process = g_win32_find_helper_executable_path (helper_process, glib_dll);
   new_argv[0] = protect_argv_string (helper_process);
 
   _g_sprintf (args[ARG_CHILD_ERR_REPORT], "%d", child_err_report_pipe[1]);
@@ -606,7 +724,10 @@ do_spawn_with_fds (gint                 *exit_status,
    * helper process, and the started actual user process. As such that
    * shouldn't harm, but it is unnecessary.
    */
-  child_err_report_pipe[0] = dup_noninherited (child_err_report_pipe[0], _O_RDONLY);
+  child_err_report_pipe[0] = g_win32_reopen_noninherited (
+    child_err_report_pipe[0], _O_RDONLY, error);
+  if (child_err_report_pipe[0] == -1)
+      goto cleanup_and_fail;
 
   if (flags & G_SPAWN_FILE_AND_ARGV_ZERO)
     {
@@ -625,7 +746,10 @@ do_spawn_with_fds (gint                 *exit_status,
    * process won't read but won't get any EOF either, as it has the
    * write end open itself.
    */
-  helper_sync_pipe[1] = dup_noninherited (helper_sync_pipe[1], _O_WRONLY);
+  helper_sync_pipe[1] = g_win32_reopen_noninherited (
+    helper_sync_pipe[1], _O_WRONLY, error);
+  if (helper_sync_pipe[1] == -1)
+      goto cleanup_and_fail;
 
   if (stdin_fd != -1)
     {
@@ -657,7 +781,7 @@ do_spawn_with_fds (gint                 *exit_status,
       new_argv[ARG_STDOUT] = "-";
     }
   
-  if (stdout_fd != -1)
+  if (stderr_fd != -1)
     {
       _g_sprintf (args[ARG_STDERR], "%d", stderr_fd);
       new_argv[ARG_STDERR] = args[ARG_STDERR];
@@ -691,6 +815,21 @@ do_spawn_with_fds (gint                 *exit_status,
   else
     new_argv[ARG_WAIT] = "w";
 
+  if (n_fds == 0)
+    new_argv[ARG_FDS] = g_strdup ("-");
+  else
+    {
+      GString *fds = g_string_new ("");
+      gsize n;
+
+      for (n = 0; n < n_fds; n++)
+        g_string_append_printf (fds, "%d:%d,", source_fds[n], target_fds[n]);
+
+      /* remove the trailing , */
+      g_string_truncate (fds, fds->len - 1);
+      new_argv[ARG_FDS] = g_string_free (fds, FALSE);
+    }
+
   for (i = 0; i <= argc; i++)
     new_argv[ARG_PROGRAM + i] = protected_argv[i];
 
@@ -703,7 +842,7 @@ do_spawn_with_fds (gint                 *exit_status,
 	g_print ("argv[%d]: %s\n", i, (new_argv[i] ? new_argv[i] : "NULL"));
     }
 
-  if (!utf8_charv_to_wcharv (new_argv, &wargv, &conv_error_index, &conv_error))
+  if (!utf8_charv_to_wcharv ((const gchar * const *) new_argv, &wargv, &conv_error_index, &conv_error))
     {
       if (conv_error_index == ARG_WORKING_DIRECTORY)
 	g_set_error (error, G_SPAWN_ERROR, G_SPAWN_ERROR_CHDIR,
@@ -717,6 +856,7 @@ do_spawn_with_fds (gint                 *exit_status,
       g_strfreev (protected_argv);
       g_free (new_argv[0]);
       g_free (new_argv[ARG_WORKING_DIRECTORY]);
+      g_free (new_argv[ARG_FDS]);
       g_free (new_argv);
       g_free (helper_process);
 
@@ -732,6 +872,7 @@ do_spawn_with_fds (gint                 *exit_status,
       g_strfreev (protected_argv);
       g_free (new_argv[0]);
       g_free (new_argv[ARG_WORKING_DIRECTORY]);
+      g_free (new_argv[ARG_FDS]);
       g_free (new_argv);
       g_free (helper_process);
       g_strfreev ((gchar **) wargv);
@@ -743,7 +884,7 @@ do_spawn_with_fds (gint                 *exit_status,
   g_free (helper_process);
 
   if (wenvp != NULL)
-    rc = _wspawnvpe (P_NOWAIT, whelper, (const wchar_t **) wargv, (const wchar_t **) wenvp);
+    rc = safe_wspawnvpe (P_NOWAIT, whelper, (const wchar_t **) wargv, (const wchar_t **) wenvp);
   else
     rc = _wspawnvp (P_NOWAIT, whelper, (const wchar_t **) wargv);
 
@@ -763,6 +904,7 @@ do_spawn_with_fds (gint                 *exit_status,
 
   g_free (new_argv[0]);
   g_free (new_argv[ARG_WORKING_DIRECTORY]);
+  g_free (new_argv[ARG_FDS]);
   g_free (new_argv);
 
   /* Check if gspawn-win32-helper couldn't be run */
@@ -796,23 +938,24 @@ do_spawn_with_fds (gint                 *exit_status,
       switch (helper_report[0])
 	{
 	case CHILD_NO_ERROR:
-	  if (child_handle && do_return_handle)
+	  if (child_pid && do_return_handle)
 	    {
 	      /* rc is our HANDLE for gspawn-win32-helper. It has
 	       * told us the HANDLE of its child. Duplicate that into
 	       * a HANDLE valid in this process.
 	       */
 	      if (!DuplicateHandle ((HANDLE) rc, (HANDLE) helper_report[1],
-				    GetCurrentProcess (), (LPHANDLE) child_handle,
+				    GetCurrentProcess (), (LPHANDLE) child_pid,
 				    0, TRUE, DUPLICATE_SAME_ACCESS))
 		{
 		  char *emsg = g_win32_error_message (GetLastError ());
-		  g_print("%s\n", emsg);
-		  *child_handle = 0;
+		  g_print ("%s\n", emsg);
+		  g_free (emsg);
+		  *child_pid = 0;
 		}
 	    }
-	  else if (child_handle)
-	    *child_handle = 0;
+	  else if (child_pid)
+	    *child_pid = 0;
 	  write (helper_sync_pipe[1], " ", 1);
 	  close_and_invalidate (&helper_sync_pipe[1]);
 	  break;
@@ -829,7 +972,21 @@ do_spawn_with_fds (gint                 *exit_status,
       
   if (rc != -1)
     CloseHandle ((HANDLE) rc);
-  
+
+  /* Close the other process's ends of the pipes in this process,
+   * otherwise the reader will never get EOF.
+   */
+  close_and_invalidate (&stdin_pipe[0]);
+  close_and_invalidate (&stdout_pipe[1]);
+  close_and_invalidate (&stderr_pipe[1]);
+
+  if (stdin_pipe_out != NULL)
+    *stdin_pipe_out = stdin_pipe[1];
+  if (stdout_pipe_out != NULL)
+    *stdout_pipe_out = stdout_pipe[0];
+  if (stderr_pipe_out != NULL)
+    *stderr_pipe_out = stderr_pipe[0];
+
   return TRUE;
 
  cleanup_and_fail:
@@ -844,70 +1001,6 @@ do_spawn_with_fds (gint                 *exit_status,
     close (helper_sync_pipe[0]);
   if (helper_sync_pipe[1] != -1)
     close (helper_sync_pipe[1]);
-
-  return FALSE;
-}
-
-static gboolean
-do_spawn_with_pipes (gint                 *exit_status,
-		     gboolean		   do_return_handle,
-		     const gchar          *working_directory,
-		     gchar               **argv,
-		     char                **envp,
-		     GSpawnFlags           flags,
-		     GSpawnChildSetupFunc  child_setup,
-		     GPid                 *child_handle,
-		     gint                 *standard_input,
-		     gint                 *standard_output,
-		     gint                 *standard_error,
-		     gint		  *err_report,
-		     GError              **error)
-{
-  int stdin_pipe[2] = { -1, -1 };
-  int stdout_pipe[2] = { -1, -1 };
-  int stderr_pipe[2] = { -1, -1 };
-
-  if (standard_input && !make_pipe (stdin_pipe, error))
-    goto cleanup_and_fail;
-
-  if (standard_output && !make_pipe (stdout_pipe, error))
-    goto cleanup_and_fail;
-
-  if (standard_error && !make_pipe (stderr_pipe, error))
-    goto cleanup_and_fail;
-
-  if (!do_spawn_with_fds (exit_status,
-			  do_return_handle,
-			  working_directory,
-			  argv,
-			  envp,
-			  flags,
-			  child_setup,
-			  child_handle,
-			  stdin_pipe[0],
-			  stdout_pipe[1],
-			  stderr_pipe[1],
-			  err_report,
-			  error))
-    goto cleanup_and_fail;
-
-  /* Close the other process's ends of the pipes in this process,
-   * otherwise the reader will never get EOF.
-   */
-  close_and_invalidate (&stdin_pipe[0]);
-  close_and_invalidate (&stdout_pipe[1]);
-  close_and_invalidate (&stderr_pipe[1]);
-
-  if (standard_input)
-    *standard_input = stdin_pipe[1];
-  if (standard_output)
-    *standard_output = stdout_pipe[0];
-  if (standard_error)
-    *standard_error = stderr_pipe[0];
-
-  return TRUE;
-
- cleanup_and_fail:
 
   if (stdin_pipe[0] != -1)
     close (stdin_pipe[0]);
@@ -934,7 +1027,7 @@ g_spawn_sync (const gchar          *working_directory,
               gpointer              user_data,
               gchar               **standard_output,
               gchar               **standard_error,
-              gint                 *exit_status,
+              gint                 *wait_status,
               GError              **error)
 {
   gint outpipe = -1;
@@ -942,7 +1035,7 @@ g_spawn_sync (const gchar          *working_directory,
   gint reportpipe = -1;
   GIOChannel *outchannel = NULL;
   GIOChannel *errchannel = NULL;
-  GPollFD outfd, errfd;
+  GPollFD outfd = { -1, 0, 0 }, errfd = { -1, 0, 0 };
   GPollFD fds[2];
   gint nfds;
   gint outindex = -1;
@@ -953,7 +1046,7 @@ g_spawn_sync (const gchar          *working_directory,
   gboolean failed;
   gint status;
   
-  g_return_val_if_fail (argv != NULL, FALSE);
+  g_return_val_if_fail (argv != NULL && argv[0] != NULL, FALSE);
   g_return_val_if_fail (!(flags & G_SPAWN_DO_NOT_REAP_CHILD), FALSE);
   g_return_val_if_fail (standard_output == NULL ||
                         !(flags & G_SPAWN_STDOUT_TO_DEV_NULL), FALSE);
@@ -968,20 +1061,25 @@ g_spawn_sync (const gchar          *working_directory,
 
   if (standard_error)
     *standard_error = NULL;
-  
-  if (!do_spawn_with_pipes (&status,
-			    FALSE,
-			    working_directory,
-			    argv,
-			    envp,
-			    flags,
-			    child_setup,
-			    NULL,
-			    NULL,
-			    standard_output ? &outpipe : NULL,
-			    standard_error ? &errpipe : NULL,
-			    &reportpipe,
-			    error))
+
+  if (!fork_exec (&status,
+                  FALSE,
+                  working_directory,
+                  (const gchar * const *) argv,
+                  (const gchar * const *) envp,
+                  flags,
+                  child_setup,
+                  user_data,
+                  NULL,
+                  NULL,
+                  standard_output ? &outpipe : NULL,
+                  standard_error ? &errpipe : NULL,
+                  -1,
+                  -1,
+                  -1,
+                  NULL, NULL, 0,
+                  &reportpipe,
+                  error))
     return FALSE;
 
   /* Read data from child. */
@@ -1105,8 +1203,8 @@ g_spawn_sync (const gchar          *working_directory,
       /* No helper process, exit status of actual spawned process
        * already available.
        */
-      if (exit_status)
-        *exit_status = status;
+      if (wait_status)
+        *wait_status = status;
     }
   else
     {
@@ -1122,8 +1220,8 @@ g_spawn_sync (const gchar          *working_directory,
 	  switch (helper_report[0])
 	    {
 	    case CHILD_NO_ERROR:
-	      if (exit_status)
-		*exit_status = helper_report[1];
+	      if (wait_status)
+		*wait_status = helper_report[1];
 	      break;
 	    default:
 	      set_child_error (helper_report, working_directory, error);
@@ -1174,13 +1272,13 @@ g_spawn_async_with_pipes (const gchar          *working_directory,
                           GSpawnFlags           flags,
                           GSpawnChildSetupFunc  child_setup,
                           gpointer              user_data,
-                          GPid                 *child_handle,
+                          GPid                 *child_pid,
                           gint                 *standard_input,
                           gint                 *standard_output,
                           gint                 *standard_error,
                           GError              **error)
 {
-  g_return_val_if_fail (argv != NULL, FALSE);
+  g_return_val_if_fail (argv != NULL && argv[0] != NULL, FALSE);
   g_return_val_if_fail (standard_output == NULL ||
                         !(flags & G_SPAWN_STDOUT_TO_DEV_NULL), FALSE);
   g_return_val_if_fail (standard_error == NULL ||
@@ -1188,20 +1286,25 @@ g_spawn_async_with_pipes (const gchar          *working_directory,
   /* can't inherit stdin if we have an input pipe. */
   g_return_val_if_fail (standard_input == NULL ||
                         !(flags & G_SPAWN_CHILD_INHERITS_STDIN), FALSE);
-  
-  return do_spawn_with_pipes (NULL,
-			      (flags & G_SPAWN_DO_NOT_REAP_CHILD),
-			      working_directory,
-			      argv,
-			      envp,
-			      flags,
-			      child_setup,
-			      child_handle,
-			      standard_input,
-			      standard_output,
-			      standard_error,
-			      NULL,
-			      error);
+
+  return fork_exec (NULL,
+                    (flags & G_SPAWN_DO_NOT_REAP_CHILD),
+                    working_directory,
+                    (const gchar * const *) argv,
+                    (const gchar * const *) envp,
+                    flags,
+                    child_setup,
+                    user_data,
+                    child_pid,
+                    standard_input,
+                    standard_output,
+                    standard_error,
+                    -1,
+                    -1,
+                    -1,
+                    NULL, NULL, 0,
+                    NULL,
+                    error);
 }
 
 gboolean
@@ -1211,13 +1314,13 @@ g_spawn_async_with_fds (const gchar          *working_directory,
                         GSpawnFlags           flags,
                         GSpawnChildSetupFunc  child_setup,
                         gpointer              user_data,
-                        GPid                 *child_handle,
+                        GPid                 *child_pid,
                         gint                  stdin_fd,
                         gint                  stdout_fd,
                         gint                  stderr_fd,
                         GError              **error)
 {
-  g_return_val_if_fail (argv != NULL, FALSE);
+  g_return_val_if_fail (argv != NULL && argv[0] != NULL, FALSE);
   g_return_val_if_fail (stdin_fd == -1 ||
                         !(flags & G_SPAWN_STDOUT_TO_DEV_NULL), FALSE);
   g_return_val_if_fail (stderr_fd == -1 ||
@@ -1226,26 +1329,86 @@ g_spawn_async_with_fds (const gchar          *working_directory,
   g_return_val_if_fail (stdin_fd == -1 ||
                         !(flags & G_SPAWN_CHILD_INHERITS_STDIN), FALSE);
 
-  return do_spawn_with_fds (NULL,
-			    (flags & G_SPAWN_DO_NOT_REAP_CHILD),
-			    working_directory,
-			    argv,
-			    envp,
-			    flags,
-			    child_setup,
-			    child_handle,
-			    stdin_fd,
-			    stdout_fd,
-			    stderr_fd,
-			    NULL,
-			    error);
+  return fork_exec (NULL,
+                    (flags & G_SPAWN_DO_NOT_REAP_CHILD),
+                    working_directory,
+                    (const gchar * const *) argv,
+                    (const gchar * const *) envp,
+                    flags,
+                    child_setup,
+                    user_data,
+                    child_pid,
+                    NULL,
+                    NULL,
+                    NULL,
+                    stdin_fd,
+                    stdout_fd,
+                    stderr_fd,
+                    NULL, NULL, 0,
+                    NULL,
+                    error);
+
+}
+
+gboolean
+g_spawn_async_with_pipes_and_fds (const gchar           *working_directory,
+                                  const gchar * const   *argv,
+                                  const gchar * const   *envp,
+                                  GSpawnFlags            flags,
+                                  GSpawnChildSetupFunc   child_setup,
+                                  gpointer               user_data,
+                                  gint                   stdin_fd,
+                                  gint                   stdout_fd,
+                                  gint                   stderr_fd,
+                                  const gint            *source_fds,
+                                  const gint            *target_fds,
+                                  gsize                  n_fds,
+                                  GPid                  *child_pid_out,
+                                  gint                  *stdin_pipe_out,
+                                  gint                  *stdout_pipe_out,
+                                  gint                  *stderr_pipe_out,
+                                  GError               **error)
+{
+  g_return_val_if_fail (argv != NULL && argv[0] != NULL, FALSE);
+  g_return_val_if_fail (stdout_pipe_out == NULL ||
+                        !(flags & G_SPAWN_STDOUT_TO_DEV_NULL), FALSE);
+  g_return_val_if_fail (stderr_pipe_out == NULL ||
+                        !(flags & G_SPAWN_STDERR_TO_DEV_NULL), FALSE);
+  /* can't inherit stdin if we have an input pipe. */
+  g_return_val_if_fail (stdin_pipe_out == NULL ||
+                        !(flags & G_SPAWN_CHILD_INHERITS_STDIN), FALSE);
+  /* can’t use pipes and stdin/stdout/stderr FDs */
+  g_return_val_if_fail (stdin_pipe_out == NULL || stdin_fd < 0, FALSE);
+  g_return_val_if_fail (stdout_pipe_out == NULL || stdout_fd < 0, FALSE);
+  g_return_val_if_fail (stderr_pipe_out == NULL || stderr_fd < 0, FALSE);
+
+  return fork_exec (NULL,
+                    (flags & G_SPAWN_DO_NOT_REAP_CHILD),
+                    working_directory,
+                    argv,
+                    envp,
+                    flags,
+                    child_setup,
+                    user_data,
+                    child_pid_out,
+                    stdin_pipe_out,
+                    stdout_pipe_out,
+                    stderr_pipe_out,
+                    stdin_fd,
+                    stdout_fd,
+                    stderr_fd,
+                    source_fds,
+                    target_fds,
+                    n_fds,
+                    NULL,
+                    error);
 }
 
 gboolean
 g_spawn_command_line_sync (const gchar  *command_line,
                            gchar       **standard_output,
                            gchar       **standard_error,
-                           gint         *exit_status,
+                           gint         *wait_status,
                            GError      **error)
 {
   gboolean retval;
@@ -1253,6 +1416,7 @@ g_spawn_command_line_sync (const gchar  *command_line,
 
   g_return_val_if_fail (command_line != NULL, FALSE);
   
+  /* This will return a runtime error if @command_line is the empty string. */
   if (!g_shell_parse_argv (command_line,
                            NULL, &argv,
                            error))
@@ -1266,7 +1430,7 @@ g_spawn_command_line_sync (const gchar  *command_line,
                          NULL,
                          standard_output,
                          standard_error,
-                         exit_status,
+                         wait_status,
                          error);
   g_strfreev (argv);
 
@@ -1282,6 +1446,7 @@ g_spawn_command_line_async (const gchar *command_line,
 
   g_return_val_if_fail (command_line != NULL, FALSE);
 
+  /* This will return a runtime error if @command_line is the empty string. */
   if (!g_shell_parse_argv (command_line,
                            NULL, &argv,
                            error))
@@ -1303,26 +1468,38 @@ g_spawn_command_line_async (const gchar *command_line,
 void
 g_spawn_close_pid (GPid pid)
 {
+  /* CRT functions such as _wspawn* return (HANDLE)-1
+   * on failure, so check also for that value. */
+  if (pid != NULL && pid != (HANDLE) -1)
     CloseHandle (pid);
 }
 
 gboolean
-g_spawn_check_exit_status (gint      exit_status,
+g_spawn_check_wait_status (gint      wait_status,
 			   GError  **error)
 {
   gboolean ret = FALSE;
 
-  if (exit_status != 0)
+  if (wait_status != 0)
     {
-      g_set_error (error, G_SPAWN_EXIT_ERROR, exit_status,
+      /* On Windows, the wait status is just the exit status: the
+       * difference between the two that exists on Unix is not relevant */
+      g_set_error (error, G_SPAWN_EXIT_ERROR, wait_status,
 		   _("Child process exited with code %ld"),
-		   (long) exit_status);
+		   (long) wait_status);
       goto out;
     }
 
   ret = TRUE;
  out:
   return ret;
+}
+
+gboolean
+g_spawn_check_exit_status (gint      wait_status,
+                           GError  **error)
+{
+  return g_spawn_check_wait_status (wait_status, error);
 }
 
 #ifdef G_OS_WIN32
@@ -1356,12 +1533,12 @@ _GLIB_EXTERN gboolean g_spawn_sync_utf8               (const gchar           *wo
                                                        gpointer               user_data,
                                                        gchar                **standard_output,
                                                        gchar                **standard_error,
-                                                       gint                  *exit_status,
+                                                       gint                  *wait_status,
                                                        GError               **error);
 _GLIB_EXTERN gboolean g_spawn_command_line_sync_utf8  (const gchar           *command_line,
                                                        gchar                **standard_output,
                                                        gchar                **standard_error,
-                                                       gint                  *exit_status,
+                                                       gint                  *wait_status,
                                                        GError               **error);
 _GLIB_EXTERN gboolean g_spawn_command_line_async_utf8 (const gchar           *command_line,
                                                        GError               **error);
@@ -1373,7 +1550,7 @@ g_spawn_async_utf8 (const gchar          *working_directory,
                     GSpawnFlags           flags,
                     GSpawnChildSetupFunc  child_setup,
                     gpointer              user_data,
-                    GPid                 *child_handle,
+                    GPid                 *child_pid,
                     GError              **error)
 {
   return g_spawn_async (working_directory,
@@ -1382,7 +1559,7 @@ g_spawn_async_utf8 (const gchar          *working_directory,
                         flags,
                         child_setup,
                         user_data,
-                        child_handle,
+                        child_pid,
                         error);
 }
 
@@ -1393,7 +1570,7 @@ g_spawn_async_with_pipes_utf8 (const gchar          *working_directory,
                                GSpawnFlags           flags,
                                GSpawnChildSetupFunc  child_setup,
                                gpointer              user_data,
-                               GPid                 *child_handle,
+                               GPid                 *child_pid,
                                gint                 *standard_input,
                                gint                 *standard_output,
                                gint                 *standard_error,
@@ -1405,7 +1582,7 @@ g_spawn_async_with_pipes_utf8 (const gchar          *working_directory,
                                    flags,
                                    child_setup,
                                    user_data,
-                                   child_handle,
+                                   child_pid,
                                    standard_input,
                                    standard_output,
                                    standard_error,
@@ -1421,7 +1598,7 @@ g_spawn_sync_utf8 (const gchar          *working_directory,
                    gpointer              user_data,
                    gchar               **standard_output,
                    gchar               **standard_error,
-                   gint                 *exit_status,
+                   gint                 *wait_status,
                    GError              **error)
 {
   return g_spawn_sync (working_directory,
@@ -1432,7 +1609,7 @@ g_spawn_sync_utf8 (const gchar          *working_directory,
                        user_data,
                        standard_output,
                        standard_error,
-                       exit_status,
+                       wait_status,
                        error);
 }
 
@@ -1440,13 +1617,13 @@ gboolean
 g_spawn_command_line_sync_utf8 (const gchar  *command_line,
                                 gchar       **standard_output,
                                 gchar       **standard_error,
-                                gint         *exit_status,
+                                gint         *wait_status,
                                 GError      **error)
 {
   return g_spawn_command_line_sync (command_line,
                                     standard_output,
                                     standard_error,
-                                    exit_status,
+                                    wait_status,
                                     error);
 }
 

@@ -2,6 +2,8 @@
  * Copyright (C) 2009-2010 Christian Hergert <chris@dronelabs.com>
  * Copyright © 2010 Codethink Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as
  * published by the Free Software Foundation; either version 2.1 of the
@@ -89,8 +91,7 @@ typedef gint64 GTimeSpan;
 /**
  * GDateTime:
  *
- * `GDateTime` is an opaque structure whose members
- * cannot be accessed directly.
+ * An opaque structure that represents a date and time, including a time zone.
  *
  * Since: 2.26
  */
@@ -113,10 +114,12 @@ GDateTime *             g_date_time_new_from_unix_local                 (gint64 
 GLIB_AVAILABLE_IN_ALL
 GDateTime *             g_date_time_new_from_unix_utc                   (gint64          t);
 
-GLIB_AVAILABLE_IN_ALL
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+GLIB_DEPRECATED_IN_2_62_FOR(g_date_time_new_from_unix_local)
 GDateTime *             g_date_time_new_from_timeval_local              (const GTimeVal *tv);
-GLIB_AVAILABLE_IN_ALL
+GLIB_DEPRECATED_IN_2_62_FOR(g_date_time_new_from_unix_utc)
 GDateTime *             g_date_time_new_from_timeval_utc                (const GTimeVal *tv);
+G_GNUC_END_IGNORE_DEPRECATIONS
 
 GLIB_AVAILABLE_IN_2_56
 GDateTime *             g_date_time_new_from_iso8601                    (const gchar    *text,
@@ -238,9 +241,11 @@ gdouble                 g_date_time_get_seconds                         (GDateTi
 
 GLIB_AVAILABLE_IN_ALL
 gint64                  g_date_time_to_unix                             (GDateTime      *datetime);
-GLIB_AVAILABLE_IN_ALL
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+GLIB_DEPRECATED_IN_2_62_FOR(g_date_time_to_unix)
 gboolean                g_date_time_to_timeval                          (GDateTime      *datetime,
                                                                          GTimeVal       *tv);
+G_GNUC_END_IGNORE_DEPRECATIONS
 
 GLIB_AVAILABLE_IN_ALL
 GTimeSpan               g_date_time_get_utc_offset                      (GDateTime      *datetime);
@@ -262,6 +267,8 @@ GDateTime *             g_date_time_to_utc                              (GDateTi
 GLIB_AVAILABLE_IN_ALL
 gchar *                 g_date_time_format                              (GDateTime      *datetime,
                                                                          const gchar    *format) G_GNUC_MALLOC;
+GLIB_AVAILABLE_IN_2_62
+gchar *                 g_date_time_format_iso8601                      (GDateTime      *datetime) G_GNUC_MALLOC;
 
 G_END_DECLS
 

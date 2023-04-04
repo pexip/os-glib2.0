@@ -1,6 +1,8 @@
 /* GLIB sliced memory - fast concurrent memory chunk allocator
  * Copyright (C) 2005 Tim Janik
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -45,6 +47,7 @@
 #include "gtrashstack.h"
 #include "gtestutils.h"
 #include "gthread.h"
+#include "gthreadprivate.h"
 #include "glib_trace.h"
 #include "gprintf.h"
 
@@ -140,10 +143,10 @@
  * - the thread magazines. for each (aligned) chunk size, a magazine (a list)
  *   of recently freed and soon to be allocated chunks is maintained per thread.
  *   this way, most alloc/free requests can be quickly satisfied from per-thread
- *   free lists which only require one g_private_get() call to retrive the
+ *   free lists which only require one g_private_get() call to retrieve the
  *   thread handle.
  * - the magazine cache. allocating and freeing chunks to/from threads only
- *   occours at magazine sizes from a global depot of magazines. the depot
+ *   occurs at magazine sizes from a global depot of magazines. the depot
  *   maintaines a 15 second working set of allocated magazines, so full
  *   magazines are not allocated and released too often.
  *   the chunk size dependent magazine sizes automatically adapt (within limits,
@@ -290,7 +293,7 @@ static SliceConfig slice_config = {
 };
 static GMutex      smc_tree_mutex; /* mutex for G_SLICE=debug-blocks */
 
-/* --- auxiliary funcitons --- */
+/* --- auxiliary functions --- */
 void
 g_slice_set_config (GSliceConfig ckey,
                     gint64       value)
@@ -309,6 +312,7 @@ g_slice_set_config (GSliceConfig ckey,
       break;
     case G_SLICE_CONFIG_COLOR_INCREMENT:
       slice_config.color_increment = value;
+      break;
     default: ;
     }
 }
@@ -349,7 +353,7 @@ g_slice_get_config_state (GSliceConfig ckey,
       array[i++] = allocator->contention_counters[address];
       array[i++] = allocator_get_magazine_threshold (allocator, address);
       *n_values = i;
-      return g_memdup (array, sizeof (array[0]) * *n_values);
+      return g_memdup2 (array, sizeof (array[0]) * *n_values);
     default:
       return NULL;
     }
@@ -359,10 +363,52 @@ static void
 slice_config_init (SliceConfig *config)
 {
   const gchar *val;
+  gchar *val_allocated = NULL;
 
   *config = slice_config;
 
-  val = getenv ("G_SLICE");
+  /* Note that the empty string (`G_SLICE=""`) is treated differently from the
+   * envvar being unset. In the latter case, we also check whether running under
+   * valgrind. */
+#ifndef G_OS_WIN32
+  val = g_getenv ("G_SLICE");
+#else
+  /* The win32 implementation of g_getenv() has to do UTF-8 ↔ UTF-16 conversions
+   * which use the slice allocator, leading to deadlock. Use a simple in-place
+   * implementation here instead.
+   *
+   * Ignore references to other environment variables: only support values which
+   * are a combination of always-malloc and debug-blocks. */
+  {
+
+  wchar_t wvalue[128];  /* at least big enough for `always-malloc,debug-blocks` */
+  gsize len;
+
+  len = GetEnvironmentVariableW (L"G_SLICE", wvalue, G_N_ELEMENTS (wvalue));
+
+  if (len == 0)
+    {
+      if (GetLastError () == ERROR_ENVVAR_NOT_FOUND)
+        val = NULL;
+      else
+        val = "";
+    }
+  else if (len >= G_N_ELEMENTS (wvalue))
+    {
+      /* @wvalue isn’t big enough. Give up. */
+      g_warning ("Unsupported G_SLICE value");
+      val = NULL;
+    }
+  else
+    {
+      /* it’s safe to use g_utf16_to_utf8() here as it only allocates using
+       * malloc() rather than GSlice */
+      val = val_allocated = g_utf16_to_utf8 (wvalue, -1, NULL, NULL, NULL);
+    }
+
+  }
+#endif  /* G_OS_WIN32 */
+
   if (val != NULL)
     {
       gint flags;
@@ -390,6 +436,8 @@ slice_config_init (SliceConfig *config)
         config->always_malloc = TRUE;
 #endif
     }
+
+  g_free (val_allocated);
 }
 
 static void
@@ -515,10 +563,9 @@ thread_memory_from_self (void)
       g_mutex_unlock (&init_mutex);
 
       n_magazines = MAX_SLAB_INDEX (allocator);
-      tmem = g_malloc0 (sizeof (ThreadMemory) + sizeof (Magazine) * 2 * n_magazines);
+      tmem = g_private_set_alloc0 (&private_thread_memory, sizeof (ThreadMemory) + sizeof (Magazine) * 2 * n_magazines);
       tmem->magazine1 = (Magazine*) (tmem + 1);
       tmem->magazine2 = &tmem->magazine1[n_magazines];
-      g_private_set (&private_thread_memory, tmem);
     }
   return tmem;
 }
@@ -565,8 +612,8 @@ magazine_count (ChunkLink *head)
 #endif
 
 static inline gsize
-allocator_get_magazine_threshold (Allocator *allocator,
-                                  guint      ix)
+allocator_get_magazine_threshold (Allocator *local_allocator,
+                                  guint ix)
 {
   /* the magazine size calculated here has a lower bound of MIN_MAGAZINE_SIZE,
    * which is required by the implementation. also, for moderately sized chunks
@@ -577,9 +624,9 @@ allocator_get_magazine_threshold (Allocator *allocator,
    * MAX_MAGAZINE_SIZE. for larger chunks, this number is scaled down so that
    * the content of a single magazine doesn't exceed ca. 16KB.
    */
-  gsize chunk_size = SLAB_CHUNK_SIZE (allocator, ix);
-  guint threshold = MAX (MIN_MAGAZINE_SIZE, allocator->max_page_size / MAX (5 * chunk_size, 5 * 32));
-  guint contention_counter = allocator->contention_counters[ix];
+  gsize chunk_size = SLAB_CHUNK_SIZE (local_allocator, ix);
+  guint threshold = MAX (MIN_MAGAZINE_SIZE, local_allocator->max_page_size / MAX (5 * chunk_size, 5 * 32));
+  guint contention_counter = local_allocator->contention_counters[ix];
   if (G_UNLIKELY (contention_counter))  /* single CPU bias */
     {
       /* adapt contention counter thresholds to chunk sizes */
@@ -595,9 +642,8 @@ magazine_cache_update_stamp (void)
 {
   if (allocator->stamp_counter >= MAX_STAMP_COUNTER)
     {
-      GTimeVal tv;
-      g_get_current_time (&tv);
-      allocator->last_stamp = tv.tv_sec * 1000 + tv.tv_usec / 1000; /* milli seconds */
+      gint64 now_us = g_get_real_time ();
+      allocator->last_stamp = now_us / 1000; /* milli seconds */
       allocator->stamp_counter = 0;
     }
   else
@@ -632,15 +678,16 @@ magazine_chain_prepare_fields (ChunkLink *magazine_chunks)
 #define magazine_chain_count(mc)        ((mc)->next->next->next->data)
 
 static void
-magazine_cache_trim (Allocator *allocator,
-                     guint      ix,
-                     guint      stamp)
+magazine_cache_trim (Allocator *local_allocator,
+                     guint ix,
+                     guint stamp)
 {
-  /* g_mutex_lock (allocator->mutex); done by caller */
+  /* g_mutex_lock (local_allocator->mutex); done by caller */
   /* trim magazine cache from tail */
-  ChunkLink *current = magazine_chain_prev (allocator->magazines[ix]);
+  ChunkLink *current = magazine_chain_prev (local_allocator->magazines[ix]);
   ChunkLink *trash = NULL;
-  while (ABS (stamp - magazine_chain_uint_stamp (current)) >= allocator->config.working_set_msecs)
+  while (!G_APPROX_VALUE (stamp, magazine_chain_uint_stamp (current),
+                          local_allocator->config.working_set_msecs))
     {
       /* unlink */
       ChunkLink *prev = magazine_chain_prev (current);
@@ -654,19 +701,19 @@ magazine_cache_trim (Allocator *allocator,
       magazine_chain_prev (current) = trash;
       trash = current;
       /* fixup list head if required */
-      if (current == allocator->magazines[ix])
+      if (current == local_allocator->magazines[ix])
         {
-          allocator->magazines[ix] = NULL;
+          local_allocator->magazines[ix] = NULL;
           break;
         }
       current = prev;
     }
-  g_mutex_unlock (&allocator->magazine_mutex);
+  g_mutex_unlock (&local_allocator->magazine_mutex);
   /* free trash */
   if (trash)
     {
-      const gsize chunk_size = SLAB_CHUNK_SIZE (allocator, ix);
-      g_mutex_lock (&allocator->slab_mutex);
+      const gsize chunk_size = SLAB_CHUNK_SIZE (local_allocator, ix);
+      g_mutex_lock (&local_allocator->slab_mutex);
       while (trash)
         {
           current = trash;
@@ -678,7 +725,7 @@ magazine_cache_trim (Allocator *allocator,
               slab_allocator_free_chunk (chunk_size, chunk);
             }
         }
-      g_mutex_unlock (&allocator->slab_mutex);
+      g_mutex_unlock (&local_allocator->slab_mutex);
     }
 }
 
@@ -953,6 +1000,7 @@ thread_memory_magazine2_free (ThreadMemory *tmem,
  * @next: the field name of the next pointer in @type
  *
  * Frees a linked list of memory blocks of structure type @type.
+ *
  * The memory blocks must be equal-sized, allocated via
  * g_slice_alloc() or g_slice_alloc0() and linked together by
  * a @next pointer (similar to #GSList). The name of the
@@ -971,17 +1019,19 @@ thread_memory_magazine2_free (ThreadMemory *tmem,
  * @block_size: the number of bytes to allocate
  *
  * Allocates a block of memory from the slice allocator.
+ *
  * The block address handed out can be expected to be aligned
- * to at least 1 * sizeof (void*),
- * though in general slices are 2 * sizeof (void*) bytes aligned,
- * if a malloc() fallback implementation is used instead,
- * the alignment may be reduced in a libc dependent fashion.
+ * to at least `1 * sizeof (void*)`, though in general slices
+ * are `2 * sizeof (void*)` bytes aligned; if a `malloc()`
+ * fallback implementation is used instead, the alignment may
+ * be reduced in a libc dependent fashion.
+ *
  * Note that the underlying slice allocation mechanism can
  * be changed with the [`G_SLICE=always-malloc`][G_SLICE]
  * environment variable.
  *
- * Returns: a pointer to the allocated memory block, which will be %NULL if and
- *    only if @mem_size is 0
+ * Returns: a pointer to the allocated memory block, which will
+ *   be %NULL if and only if @mem_size is 0
  *
  * Since: 2.10
  */
@@ -1234,40 +1284,40 @@ g_slice_free_chain_with_offset (gsize    mem_size,
 
 /* --- single page allocator --- */
 static void
-allocator_slab_stack_push (Allocator *allocator,
-                           guint      ix,
-                           SlabInfo  *sinfo)
+allocator_slab_stack_push (Allocator *local_allocator,
+                           guint ix,
+                           SlabInfo *sinfo)
 {
   /* insert slab at slab ring head */
-  if (!allocator->slab_stack[ix])
+  if (!local_allocator->slab_stack[ix])
     {
       sinfo->next = sinfo;
       sinfo->prev = sinfo;
     }
   else
     {
-      SlabInfo *next = allocator->slab_stack[ix], *prev = next->prev;
+      SlabInfo *next = local_allocator->slab_stack[ix], *prev = next->prev;
       next->prev = sinfo;
       prev->next = sinfo;
       sinfo->next = next;
       sinfo->prev = prev;
     }
-  allocator->slab_stack[ix] = sinfo;
+  local_allocator->slab_stack[ix] = sinfo;
 }
 
 static gsize
-allocator_aligned_page_size (Allocator *allocator,
-                             gsize      n_bytes)
+allocator_aligned_page_size (Allocator *local_allocator,
+                             gsize n_bytes)
 {
-  gsize val = 1 << g_bit_storage (n_bytes - 1);
-  val = MAX (val, allocator->min_page_size);
+  gsize val = (gsize) 1 << g_bit_storage (n_bytes - 1);
+  val = MAX (val, local_allocator->min_page_size);
   return val;
 }
 
 static void
-allocator_add_slab (Allocator *allocator,
-                    guint      ix,
-                    gsize      chunk_size)
+allocator_add_slab (Allocator *local_allocator,
+                    guint ix,
+                    gsize chunk_size)
 {
   ChunkLink *chunk;
   SlabInfo *sinfo;
@@ -1278,7 +1328,7 @@ allocator_add_slab (Allocator *allocator,
   guint8 *mem;
   guint i;
 
-  page_size = allocator_aligned_page_size (allocator, SLAB_BPAGE_SIZE (allocator, chunk_size));
+  page_size = allocator_aligned_page_size (local_allocator, SLAB_BPAGE_SIZE (local_allocator, chunk_size));
   /* allocate 1 page for the chunks and the slab */
   aligned_memory = allocator_memalign (page_size, page_size - NATIVE_MALLOC_PADDING);
   errsv = errno;
@@ -1303,8 +1353,8 @@ allocator_add_slab (Allocator *allocator,
   padding = ((guint8*) sinfo - mem) - n_chunks * chunk_size;
   if (padding)
     {
-      color = (allocator->color_accu * P2ALIGNMENT) % padding;
-      allocator->color_accu += allocator->config.color_increment;
+      color = (local_allocator->color_accu * P2ALIGNMENT) % padding;
+      local_allocator->color_accu += local_allocator->config.color_increment;
     }
   /* add chunks to free list */
   chunk = (ChunkLink*) (mem + color);
@@ -1316,7 +1366,7 @@ allocator_add_slab (Allocator *allocator,
     }
   chunk->next = NULL;   /* last chunk */
   /* add slab to slab ring */
-  allocator_slab_stack_push (allocator, ix, sinfo);
+  allocator_slab_stack_push (local_allocator, ix, sinfo);
 }
 
 static gpointer
@@ -1396,7 +1446,9 @@ slab_allocator_free_chunk (gsize    chunk_size,
  */
 
 #if !(HAVE_POSIX_MEMALIGN || HAVE_MEMALIGN || HAVE_VALLOC)
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 static GTrashStack *compat_valloc_trash = NULL;
+G_GNUC_END_IGNORE_DEPRECATIONS
 #endif
 
 static gpointer

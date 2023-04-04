@@ -2,6 +2,8 @@
  *
  * Copyright 2010, 2013 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -50,7 +52,7 @@
 
 typedef struct {
   gchar        *name;
-  gint          length;
+  gsize          length;
   gushort       port;
 } GSimpleProxyResolverDomain;
 
@@ -259,7 +261,8 @@ ignore_host (GSimpleProxyResolver *resolver,
   GSimpleProxyResolverPrivate *priv = resolver->priv;
   gchar *ascii_host = NULL;
   gboolean ignore = FALSE;
-  gint i, length, offset;
+  gsize offset, length;
+  guint i;
 
   if (priv->ignore_ips)
     {
@@ -297,6 +300,9 @@ ignore_host (GSimpleProxyResolver *resolver,
 	{
 	  GSimpleProxyResolverDomain *domain = &priv->ignore_domains[i];
 
+          if (domain->length > length)
+            continue;
+
 	  offset = length - domain->length;
 	  if ((domain->port == 0 || domain->port == port) &&
 	      (offset == 0 || (offset > 0 && host[offset - 1] == '.')) &&
@@ -327,10 +333,11 @@ g_simple_proxy_resolver_lookup (GProxyResolver  *proxy_resolver,
   if (priv->ignore_ips || priv->ignore_domains)
     {
       gchar *host = NULL;
-      gushort port;
+      gint port;
 
-      if (_g_uri_parse_authority (uri, &host, &port, NULL, NULL) &&
-          ignore_host (resolver, host, port))
+      if (g_uri_split_network (uri, G_URI_FLAGS_NONE, NULL,
+                               &host, &port, NULL) &&
+          ignore_host (resolver, host, port > 0 ? port : 0))
         proxy = "direct://";
 
       g_free (host);
@@ -410,7 +417,7 @@ g_simple_proxy_resolver_class_init (GSimpleProxyResolverClass *resolver_class)
   object_class->finalize = g_simple_proxy_resolver_finalize;
 
   /**
-   * GSimpleProxyResolver:default-proxy:
+   * GSimpleProxyResolver:default-proxy: (nullable)
    *
    * The default proxy URI that will be used for any URI that doesn't
    * match #GSimpleProxyResolver:ignore-hosts, and doesn't match any
@@ -488,7 +495,7 @@ g_simple_proxy_resolver_iface_init (GProxyResolverInterface *iface)
  * g_simple_proxy_resolver_new:
  * @default_proxy: (nullable): the default proxy to use, eg
  *     "socks://192.168.1.1"
- * @ignore_hosts: (nullable): an optional list of hosts/IP addresses
+ * @ignore_hosts: (array zero-terminated=1) (nullable): an optional list of hosts/IP addresses
  *     to not use a proxy for.
  *
  * Creates a new #GSimpleProxyResolver. See
@@ -513,7 +520,7 @@ g_simple_proxy_resolver_new (const gchar  *default_proxy,
 /**
  * g_simple_proxy_resolver_set_default_proxy:
  * @resolver: a #GSimpleProxyResolver
- * @default_proxy: the default proxy to use
+ * @default_proxy: (nullable): the default proxy to use
  *
  * Sets the default proxy on @resolver, to be used for any URIs that
  * don't match #GSimpleProxyResolver:ignore-hosts or a proxy set
@@ -530,6 +537,7 @@ g_simple_proxy_resolver_set_default_proxy (GSimpleProxyResolver *resolver,
                                            const gchar          *default_proxy)
 {
   g_return_if_fail (G_IS_SIMPLE_PROXY_RESOLVER (resolver));
+  g_return_if_fail (default_proxy == NULL || g_uri_is_valid (default_proxy, G_URI_FLAGS_NONE, NULL));
 
   g_free (resolver->priv->default_proxy);
   resolver->priv->default_proxy = g_strdup (default_proxy);
@@ -539,7 +547,7 @@ g_simple_proxy_resolver_set_default_proxy (GSimpleProxyResolver *resolver,
 /**
  * g_simple_proxy_resolver_set_ignore_hosts:
  * @resolver: a #GSimpleProxyResolver
- * @ignore_hosts: %NULL-terminated list of hosts/IP addresses
+ * @ignore_hosts: (array zero-terminated=1): %NULL-terminated list of hosts/IP addresses
  *     to not use a proxy for
  *
  * Sets the list of ignored hosts.

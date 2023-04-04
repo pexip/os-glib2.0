@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2010 Collabora, Ltd.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -233,7 +235,7 @@ g_proxy_address_class_init (GProxyAddressClass *klass)
   g_object_class_install_property (gobject_class,
 				   PROP_DESTINATION_PROTOCOL,
 				   g_param_spec_string ("destination-protocol",
-						       P_("Destionation Protocol"),
+						       P_("Destination Protocol"),
 						       P_("The proxy destination protocol"),
 						       NULL,
 						       G_PARAM_READWRITE |
@@ -409,7 +411,7 @@ g_proxy_address_get_destination_port (GProxyAddress *proxy)
  *
  * Gets @proxy's username.
  *
- * Returns: the @proxy's username
+ * Returns: (nullable): the @proxy's username
  *
  * Since: 2.26
  */
@@ -425,7 +427,7 @@ g_proxy_address_get_username (GProxyAddress *proxy)
  *
  * Gets @proxy's password.
  *
- * Returns: the @proxy's password
+ * Returns: (nullable): the @proxy's password
  *
  * Since: 2.26
  */
@@ -442,7 +444,7 @@ g_proxy_address_get_password (GProxyAddress *proxy)
  *
  * Gets the proxy URI that @proxy was constructed from.
  *
- * Returns: the @proxy's URI, or %NULL if unknown
+ * Returns: (nullable): the @proxy's URI, or %NULL if unknown
  *
  * Since: 2.34
  */

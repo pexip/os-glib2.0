@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -20,11 +22,13 @@
 
 #include "config.h"
 
+#include "gcancellable.h"
 #include "gdbusobjectmanager.h"
 #include "gdbusobjectmanagerclient.h"
 #include "gdbusobject.h"
 #include "gdbusprivate.h"
 #include "gioenumtypes.h"
+#include "gioerror.h"
 #include "ginitable.h"
 #include "gasyncresult.h"
 #include "gasyncinitable.h"
@@ -36,6 +40,7 @@
 #include "gdbusinterface.h"
 
 #include "glibintl.h"
+#include "gmarshal-internal.h"
 
 /**
  * SECTION:gdbusobjectmanagerclient
@@ -140,6 +145,10 @@ struct _GDBusObjectManagerClientPrivate
   GDBusProxyTypeFunc get_proxy_type_func;
   gpointer get_proxy_type_user_data;
   GDestroyNotify get_proxy_type_destroy_notify;
+
+  gulong name_owner_signal_id;
+  gulong signal_signal_id;
+  GCancellable *cancel;
 };
 
 enum
@@ -188,6 +197,20 @@ static void process_get_all_result (GDBusObjectManagerClient *manager,
                                     const gchar       *name_owner);
 
 static void
+g_dbus_object_manager_client_dispose (GObject *object)
+{
+  GDBusObjectManagerClient *manager = G_DBUS_OBJECT_MANAGER_CLIENT (object);
+
+  if (manager->priv->cancel != NULL)
+    {
+      g_cancellable_cancel (manager->priv->cancel);
+      g_clear_object (&manager->priv->cancel);
+    }
+
+  G_OBJECT_CLASS (g_dbus_object_manager_client_parent_class)->dispose (object);
+}
+
+static void
 g_dbus_object_manager_client_finalize (GObject *object)
 {
   GDBusObjectManagerClient *manager = G_DBUS_OBJECT_MANAGER_CLIENT (object);
@@ -196,13 +219,18 @@ g_dbus_object_manager_client_finalize (GObject *object)
 
   g_hash_table_unref (manager->priv->map_object_path_to_object_proxy);
 
-  if (manager->priv->control_proxy != NULL)
-    {
-      g_signal_handlers_disconnect_by_func (manager->priv->control_proxy,
-                                            on_control_proxy_g_signal,
-                                            manager);
-      g_object_unref (manager->priv->control_proxy);
-    }
+  if (manager->priv->control_proxy != NULL && manager->priv->signal_signal_id != 0)
+    g_signal_handler_disconnect (manager->priv->control_proxy,
+                                 manager->priv->signal_signal_id);
+  manager->priv->signal_signal_id = 0;
+
+  if (manager->priv->control_proxy != NULL && manager->priv->name_owner_signal_id != 0)
+    g_signal_handler_disconnect (manager->priv->control_proxy,
+                                 manager->priv->name_owner_signal_id);
+  manager->priv->name_owner_signal_id = 0;
+
+  g_clear_object (&manager->priv->control_proxy);
+
   if (manager->priv->connection != NULL)
     g_object_unref (manager->priv->connection);
   g_free (manager->priv->object_path);
@@ -318,6 +346,7 @@ g_dbus_object_manager_client_class_init (GDBusObjectManagerClientClass *klass)
 {
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
 
+  gobject_class->dispose      = g_dbus_object_manager_client_dispose;
   gobject_class->finalize     = g_dbus_object_manager_client_finalize;
   gobject_class->set_property = g_dbus_object_manager_client_set_property;
   gobject_class->get_property = g_dbus_object_manager_client_get_property;
@@ -517,7 +546,7 @@ g_dbus_object_manager_client_class_init (GDBusObjectManagerClientClass *klass)
                   G_STRUCT_OFFSET (GDBusObjectManagerClientClass, interface_proxy_signal),
                   NULL,
                   NULL,
-                  NULL,
+                  _g_cclosure_marshal_VOID__OBJECT_OBJECT_STRING_STRING_VARIANT,
                   G_TYPE_NONE,
                   5,
                   G_TYPE_DBUS_OBJECT_PROXY,
@@ -525,6 +554,9 @@ g_dbus_object_manager_client_class_init (GDBusObjectManagerClientClass *klass)
                   G_TYPE_STRING,
                   G_TYPE_STRING,
                   G_TYPE_VARIANT);
+  g_signal_set_va_marshaller (signals[INTERFACE_PROXY_SIGNAL_SIGNAL],
+                              G_TYPE_FROM_CLASS (klass),
+                              _g_cclosure_marshal_VOID__OBJECT_OBJECT_STRING_STRING_VARIANTv);
 
   /**
    * GDBusObjectManagerClient::interface-proxy-properties-changed:
@@ -556,13 +588,16 @@ g_dbus_object_manager_client_class_init (GDBusObjectManagerClientClass *klass)
                   G_STRUCT_OFFSET (GDBusObjectManagerClientClass, interface_proxy_properties_changed),
                   NULL,
                   NULL,
-                  NULL,
+                  _g_cclosure_marshal_VOID__OBJECT_OBJECT_VARIANT_BOXED,
                   G_TYPE_NONE,
                   4,
                   G_TYPE_DBUS_OBJECT_PROXY,
                   G_TYPE_DBUS_PROXY,
                   G_TYPE_VARIANT,
                   G_TYPE_STRV);
+  g_signal_set_va_marshaller (signals[INTERFACE_PROXY_PROPERTIES_CHANGED_SIGNAL],
+                              G_TYPE_FROM_CLASS (klass),
+                              _g_cclosure_marshal_VOID__OBJECT_OBJECT_VARIANT_BOXEDv);
 }
 
 static void
@@ -574,6 +609,7 @@ g_dbus_object_manager_client_init (GDBusObjectManagerClient *manager)
                                                                           g_str_equal,
                                                                           g_free,
                                                                           (GDestroyNotify) g_object_unref);
+  manager->priv->cancel = g_cancellable_new ();
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -1009,17 +1045,17 @@ signal_cb (GDBusConnection *connection,
     {
       if (g_strcmp0 (signal_name, "PropertiesChanged") == 0)
         {
-          const gchar *interface_name;
+          const gchar *properties_interface_name;
           GVariant *changed_properties;
           const gchar **invalidated_properties;
 
           g_variant_get (parameters,
                          "(&s@a{sv}^a&s)",
-                         &interface_name,
+                         &properties_interface_name,
                          &changed_properties,
                          &invalidated_properties);
 
-          interface = g_dbus_object_get_interface (G_DBUS_OBJECT (object_proxy), interface_name);
+          interface = g_dbus_object_get_interface (G_DBUS_OBJECT (object_proxy), properties_interface_name);
           if (interface != NULL)
             {
               GVariantIter property_iter;
@@ -1149,7 +1185,7 @@ subscribe_signals (GDBusObjectManagerClient *manager,
                                             name_owner,
                                             NULL, /* interface */
                                             NULL, /* member */
-                                            NULL, /* path - TODO: really want wilcard support here */
+                                            NULL, /* path - TODO: really want wildcard support here */
                                             NULL, /* arg0 */
                                             G_DBUS_SIGNAL_FLAGS_NONE |
                                             G_DBUS_SIGNAL_FLAGS_NO_MATCH_RULE,
@@ -1182,7 +1218,7 @@ subscribe_signals (GDBusObjectManagerClient *manager,
                                             name_owner,
                                             NULL, /* interface */
                                             NULL, /* member */
-                                            NULL, /* path - TODO: really want wilcard support here */
+                                            NULL, /* path - TODO: really want wildcard support here */
                                             NULL, /* arg0 */
                                             G_DBUS_SIGNAL_FLAGS_NONE,
                                             signal_cb,
@@ -1229,21 +1265,94 @@ maybe_unsubscribe_signals (GDBusObjectManagerClient *manager)
 
 /* ---------------------------------------------------------------------------------------------------- */
 
+static GWeakRef *
+weak_ref_new (GObject *object)
+{
+  GWeakRef *weak_ref = g_new0 (GWeakRef, 1);
+  g_weak_ref_init (weak_ref, object);
+  return g_steal_pointer (&weak_ref);
+}
+
+static void
+weak_ref_free (GWeakRef *weak_ref)
+{
+  g_weak_ref_clear (weak_ref);
+  g_free (weak_ref);
+}
+
+static void
+on_get_managed_objects_finish (GObject      *source,
+                               GAsyncResult *result,
+                               gpointer      user_data)
+{
+
+  GDBusProxy *proxy = G_DBUS_PROXY (source);
+  GWeakRef *manager_weak = user_data;
+  GDBusObjectManagerClient *manager;
+  GError *error = NULL;
+  GVariant *value = NULL;
+  gchar *new_name_owner = NULL;
+
+  value = g_dbus_proxy_call_finish (proxy, result, &error);
+
+  manager = G_DBUS_OBJECT_MANAGER_CLIENT (g_weak_ref_get (manager_weak));
+  /* Manager got disposed, nothing to do */
+  if (manager == NULL)
+    {
+      goto out;
+    }
+
+  new_name_owner = g_dbus_proxy_get_name_owner (manager->priv->control_proxy);
+  if (value == NULL)
+    {
+      maybe_unsubscribe_signals (manager);
+      if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+        {
+          g_warning ("Error calling GetManagedObjects() when name owner %s for name %s came back: %s",
+                     new_name_owner,
+                     manager->priv->name,
+                     error->message);
+        }
+    }
+  else
+    {
+      process_get_all_result (manager, value, new_name_owner);
+    }
+
+  /* do the :name-owner notify *AFTER* emitting ::object-proxy-added signals - this
+   * way the user knows that the signals were emitted because the name owner came back
+   */
+  g_mutex_lock (&manager->priv->lock);
+  manager->priv->name_owner = g_steal_pointer (&new_name_owner);
+  g_mutex_unlock (&manager->priv->lock);
+  g_object_notify (G_OBJECT (manager), "name-owner");
+
+  g_object_unref (manager);
+ out:
+  g_clear_error (&error);
+  g_clear_pointer (&value, g_variant_unref);
+  weak_ref_free (manager_weak);
+}
+
 static void
 on_notify_g_name_owner (GObject    *object,
                         GParamSpec *pspec,
                         gpointer    user_data)
 {
-  GDBusObjectManagerClient *manager = G_DBUS_OBJECT_MANAGER_CLIENT (user_data);
+  GWeakRef *manager_weak = user_data;
+  GDBusObjectManagerClient *manager = NULL;
   gchar *old_name_owner;
   gchar *new_name_owner;
+
+  manager = G_DBUS_OBJECT_MANAGER_CLIENT (g_weak_ref_get (manager_weak));
+  if (manager == NULL)
+    return;
 
   g_mutex_lock (&manager->priv->lock);
   old_name_owner = manager->priv->name_owner;
   new_name_owner = g_dbus_proxy_get_name_owner (manager->priv->control_proxy);
   manager->priv->name_owner = NULL;
 
-  g_object_ref (manager);
   if (g_strcmp0 (old_name_owner, new_name_owner) != 0)
     {
       GList *l;
@@ -1279,46 +1388,20 @@ on_notify_g_name_owner (GObject    *object,
 
   if (new_name_owner != NULL)
     {
-      GError *error;
-      GVariant *value;
-
       //g_debug ("repopulating for %s", new_name_owner);
 
-      /* TODO: do this async! */
       subscribe_signals (manager,
                          new_name_owner);
-      error = NULL;
-      value = g_dbus_proxy_call_sync (manager->priv->control_proxy,
-                                      "GetManagedObjects",
-                                      NULL, /* parameters */
-                                      G_DBUS_CALL_FLAGS_NONE,
-                                      -1,
-                                      NULL,
-                                      &error);
-      if (value == NULL)
-        {
-          maybe_unsubscribe_signals (manager);
-          g_warning ("Error calling GetManagedObjects() when name owner %s for name %s came back: %s",
-                     new_name_owner,
-                     manager->priv->name,
-                     error->message);
-          g_error_free (error);
-        }
-      else
-        {
-          process_get_all_result (manager, value, new_name_owner);
-          g_variant_unref (value);
-        }
-
-      /* do the :name-owner notify *AFTER* emitting ::object-proxy-added signals - this
-       * way the user knows that the signals were emitted because the name owner came back
-       */
-      g_mutex_lock (&manager->priv->lock);
-      manager->priv->name_owner = new_name_owner;
-      g_mutex_unlock (&manager->priv->lock);
-      g_object_notify (G_OBJECT (manager), "name-owner");
-
+      g_dbus_proxy_call (manager->priv->control_proxy,
+                         "GetManagedObjects",
+                         NULL, /* parameters */
+                         G_DBUS_CALL_FLAGS_NONE,
+                         -1,
+                         manager->priv->cancel,
+                         on_get_managed_objects_finish,
+                         weak_ref_new (G_OBJECT (manager)));
     }
+  g_free (new_name_owner);
   g_free (old_name_owner);
   g_object_unref (manager);
 }
@@ -1358,15 +1441,30 @@ initable_init (GInitable     *initable,
   if (manager->priv->control_proxy == NULL)
     goto out;
 
-  g_signal_connect (G_OBJECT (manager->priv->control_proxy),
-                    "notify::g-name-owner",
-                    G_CALLBACK (on_notify_g_name_owner),
-                    manager);
+  /* Use weak refs here. The @control_proxy will emit its signals in the current
+   * #GMainContext (since we constructed it just above). However, the user may
+   * drop the last external reference to this #GDBusObjectManagerClient in
+   * another thread between a signal being emitted and scheduled in an idle
+   * callback in this #GMainContext, and that idle callback being invoked. We
+   * can’t use a strong reference here, as there’s no
+   * g_dbus_object_manager_client_disconnect() (or similar) method to tell us
+   * when the last external reference to this object has been dropped, so we
+   * can’t break a strong reference count cycle. So use weak refs. */
+  manager->priv->name_owner_signal_id =
+      g_signal_connect_data (G_OBJECT (manager->priv->control_proxy),
+                            "notify::g-name-owner",
+                            G_CALLBACK (on_notify_g_name_owner),
+                            weak_ref_new (G_OBJECT (manager)),
+                            (GClosureNotify) weak_ref_free,
+                            G_CONNECT_DEFAULT);
 
-  g_signal_connect (manager->priv->control_proxy,
-                    "g-signal",
-                    G_CALLBACK (on_control_proxy_g_signal),
-                    manager);
+  manager->priv->signal_signal_id =
+      g_signal_connect_data (manager->priv->control_proxy,
+                            "g-signal",
+                            G_CALLBACK (on_control_proxy_g_signal),
+                            weak_ref_new (G_OBJECT (manager)),
+                            (GClosureNotify) weak_ref_free,
+                            G_CONNECT_DEFAULT);
 
   manager->priv->name_owner = g_dbus_proxy_get_name_owner (manager->priv->control_proxy);
   if (manager->priv->name_owner == NULL && manager->priv->name != NULL)
@@ -1390,11 +1488,20 @@ initable_init (GInitable     *initable,
       if (value == NULL)
         {
           maybe_unsubscribe_signals (manager);
-          g_warn_if_fail (g_signal_handlers_disconnect_by_func (manager->priv->control_proxy,
-                                                                on_control_proxy_g_signal,
-                                                                manager) == 1);
+
+          g_warn_if_fail (manager->priv->signal_signal_id != 0);
+          g_signal_handler_disconnect (manager->priv->control_proxy,
+                                       manager->priv->signal_signal_id);
+          manager->priv->signal_signal_id = 0;
+
+          g_warn_if_fail (manager->priv->name_owner_signal_id != 0);
+          g_signal_handler_disconnect (manager->priv->control_proxy,
+                                       manager->priv->name_owner_signal_id);
+          manager->priv->name_owner_signal_id = 0;
+
           g_object_unref (manager->priv->control_proxy);
           manager->priv->control_proxy = NULL;
+
           goto out;
         }
 
@@ -1584,11 +1691,11 @@ remove_interfaces (GDBusObjectManagerClient   *manager,
   op = g_hash_table_lookup (manager->priv->map_object_path_to_object_proxy, object_path);
   if (op == NULL)
     {
-      g_warning ("%s: Processing InterfaceRemoved signal for path %s but no object proxy exists",
-                 G_STRLOC,
-                 object_path);
+      g_debug ("%s: Processing InterfaceRemoved signal for path %s but no object proxy exists",
+               G_STRLOC,
+               object_path);
       g_mutex_unlock (&manager->priv->lock);
-      goto out;
+      return;
     }
 
   interfaces = g_dbus_object_get_interfaces (G_DBUS_OBJECT (op));
@@ -1625,8 +1732,6 @@ remove_interfaces (GDBusObjectManagerClient   *manager,
       g_object_unref (op);
     }
   g_object_unref (manager);
- out:
-  ;
 }
 
 static void
@@ -1661,8 +1766,13 @@ on_control_proxy_g_signal (GDBusProxy   *proxy,
                            GVariant     *parameters,
                            gpointer      user_data)
 {
-  GDBusObjectManagerClient *manager = G_DBUS_OBJECT_MANAGER_CLIENT (user_data);
+  GWeakRef *manager_weak = user_data;
+  GDBusObjectManagerClient *manager = NULL;
   const gchar *object_path;
+
+  manager = G_DBUS_OBJECT_MANAGER_CLIENT (g_weak_ref_get (manager_weak));
+  if (manager == NULL)
+    return;
 
   //g_debug ("yay, g_signal %s: %s\n", signal_name, g_variant_print (parameters, TRUE));
 
@@ -1686,6 +1796,8 @@ on_control_proxy_g_signal (GDBusProxy   *proxy,
       remove_interfaces (manager, object_path, ifaces);
       g_free (ifaces);
     }
+
+  g_object_unref (manager);
 }
 
 /* ---------------------------------------------------------------------------------------------------- */

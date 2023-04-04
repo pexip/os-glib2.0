@@ -2,6 +2,8 @@
  *
  * Copyright © 2010 Red Hat, Inc
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -55,11 +57,25 @@ g_tls_client_connection_default_init (GTlsClientConnectionInterface *iface)
    * GTlsClientConnection:validation-flags:
    *
    * What steps to perform when validating a certificate received from
-   * a server. Server certificates that fail to validate in all of the
+   * a server. Server certificates that fail to validate in any of the
    * ways indicated here will be rejected unless the application
    * overrides the default via #GTlsConnection::accept-certificate.
    *
+   * GLib guarantees that if certificate verification fails, at least one
+   * flag will be set, but it does not guarantee that all possible flags
+   * will be set. Accordingly, you may not safely decide to ignore any
+   * particular type of error. For example, it would be incorrect to mask
+   * %G_TLS_CERTIFICATE_EXPIRED if you want to allow expired certificates,
+   * because this could potentially be the only error flag set even if
+   * other problems exist with the certificate. Therefore, there is no
+   * safe way to use this property. This is not a horrible problem,
+   * though, because you should not be attempting to ignore validation
+   * errors anyway. If you really must ignore TLS certificate errors,
+   * connect to #GTlsConnection::accept-certificate.
+   *
    * Since: 2.28
+   *
+   * Deprecated: 2.72: Do not attempt to ignore validation errors.
    */
   g_object_interface_install_property (iface,
 				       g_param_spec_flags ("validation-flags",
@@ -69,7 +85,8 @@ g_tls_client_connection_default_init (GTlsClientConnectionInterface *iface)
 							   G_TLS_CERTIFICATE_VALIDATE_ALL,
 							   G_PARAM_READWRITE |
 							   G_PARAM_CONSTRUCT |
-							   G_PARAM_STATIC_STRINGS));
+							   G_PARAM_STATIC_STRINGS |
+							   G_PARAM_DEPRECATED));
 
   /**
    * GTlsClientConnection:server-identity:
@@ -103,14 +120,12 @@ g_tls_client_connection_default_init (GTlsClientConnectionInterface *iface)
   /**
    * GTlsClientConnection:use-ssl3:
    *
-   * If %TRUE, forces the connection to use a fallback version of TLS
-   * or SSL, rather than trying to negotiate the best version of TLS
-   * to use. See g_tls_client_connection_set_use_ssl3().
+   * SSL 3.0 is no longer supported. See
+   * g_tls_client_connection_set_use_ssl3() for details.
    *
    * Since: 2.28
    *
-   * Deprecated: 2.56: SSL 3.0 is insecure, and this property does not
-   * generally enable or disable it, despite its name.
+   * Deprecated: 2.56: SSL 3.0 is insecure.
    */
   g_object_interface_install_property (iface,
 				       g_param_spec_boolean ("use-ssl3",
@@ -185,14 +200,20 @@ g_tls_client_connection_new (GIOStream           *base_io_stream,
  *
  * Gets @conn's validation flags
  *
+ * This function does not work as originally designed and is impossible
+ * to use correctly. See #GTlsClientConnection:validation-flags for more
+ * information.
+ *
  * Returns: the validation flags
  *
  * Since: 2.28
+ *
+ * Deprecated: 2.72: Do not attempt to ignore validation errors.
  */
 GTlsCertificateFlags
 g_tls_client_connection_get_validation_flags (GTlsClientConnection *conn)
 {
-  GTlsCertificateFlags flags = 0;
+  GTlsCertificateFlags flags = G_TLS_CERTIFICATE_NO_FLAGS;
 
   g_return_val_if_fail (G_IS_TLS_CLIENT_CONNECTION (conn), 0);
 
@@ -209,7 +230,13 @@ g_tls_client_connection_get_validation_flags (GTlsClientConnection *conn)
  * checks performed when validating a server certificate. By default,
  * %G_TLS_CERTIFICATE_VALIDATE_ALL is used.
  *
+ * This function does not work as originally designed and is impossible
+ * to use correctly. See #GTlsClientConnection:validation-flags for more
+ * information.
+ *
  * Since: 2.28
+ *
+ * Deprecated: 2.72: Do not attempt to ignore validation errors.
  */
 void
 g_tls_client_connection_set_validation_flags (GTlsClientConnection  *conn,
@@ -226,7 +253,7 @@ g_tls_client_connection_set_validation_flags (GTlsClientConnection  *conn,
  *
  * Gets @conn's expected server identity
  *
- * Returns: (transfer none): a #GSocketConnectable describing the
+ * Returns: (nullable) (transfer none): a #GSocketConnectable describing the
  * expected server identity, or %NULL if the expected identity is not
  * known.
  *
@@ -270,16 +297,14 @@ g_tls_client_connection_set_server_identity (GTlsClientConnection *conn,
  * g_tls_client_connection_get_use_ssl3:
  * @conn: the #GTlsClientConnection
  *
- * Gets whether @conn will force the lowest-supported TLS protocol
- * version rather than attempt to negotiate the highest mutually-
- * supported version of TLS; see g_tls_client_connection_set_use_ssl3().
+ * SSL 3.0 is no longer supported. See
+ * g_tls_client_connection_set_use_ssl3() for details.
  *
- * Returns: whether @conn will use the lowest-supported TLS protocol version
+ * Returns: %FALSE
  *
  * Since: 2.28
  *
- * Deprecated: 2.56: SSL 3.0 is insecure, and this function does not
- * actually indicate whether it is enabled.
+ * Deprecated: 2.56: SSL 3.0 is insecure.
  */
 gboolean
 g_tls_client_connection_get_use_ssl3 (GTlsClientConnection *conn)
@@ -289,32 +314,28 @@ g_tls_client_connection_get_use_ssl3 (GTlsClientConnection *conn)
   g_return_val_if_fail (G_IS_TLS_CLIENT_CONNECTION (conn), 0);
 
   g_object_get (G_OBJECT (conn), "use-ssl3", &use_ssl3, NULL);
-  return use_ssl3;
+  return FALSE;
 }
 
 /**
  * g_tls_client_connection_set_use_ssl3:
  * @conn: the #GTlsClientConnection
- * @use_ssl3: whether to use the lowest-supported protocol version
+ * @use_ssl3: a #gboolean, ignored
  *
- * Since 2.42.1, if @use_ssl3 is %TRUE, this forces @conn to use the
- * lowest-supported TLS protocol version rather than trying to properly
- * negotiate the highest mutually-supported protocol version with the
- * peer. Be aware that SSL 3.0 is generally disabled by the
- * #GTlsBackend, so the lowest-supported protocol version is probably
- * not SSL 3.0.
+ * Since GLib 2.42.1, SSL 3.0 is no longer supported.
  *
- * Since 2.58, this may additionally cause an RFC 7507 fallback SCSV to
- * be sent to the server, causing modern TLS servers to immediately
- * terminate the connection. You should generally only use this function
- * if you need to connect to broken servers that exhibit TLS protocol
- * version intolerance, and when an initial attempt to connect to a
- * server normally has already failed.
+ * From GLib 2.42.1 through GLib 2.62, this function could be used to
+ * force use of TLS 1.0, the lowest-supported TLS protocol version at
+ * the time. In the past, this was needed to connect to broken TLS
+ * servers that exhibited protocol version intolerance. Such servers
+ * are no longer common, and using TLS 1.0 is no longer considered
+ * acceptable.
+ *
+ * Since GLib 2.64, this function does nothing.
  *
  * Since: 2.28
  *
- * Deprecated: 2.56: SSL 3.0 is insecure, and this function does not
- * generally enable or disable it, despite its name.
+ * Deprecated: 2.56: SSL 3.0 is insecure.
  */
 void
 g_tls_client_connection_set_use_ssl3 (GTlsClientConnection *conn,
@@ -322,7 +343,7 @@ g_tls_client_connection_set_use_ssl3 (GTlsClientConnection *conn,
 {
   g_return_if_fail (G_IS_TLS_CLIENT_CONNECTION (conn));
 
-  g_object_set (G_OBJECT (conn), "use-ssl3", use_ssl3, NULL);
+  g_object_set (G_OBJECT (conn), "use-ssl3", FALSE, NULL);
 }
 
 /**
@@ -359,12 +380,34 @@ g_tls_client_connection_get_accepted_cas (GTlsClientConnection *conn)
  * @conn: a #GTlsClientConnection
  * @source: a #GTlsClientConnection
  *
- * Copies session state from one connection to another. This is
- * not normally needed, but may be used when the same session
- * needs to be used between different endpoints as is required
- * by some protocols such as FTP over TLS. @source should have
- * already completed a handshake, and @conn should not have
- * completed a handshake.
+ * Possibly copies session state from one connection to another, for use
+ * in TLS session resumption. This is not normally needed, but may be
+ * used when the same session needs to be used between different
+ * endpoints, as is required by some protocols, such as FTP over TLS.
+ * @source should have already completed a handshake and, since TLS 1.3,
+ * it should have been used to read data at least once. @conn should not
+ * have completed a handshake.
+ *
+ * It is not possible to know whether a call to this function will
+ * actually do anything. Because session resumption is normally used
+ * only for performance benefit, the TLS backend might not implement
+ * this function. Even if implemented, it may not actually succeed in
+ * allowing @conn to resume @source's TLS session, because the server
+ * may not have sent a session resumption token to @source, or it may
+ * refuse to accept the token from @conn. There is no way to know
+ * whether a call to this function is actually successful.
+ *
+ * Using this function is not required to benefit from session
+ * resumption. If the TLS backend supports session resumption, the
+ * session will be resumed automatically if it is possible to do so
+ * without weakening the privacy guarantees normally provided by TLS,
+ * without need to call this function. For example, with TLS 1.3,
+ * a session ticket will be automatically copied from any
+ * #GTlsClientConnection that has previously received session tickets
+ * from the server, provided a ticket is available that has not
+ * previously been used for session resumption, since session ticket
+ * reuse would be a privacy weakness. Using this function causes the
+ * ticket to be copied without regard for privacy considerations.
  *
  * Since: 2.46
  */

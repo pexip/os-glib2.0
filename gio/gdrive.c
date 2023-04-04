@@ -2,6 +2,8 @@
  * 
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -45,7 +47,7 @@
  *
  * If the #GDrive reports that media isn't automatically detected, one
  * can poll for media; typically one should not do this periodically
- * as a poll for media operation is potententially expensive and may
+ * as a poll for media operation is potentially expensive and may
  * spin up the drive creating noise.
  *
  * #GDrive supports starting and stopping drives with authentication
@@ -78,7 +80,7 @@ g_drive_default_init (GDriveInterface *iface)
 		G_SIGNAL_RUN_LAST,
 		G_STRUCT_OFFSET (GDriveIface, changed),
 		NULL, NULL,
-		g_cclosure_marshal_VOID__VOID,
+		NULL,
 		G_TYPE_NONE, 0);
 
   /**
@@ -95,7 +97,7 @@ g_drive_default_init (GDriveInterface *iface)
 		G_SIGNAL_RUN_LAST,
 		G_STRUCT_OFFSET (GDriveIface, disconnected),
 		NULL, NULL,
-		g_cclosure_marshal_VOID__VOID,
+		NULL,
 		G_TYPE_NONE, 0);
 
   /**
@@ -110,7 +112,7 @@ g_drive_default_init (GDriveInterface *iface)
 		G_SIGNAL_RUN_LAST,
 		G_STRUCT_OFFSET (GDriveIface, eject_button),
 		NULL, NULL,
-		g_cclosure_marshal_VOID__VOID,
+		NULL,
 		G_TYPE_NONE, 0);
 
   /**
@@ -127,7 +129,7 @@ g_drive_default_init (GDriveInterface *iface)
 		G_SIGNAL_RUN_LAST,
 		G_STRUCT_OFFSET (GDriveIface, stop_button),
 		NULL, NULL,
-		g_cclosure_marshal_VOID__VOID,
+		NULL,
 		G_TYPE_NONE, 0);
 }
 
@@ -249,9 +251,9 @@ g_drive_get_volumes (GDrive *drive)
  * g_drive_is_media_check_automatic:
  * @drive: a #GDrive.
  * 
- * Checks if @drive is capabable of automatically detecting media changes.
+ * Checks if @drive is capable of automatically detecting media changes.
  * 
- * Returns: %TRUE if the @drive is capabable of automatically detecting 
+ * Returns: %TRUE if the @drive is capable of automatically detecting
  *     media changes, %FALSE otherwise.
  **/
 gboolean
@@ -613,7 +615,7 @@ g_drive_poll_for_media_finish (GDrive        *drive,
  *
  * Gets the identifier of the given kind for @drive. The only
  * identifier currently available is
- * #G_DRIVE_IDENTIFIER_KIND_UNIX_DEVICE.
+ * %G_DRIVE_IDENTIFIER_KIND_UNIX_DEVICE.
  *
  * Returns: (nullable) (transfer full): a newly allocated string containing the
  *     requested identifier, or %NULL if the #GDrive

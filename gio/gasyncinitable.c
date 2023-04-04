@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2009 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -87,6 +89,7 @@
  *   GTask *task;
  *
  *   task = g_task_new (initable, cancellable, callback, user_data);
+ *   g_task_set_name (task, G_STRFUNC);
  *
  *   switch (self->priv->state)
  *     {
@@ -369,6 +372,7 @@ g_async_initable_new_async (GType                object_type,
  * Deprecated: 2.54: Use g_object_new_with_properties() and
  * g_async_initable_init_async() instead. See #GParameter for more information.
  */
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 void
 g_async_initable_newv_async (GType                object_type,
 			     guint                n_parameters,
@@ -382,15 +386,14 @@ g_async_initable_newv_async (GType                object_type,
 
   g_return_if_fail (G_TYPE_IS_ASYNC_INITABLE (object_type));
 
-G_GNUC_BEGIN_IGNORE_DEPRECATIONS
   obj = g_object_newv (object_type, n_parameters, parameters);
-G_GNUC_END_IGNORE_DEPRECATIONS
 
   g_async_initable_init_async (G_ASYNC_INITABLE (obj),
 			       io_priority, cancellable,
 			       callback, user_data);
   g_object_unref (obj); /* Passed ownership to async call */
 }
+G_GNUC_END_IGNORE_DEPRECATIONS
 
 /**
  * g_async_initable_new_valist_async:

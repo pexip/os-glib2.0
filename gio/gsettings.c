@@ -1,6 +1,8 @@
 /*
  * Copyright © 2009, 2010 Codethink Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -30,6 +32,7 @@
 #include "gsettings-mapping.h"
 #include "gsettingsschema-internal.h"
 #include "gaction.h"
+#include "gmarshal-internal.h"
 
 #include "strinfo.c"
 
@@ -120,7 +123,7 @@
  * utility. The input is a schema description in an XML format.
  *
  * A DTD for the gschema XML format can be found here:
- * [gschema.dtd](https://git.gnome.org/browse/glib/tree/gio/gschema.dtd)
+ * [gschema.dtd](https://gitlab.gnome.org/GNOME/glib/-/blob/HEAD/gio/gschema.dtd)
  *
  * The [glib-compile-schemas][glib-compile-schemas] tool expects schema
  * files to have the extension `.gschema.xml`.
@@ -157,6 +160,11 @@
  *
  *     <key name="box" type="(ii)">
  *       <default>(20,30)</default>
+ *     </key>
+ *
+ *     <key name="empty-string" type="s">
+ *       <default>""</default>
+ *       <summary>Empty strings have to be provided in GVariant form</summary>
  *     </key>
  *
  *   </schema>
@@ -242,7 +250,7 @@
  * looks for a boolean property with the name "sensitivity" and
  * automatically binds it to the writability of the bound setting.
  * If this 'magic' gets in the way, it can be suppressed with the
- * #G_SETTINGS_BIND_NO_SENSITIVITY flag.
+ * %G_SETTINGS_BIND_NO_SENSITIVITY flag.
  *
  * ## Relocatable schemas # {#gsettings-relocatable}
  *
@@ -337,8 +345,6 @@ struct _GSettingsPrivate
   GSettingsBackend *backend;
   GSettingsSchema *schema;
   gchar *path;
-
-  GDelayedSettingsBackend *delayed;
 };
 
 enum
@@ -402,12 +408,12 @@ g_settings_real_writable_change_event (GSettings *settings,
 
   for (i = 0; i < n_keys; i++)
     {
-      const gchar *key = g_quark_to_string (keys[i]);
+      const gchar *key_name = g_quark_to_string (keys[i]);
 
-      if (g_str_has_suffix (key, "/"))
+      if (g_str_has_suffix (key_name, "/"))
         continue;
 
-      g_signal_emit (settings, g_settings_signals[SIGNAL_WRITABLE_CHANGED], keys[i], key);
+      g_signal_emit (settings, g_settings_signals[SIGNAL_WRITABLE_CHANGED], keys[i], key_name);
     }
 
   return FALSE;
@@ -636,7 +642,7 @@ g_settings_get_property (GObject    *object,
       break;
 
      case PROP_DELAY_APPLY:
-      g_value_set_boolean (value, settings->priv->delayed != NULL);
+      g_value_set_boolean (value, G_IS_DELAYED_SETTINGS_BACKEND (settings->priv->backend));
       break;
 
      default:
@@ -738,7 +744,7 @@ g_settings_class_init (GSettingsClass *class)
     g_signal_new (I_("changed"), G_TYPE_SETTINGS,
                   G_SIGNAL_RUN_LAST | G_SIGNAL_DETAILED,
                   G_STRUCT_OFFSET (GSettingsClass, changed),
-                  NULL, NULL, g_cclosure_marshal_VOID__STRING, G_TYPE_NONE,
+                  NULL, NULL, NULL, G_TYPE_NONE,
                   1, G_TYPE_STRING | G_SIGNAL_TYPE_STATIC_SCOPE);
 
   /**
@@ -772,8 +778,11 @@ g_settings_class_init (GSettingsClass *class)
                   G_SIGNAL_RUN_LAST,
                   G_STRUCT_OFFSET (GSettingsClass, change_event),
                   g_signal_accumulator_true_handled, NULL,
-                  NULL,
+                  _g_cclosure_marshal_BOOLEAN__POINTER_INT,
                   G_TYPE_BOOLEAN, 2, G_TYPE_POINTER, G_TYPE_INT);
+  g_signal_set_va_marshaller (g_settings_signals[SIGNAL_CHANGE_EVENT],
+                              G_TYPE_FROM_CLASS (class),
+                              _g_cclosure_marshal_BOOLEAN__POINTER_INTv);
 
   /**
    * GSettings::writable-changed:
@@ -792,7 +801,7 @@ g_settings_class_init (GSettingsClass *class)
     g_signal_new (I_("writable-changed"), G_TYPE_SETTINGS,
                   G_SIGNAL_RUN_LAST | G_SIGNAL_DETAILED,
                   G_STRUCT_OFFSET (GSettingsClass, writable_changed),
-                  NULL, NULL, g_cclosure_marshal_VOID__STRING, G_TYPE_NONE,
+                  NULL, NULL, NULL, G_TYPE_NONE,
                   1, G_TYPE_STRING | G_SIGNAL_TYPE_STATIC_SCOPE);
 
   /**
@@ -827,7 +836,11 @@ g_settings_class_init (GSettingsClass *class)
                   G_SIGNAL_RUN_LAST,
                   G_STRUCT_OFFSET (GSettingsClass, writable_change_event),
                   g_signal_accumulator_true_handled, NULL,
-                  NULL, G_TYPE_BOOLEAN, 1, G_TYPE_UINT);
+                  _g_cclosure_marshal_BOOLEAN__UINT,
+                  G_TYPE_BOOLEAN, 1, G_TYPE_UINT);
+  g_signal_set_va_marshaller (g_settings_signals[SIGNAL_WRITABLE_CHANGE_EVENT],
+                              G_TYPE_FROM_CLASS (class),
+                              _g_cclosure_marshal_BOOLEAN__UINTv);
 
   /**
    * GSettings:backend:
@@ -948,12 +961,18 @@ g_settings_class_init (GSettingsClass *class)
  * Creates a new #GSettings object with the schema specified by
  * @schema_id.
  *
+ * It is an error for the schema to not exist: schemas are an
+ * essential part of a program, as they provide type information.
+ * If schemas need to be dynamically loaded (for example, from an
+ * optional runtime dependency), g_settings_schema_source_lookup()
+ * can be used to test for their existence before loading them.
+ *
  * Signals on the newly created #GSettings object will be dispatched
  * via the thread-default #GMainContext in effect at the time of the
  * call to g_settings_new().  The new #GSettings will hold a reference
  * on the context.  See g_main_context_push_thread_default().
  *
- * Returns: a new #GSettings object
+ * Returns: (not nullable) (transfer full): a new #GSettings object
  *
  * Since: 2.26
  */
@@ -1001,7 +1020,7 @@ path_is_valid (const gchar *path)
  * begins and ends with '/' and does not contain two consecutive '/'
  * characters.
  *
- * Returns: a new #GSettings object
+ * Returns: (not nullable) (transfer full): a new #GSettings object
  *
  * Since: 2.26
  */
@@ -1032,7 +1051,7 @@ g_settings_new_with_path (const gchar *schema_id,
  * the system to get a settings object that modifies the system default
  * settings instead of the settings for this user.
  *
- * Returns: a new #GSettings object
+ * Returns: (not nullable) (transfer full): a new #GSettings object
  *
  * Since: 2.26
  */
@@ -1061,7 +1080,7 @@ g_settings_new_with_backend (const gchar      *schema_id,
  * This is a mix of g_settings_new_with_backend() and
  * g_settings_new_with_path().
  *
- * Returns: a new #GSettings object
+ * Returns: (not nullable) (transfer full): a new #GSettings object
  *
  * Since: 2.26
  */
@@ -1111,7 +1130,7 @@ g_settings_new_with_backend_and_path (const gchar      *schema_id,
  * @path is non-%NULL and not equal to the path that the schema does
  * have.
  *
- * Returns: a new #GSettings object
+ * Returns: (not nullable) (transfer full): a new #GSettings object
  *
  * Since: 2.32
  */
@@ -1132,6 +1151,8 @@ g_settings_new_full (GSettingsSchema  *schema,
 }
 
 /* Internal read/write utilities {{{1 */
+
+/* @value will be sunk */
 static gboolean
 g_settings_write_to_backend (GSettings          *settings,
                              GSettingsSchemaKey *key,
@@ -1186,7 +1207,7 @@ g_settings_read_from_backend (GSettings          *settings,
  * It is a programmer error to give a @key that isn't contained in the
  * schema for @settings.
  *
- * Returns: a new #GVariant
+ * Returns: (not nullable) (transfer full): a new #GVariant
  *
  * Since: 2.26
  */
@@ -1412,7 +1433,7 @@ g_settings_set_enum (GSettings   *settings,
       return FALSE;
     }
 
-  success = g_settings_write_to_backend (settings, &skey, variant);
+  success = g_settings_write_to_backend (settings, &skey, g_steal_pointer (&variant));
   g_settings_schema_key_clear (&skey);
 
   return success;
@@ -1427,7 +1448,7 @@ g_settings_set_enum (GSettings   *settings,
  * to the flags value that it represents.
  *
  * In order to use this function the type of the value must be an array
- * of strings and it must be marked in the schema file as an flags type.
+ * of strings and it must be marked in the schema file as a flags type.
  *
  * It is a programmer error to give a @key that isn't contained in the
  * schema for @settings or is not marked as a flags type.
@@ -1523,7 +1544,7 @@ g_settings_set_flags (GSettings   *settings,
       return FALSE;
     }
 
-  success = g_settings_write_to_backend (settings, &skey, variant);
+  success = g_settings_write_to_backend (settings, &skey, g_steal_pointer (&variant));
   g_settings_schema_key_clear (&skey);
 
   return success;
@@ -1667,7 +1688,7 @@ g_settings_set (GSettings   *settings,
   value = g_variant_new_va (format, NULL, &ap);
   va_end (ap);
 
-  return g_settings_set_value (settings, key, value);
+  return g_settings_set_value (settings, key, g_steal_pointer (&value));
 }
 
 /**
@@ -1706,7 +1727,7 @@ g_settings_set (GSettings   *settings,
  * what is returned by this function.  %NULL is valid; it is returned
  * just as any other value would be.
  *
- * Returns: (transfer full): the result, which may be %NULL
+ * Returns: (nullable) (transfer full): the result, which may be %NULL
  **/
 gpointer
 g_settings_get_mapped (GSettings           *settings,
@@ -1773,7 +1794,7 @@ g_settings_get_mapped (GSettings           *settings,
  * It is a programmer error to give a @key that isn't specified as
  * having a string type in the schema for @settings.
  *
- * Returns: a newly-allocated string
+ * Returns: (not nullable) (transfer full): a newly-allocated string
  *
  * Since: 2.26
  */
@@ -2167,7 +2188,7 @@ g_settings_set_boolean (GSettings  *settings,
  * It is a programmer error to give a @key that isn't specified as
  * having an array of strings type in the schema for @settings.
  *
- * Returns: (array zero-terminated=1) (transfer full): a
+ * Returns: (array zero-terminated=1) (not nullable) (transfer full): a
  * newly-allocated, %NULL-terminated array of strings, the value that
  * is stored at @key in @settings.
  *
@@ -2235,19 +2256,20 @@ g_settings_set_strv (GSettings           *settings,
 void
 g_settings_delay (GSettings *settings)
 {
+  GDelayedSettingsBackend *delayed = NULL;
+
   g_return_if_fail (G_IS_SETTINGS (settings));
 
-  if (settings->priv->delayed)
+  if (G_IS_DELAYED_SETTINGS_BACKEND (settings->priv->backend))
     return;
 
-  settings->priv->delayed =
-    g_delayed_settings_backend_new (settings->priv->backend,
-                                    settings,
-                                    settings->priv->main_context);
+  delayed = g_delayed_settings_backend_new (settings->priv->backend,
+                                            settings,
+                                            settings->priv->main_context);
   g_settings_backend_unwatch (settings->priv->backend, G_OBJECT (settings));
   g_object_unref (settings->priv->backend);
 
-  settings->priv->backend = G_SETTINGS_BACKEND (settings->priv->delayed);
+  settings->priv->backend = G_SETTINGS_BACKEND (delayed);
   g_settings_backend_watch (settings->priv->backend,
                             &listener_vtable, G_OBJECT (settings),
                             settings->priv->main_context);
@@ -2267,7 +2289,7 @@ g_settings_delay (GSettings *settings)
 void
 g_settings_apply (GSettings *settings)
 {
-  if (settings->priv->delayed)
+  if (G_IS_DELAYED_SETTINGS_BACKEND (settings->priv->backend))
     {
       GDelayedSettingsBackend *delayed;
 
@@ -2290,7 +2312,7 @@ g_settings_apply (GSettings *settings)
 void
 g_settings_revert (GSettings *settings)
 {
-  if (settings->priv->delayed)
+  if (G_IS_DELAYED_SETTINGS_BACKEND (settings->priv->backend))
     {
       GDelayedSettingsBackend *delayed;
 
@@ -2315,7 +2337,7 @@ g_settings_get_has_unapplied (GSettings *settings)
 {
   g_return_val_if_fail (G_IS_SETTINGS (settings), FALSE);
 
-  return settings->priv->delayed &&
+  return G_IS_DELAYED_SETTINGS_BACKEND (settings->priv->backend) &&
          g_delayed_settings_backend_get_has_unapplied (
            G_DELAYED_SETTINGS_BACKEND (settings->priv->backend));
 }
@@ -2329,7 +2351,7 @@ g_settings_get_has_unapplied (GSettings *settings)
  * Resets @key to its default value.
  *
  * This call resets the key, as much as possible, to its default value.
- * That might the value specified in the schema or the one set by the
+ * That might be the value specified in the schema or the one set by the
  * administrator.
  **/
 void
@@ -2403,9 +2425,12 @@ g_settings_is_writable (GSettings   *settings,
  * @settings.
  *
  * The schema for the child settings object must have been declared
- * in the schema of @settings using a <child> element.
+ * in the schema of @settings using a `<child>` element.
  *
- * Returns: (transfer full): a 'child' settings object
+ * The created child settings object will inherit the #GSettings:delay-apply
+ * mode from @settings.
+ *
+ * Returns: (not nullable) (transfer full): a 'child' settings object
  *
  * Since: 2.26
  */
@@ -2413,28 +2438,24 @@ GSettings *
 g_settings_get_child (GSettings   *settings,
                       const gchar *name)
 {
-  const gchar *child_schema;
+  GSettingsSchema *child_schema;
   gchar *child_path;
-  gchar *child_name;
   GSettings *child;
 
   g_return_val_if_fail (G_IS_SETTINGS (settings), NULL);
 
-  child_name = g_strconcat (name, "/", NULL);
-  child_schema = g_settings_schema_get_string (settings->priv->schema,
-                                               child_name);
+  child_schema = g_settings_schema_get_child_schema (settings->priv->schema,
+                                                     name);
   if (child_schema == NULL)
-    g_error ("Schema '%s' has no child '%s'",
+    g_error ("Schema '%s' has no child '%s' or child schema not found",
              g_settings_schema_get_id (settings->priv->schema), name);
 
-  child_path = g_strconcat (settings->priv->path, child_name, NULL);
-  child = g_object_new (G_TYPE_SETTINGS,
-                        "backend", settings->priv->backend,
-                        "schema-id", child_schema,
-                        "path", child_path,
-                        NULL);
+  child_path = g_strconcat (settings->priv->path, name, "/", NULL);
+  child = g_settings_new_full (child_schema,
+                               settings->priv->backend,
+                               child_path);
+  g_settings_schema_unref (child_schema);
   g_free (child_path);
-  g_free (child_name);
 
   return child;
 }
@@ -2452,7 +2473,9 @@ g_settings_get_child (GSettings   *settings,
  * You should free the return value with g_strfreev() when you are done
  * with it.
  *
- * Returns: (transfer full) (element-type utf8): a list of the keys on @settings
+ * Returns: (not nullable) (transfer full) (element-type utf8): a list
+ *    of the keys on @settings, in no defined order
+ * Deprecated: 2.46: Use g_settings_schema_list_keys() instead.
  */
 gchar **
 g_settings_list_keys (GSettings *settings)
@@ -2469,21 +2492,15 @@ g_settings_list_keys (GSettings *settings)
  * The list is exactly the list of strings for which it is not an error
  * to call g_settings_get_child().
  *
- * For GSettings objects that are lists, this value can change at any
- * time. Note that there is a race condition here: you may
- * request a child after listing it only for it to have been destroyed
- * in the meantime.  For this reason, g_settings_get_child() may return
- * %NULL even for a child that was listed by this function.
- *
- * For GSettings objects that are not lists, you should probably not be
- * calling this function from "normal" code (since you should already
- * know what children are in your schema).  This function may still be
- * useful there for introspection reasons, however.
+ * There is little reason to call this function from "normal" code, since
+ * you should already know what children are in your schema. This function
+ * may still be useful there for introspection reasons, however.
  *
  * You should free the return value with g_strfreev() when you are done
  * with it.
  *
- * Returns: (transfer full) (element-type utf8): a list of the children on @settings
+ * Returns: (not nullable) (transfer full) (element-type utf8): a list of the children
+ *    on @settings, in no defined order
  */
 gchar **
 g_settings_list_children (GSettings *settings)
@@ -3279,7 +3296,7 @@ g_settings_action_get_property (GObject *object, guint prop_id,
       break;
 
     case ACTION_PROP_STATE:
-      g_value_set_variant (value, g_settings_action_get_state (action));
+      g_value_take_variant (value, g_settings_action_get_state (action));
       break;
 
     default:
@@ -3367,7 +3384,7 @@ g_settings_action_enabled_changed (GSettings   *settings,
  * activations take the new value for the key (which must have the
  * correct type).
  *
- * Returns: (transfer full): a new #GAction
+ * Returns: (not nullable) (transfer full): a new #GAction
  *
  * Since: 2.32
  **/

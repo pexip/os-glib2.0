@@ -1,6 +1,8 @@
 /* GMODULE - GLIB wrapper code for dynamic module loading
  * Copyright (C) 1998 Tim Janik
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -66,6 +68,26 @@ typedef	struct _GModule			 GModule;
 typedef const gchar* (*GModuleCheckInit) (GModule	*module);
 typedef void	     (*GModuleUnload)	 (GModule	*module);
 
+#define G_MODULE_ERROR g_module_error_quark () GLIB_AVAILABLE_MACRO_IN_2_70
+GLIB_AVAILABLE_IN_2_70
+GQuark g_module_error_quark (void);
+
+/**
+ * GModuleError:
+ * @G_MODULE_ERROR_FAILED: there was an error loading or opening a module file
+ * @G_MODULE_ERROR_CHECK_FAILED: a module returned an error from its `g_module_check_init()` function
+ *
+ * Errors returned by g_module_open_full().
+ *
+ * Since: 2.70
+ */
+typedef enum
+{
+  G_MODULE_ERROR_FAILED,
+  G_MODULE_ERROR_CHECK_FAILED,
+} GModuleError
+GLIB_AVAILABLE_ENUMERATOR_IN_2_70;
+
 /* return TRUE if dynamic module loading is supported */
 GLIB_AVAILABLE_IN_ALL
 gboolean	g_module_supported	   (void) G_GNUC_CONST;
@@ -74,6 +96,11 @@ gboolean	g_module_supported	   (void) G_GNUC_CONST;
 GLIB_AVAILABLE_IN_ALL
 GModule*              g_module_open          (const gchar  *file_name,
 					      GModuleFlags  flags);
+
+GLIB_AVAILABLE_IN_2_70
+GModule              *g_module_open_full     (const gchar   *file_name,
+                                              GModuleFlags   flags,
+                                              GError       **error);
 
 /* close a previously opened module, returns TRUE on success */
 GLIB_AVAILABLE_IN_ALL
@@ -101,7 +128,7 @@ const gchar *         g_module_name          (GModule      *module);
  * directory where the module file is supposed to be, or NULL or empty
  * in which case it should either be in the current directory or, on
  * some operating systems, in some standard place, for instance on the
- * PATH. Hence, to be absoultely sure to get the correct module,
+ * PATH. Hence, to be absolutely sure to get the correct module,
  * always pass in a directory. The file name consists of the directory,
  * if supplied, and 'module_name' suitably decorated according to
  * the operating system's conventions (for instance lib*.so or *.dll).

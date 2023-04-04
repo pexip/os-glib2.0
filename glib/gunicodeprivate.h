@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2003 Noah Levitt
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -20,17 +22,12 @@
 #define __G_UNICODE_PRIVATE_H__
 
 #include "gtypes.h"
-#include "gunicode.h"
 
 G_BEGIN_DECLS
 
 gunichar *_g_utf8_normalize_wc (const gchar    *str,
                                 gssize          max_len,
 				GNormalizeMode  mode);
-
-gboolean _g_utf8_validate_len (const gchar  *str,
-                               gsize         max_len,
-                               const gchar **end);
 
 G_END_DECLS
 

@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008 Christian Kellner, Samuel Cormier-Iijima
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -121,4 +123,3 @@ gboolean              g_inet_address_get_is_mc_site_local (GInetAddress         
 G_END_DECLS
 
 #endif /* __G_INET_ADDRESS_H__ */
-

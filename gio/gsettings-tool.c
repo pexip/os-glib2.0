@@ -1,6 +1,8 @@
 /*
  * Copyright © 2010 Codethink Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -25,9 +27,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-#ifdef G_OS_WIN32
 #include "glib/glib-private.h"
-#endif
 
 static GSettingsSchemaSource   *global_schema_source;
 static GSettings               *global_settings;
@@ -114,11 +114,19 @@ check_path (const gchar *path)
   return TRUE;
 }
 
+static int
+qsort_cmp (const void *a,
+           const void *b)
+{
+  return g_strcmp0 (*(gchar* const*)a, *(gchar* const*)b);
+}
+
 static void
 output_list (gchar **list)
 {
   gint i;
 
+  qsort (list, g_strv_length (list), sizeof (gchar*), qsort_cmp);
   for (i = 0; list[i]; i++)
     g_print ("%s\n", list[i]);
 }
@@ -193,13 +201,17 @@ static void
 gsettings_list_children (void)
 {
   gchar **children;
-  gint max = 0;
+  gsize max = 0;
   gint i;
 
   children = g_settings_list_children (global_settings);
+  qsort (children, g_strv_length (children), sizeof (gchar*), qsort_cmp);
   for (i = 0; children[i]; i++)
-    if (strlen (children[i]) > max)
-      max = strlen (children[i]);
+    {
+      gsize len = strlen (children[i]);
+      if (len > max)
+        max = len;
+    }
 
   for (i = 0; children[i]; i++)
     {
@@ -214,9 +226,11 @@ gsettings_list_children (void)
                     NULL);
 
       if (g_settings_schema_get_path (schema) != NULL)
-        g_print ("%-*s   %s\n", max, children[i], g_settings_schema_get_id (schema));
+        g_print ("%-*s   %s\n", (int) MIN (max, G_MAXINT), children[i],
+                 g_settings_schema_get_id (schema));
       else
-        g_print ("%-*s   %s:%s\n", max, children[i], g_settings_schema_get_id (schema), path);
+        g_print ("%-*s   %s:%s\n", (int) MIN (max, G_MAXINT), children[i],
+                 g_settings_schema_get_id (schema), path);
 
       g_object_unref (child);
       g_settings_schema_unref (schema);
@@ -236,6 +250,7 @@ enumerate (GSettings *settings)
   g_object_get (settings, "settings-schema", &schema, NULL);
 
   keys = g_settings_schema_list_keys (schema);
+  qsort (keys, g_strv_length (keys), sizeof (gchar*), qsort_cmp);
   for (i = 0; keys[i]; i++)
     {
       GVariant *value;
@@ -260,6 +275,7 @@ list_recursively (GSettings *settings)
 
   enumerate (settings);
   children = g_settings_list_children (settings);
+  qsort (children, g_strv_length (children), sizeof (gchar*), qsort_cmp);
   for (i = 0; children[i]; i++)
     {
       gboolean will_see_elsewhere = FALSE;
@@ -303,6 +319,7 @@ gsettings_list_recursively (void)
       gint i;
 
       g_settings_schema_source_list_schemas (global_schema_source, TRUE, &schemas, NULL);
+      qsort (schemas, g_strv_length (schemas), sizeof (gchar*), qsort_cmp);
 
       for (i = 0; schemas[i]; i++)
         {
@@ -555,8 +572,8 @@ static int
 gsettings_help (gboolean     requested,
                 const gchar *command)
 {
-  const gchar *description;
-  const gchar *synopsis;
+  const gchar *description = NULL;
+  const gchar *synopsis = NULL;
   GString *string;
 
   string = g_string_new (NULL);
@@ -743,7 +760,7 @@ main (int argc, char **argv)
   gchar *tmp;
 #endif
 
-  setlocale (LC_ALL, "");
+  setlocale (LC_ALL, GLIB_DEFAULT_LOCALE);
   textdomain (GETTEXT_PACKAGE);
 
 #ifdef G_OS_WIN32

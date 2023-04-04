@@ -1,6 +1,8 @@
 /* GObject - GLib Type, Object, Parameter and Signal Library
  * Copyright (C) 1997-1999, 2000-2001 Tim Janik and Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -452,7 +454,7 @@ G_BEGIN_DECLS
  *
  * Deprecated: 2.32: Use #GArray instead of #GValueArray
  */
-#define	G_TYPE_PARAM_VALUE_ARRAY	   (g_param_spec_types[18])
+#define	G_TYPE_PARAM_VALUE_ARRAY	   (g_param_spec_types[18]) GLIB_DEPRECATED_MACRO_IN_2_32
 /**
  * G_IS_PARAM_SPEC_VALUE_ARRAY:
  * @pspec: a valid #GParamSpec instance
@@ -463,7 +465,7 @@ G_BEGIN_DECLS
  *
  * Deprecated: 2.32: Use #GArray instead of #GValueArray
  */
-#define G_IS_PARAM_SPEC_VALUE_ARRAY(pspec) (G_TYPE_CHECK_INSTANCE_TYPE ((pspec), G_TYPE_PARAM_VALUE_ARRAY))
+#define G_IS_PARAM_SPEC_VALUE_ARRAY(pspec) (G_TYPE_CHECK_INSTANCE_TYPE ((pspec), G_TYPE_PARAM_VALUE_ARRAY)) GLIB_DEPRECATED_MACRO_IN_2_32
 /**
  * G_PARAM_SPEC_VALUE_ARRAY:
  * @pspec: a valid #GParamSpec instance
@@ -472,7 +474,7 @@ G_BEGIN_DECLS
  *
  * Deprecated: 2.32: Use #GArray instead of #GValueArray
  */
-#define G_PARAM_SPEC_VALUE_ARRAY(pspec)    (G_TYPE_CHECK_INSTANCE_CAST ((pspec), G_TYPE_PARAM_VALUE_ARRAY, GParamSpecValueArray))
+#define G_PARAM_SPEC_VALUE_ARRAY(pspec)    (G_TYPE_CHECK_INSTANCE_CAST ((pspec), G_TYPE_PARAM_VALUE_ARRAY, GParamSpecValueArray)) GLIB_DEPRECATED_MACRO_IN_2_32
 
 /**
  * G_TYPE_PARAM_OBJECT:
@@ -922,12 +924,15 @@ struct _GParamSpecObject
 };
 /**
  * GParamSpecOverride:
+ *
+ * A #GParamSpec derived structure that redirects operations to
+ * other types of #GParamSpec.
  * 
- * This is a type of #GParamSpec type that simply redirects operations to
- * another paramspec.  All operations other than getting or
- * setting the value are redirected, including accessing the nick and
- * blurb, validating a value, and so forth. See
- * g_param_spec_get_redirect_target() for retrieving the overidden
+ * All operations other than getting or setting the value are redirected,
+ * including accessing the nick and blurb, validating a value, and so
+ * forth.
+ *
+ * See g_param_spec_get_redirect_target() for retrieving the overridden
  * property. #GParamSpecOverride is used in implementing
  * g_object_class_override_property(), and will not be directly useful
  * unless you are implementing a new base type similar to GObject.
@@ -1150,7 +1155,7 @@ GParamSpec*	g_param_spec_variant	 (const gchar        *name,
 #    else /* !GOBJECT_STATIC_COMPILATION */
 #      ifdef GOBJECT_COMPILATION
 #        ifdef DLL_EXPORT
-#          define GOBJECT_VAR __declspec(dllexport)
+#          define GOBJECT_VAR extern __declspec(dllexport)
 #        else /* !DLL_EXPORT */
 #          define GOBJECT_VAR extern
 #        endif /* !DLL_EXPORT */

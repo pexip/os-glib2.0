@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2010 Collabora, Ltd.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -40,7 +42,7 @@ G_BEGIN_DECLS
  * GProxyAddressEnumerator:
  *
  * A subclass of #GSocketAddressEnumerator that takes another address
- * enumerator and wraps its results in #GProxyAddresses as
+ * enumerator and wraps each of its results in a #GProxyAddress as
  * directed by the default #GProxyResolver.
  */
 
@@ -49,12 +51,19 @@ typedef struct _GProxyAddressEnumeratorPrivate GProxyAddressEnumeratorPrivate;
 
 struct _GProxyAddressEnumerator
 {
+  /*< private >*/
   GSocketAddressEnumerator parent_instance;
   GProxyAddressEnumeratorPrivate *priv;
 };
 
+/**
+ * GProxyAddressEnumeratorClass:
+ *
+ * Class structure for #GProxyAddressEnumerator.
+ */
 struct _GProxyAddressEnumeratorClass
 {
+  /*< private >*/
   GSocketAddressEnumeratorClass parent_class;
 
   void (*_g_reserved1) (void);

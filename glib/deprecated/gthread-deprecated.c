@@ -5,6 +5,8 @@
  * Copyright 1998 Sebastian Wilhelmi; University of Karlsruhe
  *                Owen Taylor
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -22,7 +24,9 @@
 #include "config.h"
 
 /* we know we are deprecated here, no need for warnings */
+#ifndef GLIB_DISABLE_DEPRECATION_WARNINGS
 #define GLIB_DISABLE_DEPRECATION_WARNINGS
+#endif
 
 #include "gmessages.h"
 #include "gslice.h"
@@ -95,7 +99,7 @@
  * This macro is defined if POSIX style threads are used.
  *
  * Deprecated:2.32:POSIX threads are in use on all non-Windows systems.
- *                 Use G_OS_WIN32 to detect Windows.
+ *   Use %G_OS_WIN32 to detect Windows.
  */
 
 /**
@@ -103,7 +107,7 @@
  *
  * This macro is defined if Windows style threads are used.
  *
- * Deprecated:2.32:Use G_OS_WIN32 to detect Windows.
+ * Deprecated:2.32:Use %G_OS_WIN32 to detect Windows.
  */
 
 
@@ -372,7 +376,7 @@ g_thread_create_full (GThreadFunc       func,
   GThread *thread;
 
   thread = g_thread_new_internal (NULL, g_deprecated_thread_proxy,
-                                  func, data, stack_size, error);
+                                  func, data, stack_size, NULL, error);
 
   if (thread && !joinable)
     {
@@ -424,7 +428,7 @@ g_once_init_enter_impl (volatile gsize *location)
  * want to require prior calling to g_thread_init(), because your code
  * should also be usable in non-threaded programs, you are not able to
  * use g_mutex_new() and thus #GMutex, as that requires a prior call to
- * g_thread_init(). In theses cases you can also use a #GStaticMutex.
+ * g_thread_init(). In these cases you can also use a #GStaticMutex.
  * It must be initialized with g_static_mutex_init() before using it
  * and freed with with g_static_mutex_free() when not needed anymore to
  * free up any allocated resources.
@@ -461,7 +465,7 @@ g_once_init_enter_impl (volatile gsize *location)
  * @mutex: a #GStaticMutex to be initialized.
  *
  * Initializes @mutex.
- * Alternatively you can initialize it with #G_STATIC_MUTEX_INIT.
+ * Alternatively you can initialize it with %G_STATIC_MUTEX_INIT.
  *
  * Deprecated: 2.32: Use g_mutex_init()
  */
@@ -647,7 +651,7 @@ g_static_mutex_free (GStaticMutex* mutex)
  *
  * A #GStaticRecMutex must be initialized with this function before it
  * can be used. Alternatively you can initialize it with
- * #G_STATIC_REC_MUTEX_INIT.
+ * %G_STATIC_REC_MUTEX_INIT.
  *
  * Deprecated: 2.32: Use g_rec_mutex_init()
  */
@@ -669,7 +673,7 @@ g_static_rec_mutex_get_rec_mutex_impl (GStaticRecMutex* mutex)
   if (!g_thread_supported ())
     return NULL;
 
-  result = g_atomic_pointer_get (&mutex->mutex.mutex);
+  result = (GRecMutex *) g_atomic_pointer_get (&mutex->mutex.mutex);
 
   if (!result)
     {
@@ -680,7 +684,7 @@ g_static_rec_mutex_get_rec_mutex_impl (GStaticRecMutex* mutex)
         {
           result = g_slice_new (GRecMutex);
           g_rec_mutex_init (result);
-          g_atomic_pointer_set (&mutex->mutex.mutex, result);
+          g_atomic_pointer_set (&mutex->mutex.mutex, (GMutex *) result);
         }
 
       G_UNLOCK (g_static_mutex);
@@ -947,7 +951,7 @@ g_static_rec_mutex_free (GStaticRecMutex *mutex)
  *
  * A #GStaticRWLock must be initialized with this function before it
  * can be used. Alternatively you can initialize it with
- * #G_STATIC_RW_LOCK_INIT.
+ * %G_STATIC_RW_LOCK_INIT.
  *
  * Deprecated: 2.32: Use g_rw_lock_init() instead
  */
@@ -1025,7 +1029,7 @@ g_static_rw_lock_reader_lock (GStaticRWLock* lock)
  *
  * Returns: %TRUE, if @lock could be locked for reading
  *
- * Deprectated: 2.32: Use g_rw_lock_reader_trylock() instead
+ * Deprecated: 2.32: Use g_rw_lock_reader_trylock() instead
  */
 gboolean
 g_static_rw_lock_reader_trylock (GStaticRWLock* lock)
@@ -1055,7 +1059,7 @@ g_static_rw_lock_reader_trylock (GStaticRWLock* lock)
  * locks for reading have been unlocked, the waiting thread is woken up
  * and can lock @lock for writing.
  *
- * Deprectated: 2.32: Use g_rw_lock_reader_unlock() instead
+ * Deprecated: 2.32: Use g_rw_lock_reader_unlock() instead
  */
 void
 g_static_rw_lock_reader_unlock  (GStaticRWLock* lock)
@@ -1084,7 +1088,7 @@ g_static_rw_lock_reader_unlock  (GStaticRWLock* lock)
  * @lock (neither for reading nor writing). This lock has to be
  * unlocked by g_static_rw_lock_writer_unlock().
  *
- * Deprectated: 2.32: Use g_rw_lock_writer_lock() instead
+ * Deprecated: 2.32: Use g_rw_lock_writer_lock() instead
  */
 void
 g_static_rw_lock_writer_lock (GStaticRWLock* lock)
@@ -1114,7 +1118,7 @@ g_static_rw_lock_writer_lock (GStaticRWLock* lock)
  *
  * Returns: %TRUE, if @lock could be locked for writing
  *
- * Deprectated: 2.32: Use g_rw_lock_writer_trylock() instead
+ * Deprecated: 2.32: Use g_rw_lock_writer_trylock() instead
  */
 gboolean
 g_static_rw_lock_writer_trylock (GStaticRWLock* lock)
@@ -1147,7 +1151,7 @@ g_static_rw_lock_writer_trylock (GStaticRWLock* lock)
  * lock @lock for reading, the waiting threads are woken up and can
  * lock @lock for reading.
  *
- * Deprectated: 2.32: Use g_rw_lock_writer_unlock() instead
+ * Deprecated: 2.32: Use g_rw_lock_writer_unlock() instead
  */
 void
 g_static_rw_lock_writer_unlock (GStaticRWLock* lock)
@@ -1293,7 +1297,7 @@ GPrivate static_private_private = G_PRIVATE_INIT (g_static_private_cleanup);
  * @private_key: a #GStaticPrivate to be initialized
  *
  * Initializes @private_key. Alternatively you can initialize it with
- * #G_STATIC_PRIVATE_INIT.
+ * %G_STATIC_PRIVATE_INIT.
  */
 void
 g_static_private_init (GStaticPrivate *private_key)
@@ -1540,7 +1544,7 @@ g_cond_free (GCond *cond)
  * This function can be used even if g_thread_init() has not yet been
  * called, and, in that case, will immediately return %TRUE.
  *
- * To easily calculate @abs_time a combination of g_get_current_time()
+ * To easily calculate @abs_time a combination of g_get_real_time()
  * and g_time_val_add() can be used.
  *
  * Returns: %TRUE if @cond was signalled, or %FALSE on timeout

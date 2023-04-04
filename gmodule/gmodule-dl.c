@@ -1,6 +1,8 @@
 /* GMODULE - GLIB wrapper code for dynamic module loading
  * Copyright (C) 1998, 2000 Tim Janik
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -28,8 +30,9 @@
 #include "config.h"
 
 #include <dlfcn.h>
+#include <glib.h>
 
-/* Perl includes <nlist.h> and <link.h> instead of <dlfcn.h> on some systmes? */
+/* Perl includes <nlist.h> and <link.h> instead of <dlfcn.h> on some systems? */
 
 
 /* dlerror() is not implemented on all systems
@@ -73,11 +76,46 @@
 #endif	/* RTLD_GLOBAL */
 
 
-/* --- functions --- */
-static gchar*
+/* According to POSIX.1-2001, dlerror() is not necessarily thread-safe
+ * (see https://pubs.opengroup.org/onlinepubs/009695399/), and so must be
+ * called within the same locked section as the dlopen()/dlsym() call which
+ * may have caused an error.
+ *
+ * However, some libc implementations, such as glibc, implement dlerror() using
+ * thread-local storage, so are thread-safe. As of early 2021:
+ *  - glibc is thread-safe: https://github.com/bminor/glibc/blob/HEAD/dlfcn/libc_dlerror_result.c
+ *  - uclibc-ng is not thread-safe: https://cgit.uclibc-ng.org/cgi/cgit/uclibc-ng.git/tree/ldso/libdl/libdl.c?id=132decd2a043d0ccf799f42bf89f3ae0c11e95d5#n1075
+ *  - Other libc implementations have not been checked, and no problems have
+ *    been reported with them in 10 years, so default to assuming that they
+ *    don’t need additional thread-safety from GLib
+ */
+#if defined(__UCLIBC__)
+G_LOCK_DEFINE_STATIC (errors);
+#else
+#define DLERROR_IS_THREADSAFE 1
+#endif
+
+static void
+lock_dlerror (void)
+{
+#ifndef DLERROR_IS_THREADSAFE
+  G_LOCK (errors);
+#endif
+}
+
+static void
+unlock_dlerror (void)
+{
+#ifndef DLERROR_IS_THREADSAFE
+  G_UNLOCK (errors);
+#endif
+}
+
+/* This should be called with lock_dlerror() held */
+static const gchar *
 fetch_dlerror (gboolean replace_null)
 {
-  gchar *msg = dlerror ();
+  const gchar *msg = dlerror ();
 
   /* make sure we always return an error message != NULL, if
    * expected to do so. */
@@ -91,14 +129,23 @@ fetch_dlerror (gboolean replace_null)
 static gpointer
 _g_module_open (const gchar *file_name,
 		gboolean     bind_lazy,
-		gboolean     bind_local)
+		gboolean     bind_local,
+                GError     **error)
 {
   gpointer handle;
   
+  lock_dlerror ();
   handle = dlopen (file_name,
 		   (bind_local ? 0 : RTLD_GLOBAL) | (bind_lazy ? RTLD_LAZY : RTLD_NOW));
   if (!handle)
-    g_module_set_error (fetch_dlerror (TRUE));
+    {
+      const gchar *message = fetch_dlerror (TRUE);
+
+      g_module_set_error (message);
+      g_set_error_literal (error, G_MODULE_ERROR, G_MODULE_ERROR_FAILED, message);
+    }
+
+  unlock_dlerror ();
   
   return handle;
 }
@@ -119,6 +166,7 @@ _g_module_self (void)
    * always returns 'undefined symbol'. Only if RTLD_DEFAULT or 
    * NULL is given, dlsym returns an appropriate pointer.
    */
+  lock_dlerror ();
 #if defined(__BIONIC__)
   handle = RTLD_DEFAULT;
 #else
@@ -126,29 +174,22 @@ _g_module_self (void)
 #endif
   if (!handle)
     g_module_set_error (fetch_dlerror (TRUE));
+  unlock_dlerror ();
   
   return handle;
 }
 
 static void
-_g_module_close (gpointer handle,
-		 gboolean is_unref)
+_g_module_close (gpointer handle)
 {
-  /* are there any systems out there that have dlopen()/dlclose()
-   * without a reference count implementation?
-   *
-   * See above for the Android special case
-   */
 #if defined(__BIONIC__)
-  is_unref = (handle != RTLD_DEFAULT);
-#else
-  is_unref |= 1;
+  if (handle != RTLD_DEFAULT)
 #endif
-
-  if (is_unref)
     {
+      lock_dlerror ();
       if (dlclose (handle) != 0)
-	g_module_set_error (fetch_dlerror (TRUE));
+        g_module_set_error (fetch_dlerror (TRUE));
+      unlock_dlerror ();
     }
 }
 
@@ -157,13 +198,15 @@ _g_module_symbol (gpointer     handle,
 		  const gchar *symbol_name)
 {
   gpointer p;
-  gchar *msg;
+  const gchar *msg;
 
+  lock_dlerror ();
   fetch_dlerror (FALSE);
   p = dlsym (handle, symbol_name);
   msg = fetch_dlerror (FALSE);
   if (msg)
     g_module_set_error (msg);
+  unlock_dlerror ();
   
   return p;
 }

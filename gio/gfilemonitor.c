@@ -2,6 +2,8 @@
  * 
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -23,6 +25,7 @@
 
 #include "gfilemonitor.h"
 #include "gioenumtypes.h"
+#include "gmarshal-internal.h"
 #include "gfile.h"
 #include "gvfs.h"
 #include "glibintl.h"
@@ -171,7 +174,7 @@ g_file_monitor_class_init (GFileMonitorClass *klass)
    * that the %G_FILE_MONITOR_WATCH_MOVES flag is not in use.
    *
    * If using the deprecated flag %G_FILE_MONITOR_SEND_MOVED flag and @event_type is
-   * #G_FILE_MONITOR_EVENT_MOVED, @file will be set to a #GFile containing the
+   * %G_FILE_MONITOR_EVENT_MOVED, @file will be set to a #GFile containing the
    * old path, and @other_file will be set to a #GFile containing the new path.
    *
    * In all the other cases, @other_file will be set to #NULL.
@@ -181,9 +184,12 @@ g_file_monitor_class_init (GFileMonitorClass *klass)
                                                 G_SIGNAL_RUN_LAST,
                                                 G_STRUCT_OFFSET (GFileMonitorClass, changed),
                                                 NULL, NULL,
-                                                NULL,
+                                                _g_cclosure_marshal_VOID__OBJECT_OBJECT_ENUM,
                                                 G_TYPE_NONE, 3,
                                                 G_TYPE_FILE, G_TYPE_FILE, G_TYPE_FILE_MONITOR_EVENT);
+  g_signal_set_va_marshaller (g_file_monitor_changed_signal,
+                              G_TYPE_FROM_CLASS (klass),
+                              _g_cclosure_marshal_VOID__OBJECT_OBJECT_ENUMv);
 
   g_object_class_install_property (object_class, PROP_RATE_LIMIT,
                                    g_param_spec_int ("rate-limit",

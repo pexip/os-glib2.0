@@ -2,6 +2,8 @@
  *
  * Copyright 2017 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -31,9 +33,6 @@
 #include "gunixfdlist.h"
 #endif
 
-#ifndef O_PATH
-#define O_PATH 0
-#endif
 #ifndef O_CLOEXEC
 #define O_CLOEXEC 0
 #else
@@ -107,12 +106,14 @@ g_openuri_portal_open_uri (const char  *uri,
 
       path = g_file_get_path (file);
 
-      fd = g_open (path, O_PATH | O_CLOEXEC);
+      fd = g_open (path, O_RDONLY | O_CLOEXEC);
       errsv = errno;
       if (fd == -1)
         {
           g_set_error (error, G_IO_ERROR, g_io_error_from_errno (errsv),
                        "Failed to open '%s'", path);
+          g_free (path);
+          g_variant_builder_clear (&opt_builder);
           return FALSE;
         }
 
@@ -282,7 +283,7 @@ g_openuri_portal_open_uri_async (const char          *uri,
         if (sender[i] == '.')
           sender[i] = '_';
 
-      handle = g_strdup_printf ("/org/fredesktop/portal/desktop/request/%s/%s", sender, token);
+      handle = g_strdup_printf ("/org/freedesktop/portal/desktop/request/%s/%s", sender, token);
       g_object_set_data_full (G_OBJECT (task), "handle", handle, g_free);
       g_free (sender);
 
@@ -318,7 +319,7 @@ g_openuri_portal_open_uri_async (const char          *uri,
         g_object_set_data (G_OBJECT (task), "open-file", GINT_TO_POINTER (TRUE));
 
       path = g_file_get_path (file);
-      fd = g_open (path, O_PATH | O_CLOEXEC);
+      fd = g_open (path, O_RDONLY | O_CLOEXEC);
       errsv = errno;
       if (fd == -1)
         {

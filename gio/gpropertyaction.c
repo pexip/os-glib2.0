@@ -1,6 +1,8 @@
 /*
  * Copyright © 2013 Canonical Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -158,6 +160,29 @@ g_property_action_get_state_type (GAction *action)
 static GVariant *
 g_property_action_get_state_hint (GAction *action)
 {
+  GPropertyAction *paction = G_PROPERTY_ACTION (action);
+
+  if (paction->pspec->value_type == G_TYPE_INT)
+    {
+      GParamSpecInt *pspec = (GParamSpecInt *)paction->pspec;
+      return g_variant_new ("(ii)", pspec->minimum, pspec->maximum);
+    }
+  else if (paction->pspec->value_type == G_TYPE_UINT)
+    {
+      GParamSpecUInt *pspec = (GParamSpecUInt *)paction->pspec;
+      return g_variant_new ("(uu)", pspec->minimum, pspec->maximum);
+    }
+  else if (paction->pspec->value_type == G_TYPE_FLOAT)
+    {
+      GParamSpecFloat *pspec = (GParamSpecFloat *)paction->pspec;
+      return g_variant_new ("(dd)", (double)pspec->minimum, (double)pspec->maximum);
+    }
+  else if (paction->pspec->value_type == G_TYPE_DOUBLE)
+    {
+      GParamSpecDouble *pspec = (GParamSpecDouble *)paction->pspec;
+      return g_variant_new ("(dd)", pspec->minimum, pspec->maximum);
+    }
+
   return NULL;
 }
 

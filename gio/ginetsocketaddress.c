@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008 Christian Kellner, Samuel Cormier-Iijima
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -398,8 +400,8 @@ g_inet_socket_address_new (GInetAddress *address,
  * If @address is an IPv6 address, it can also contain a scope ID
  * (separated from the address by a `%`).
  *
- * Returns: a new #GInetSocketAddress, or %NULL if @address cannot be
- * parsed.
+ * Returns: (nullable) (transfer full): a new #GInetSocketAddress,
+ * or %NULL if @address cannot be parsed.
  *
  * Since: 2.40
  */

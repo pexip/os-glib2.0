@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2011 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -27,6 +29,7 @@
 #include "gmessages.h"
 #include "gstrfuncs.h"
 #include "gthread.h"
+#include "gthreadprivate.h"
 #ifdef G_OS_WIN32
 #include "gwin32.h"
 #endif
@@ -35,6 +38,16 @@
 
 #include <string.h>
 #include <stdio.h>
+
+#if (HAVE_LANGINFO_TIME_CODESET || HAVE_LANGINFO_CODESET)
+#include <langinfo.h>
+#endif
+
+#include <locale.h>
+#ifdef G_OS_WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 
 G_LOCK_DEFINE_STATIC (aliases);
 
@@ -98,6 +111,12 @@ static gboolean
 g_utf8_get_charset_internal (const char  *raw_data,
                              const char **a)
 {
+  /* Allow CHARSET to override the charset of any locale category. Users should
+   * probably never be setting this — instead, just add the charset after a `.`
+   * in `LANGUAGE`/`LC_ALL`/`LC_*`/`LANG`. I can’t find any reference (in
+   * `git log`, code comments, or man pages) to this environment variable being
+   * standardised or documented or even used anywhere outside GLib. Perhaps it
+   * should eventually be removed. */
   const char *charset = g_getenv ("CHARSET");
 
   if (charset && *charset)
@@ -187,16 +206,94 @@ g_get_charset (const char **charset)
   const gchar *raw;
 
   if (!cache)
-    {
-      cache = g_new0 (GCharsetCache, 1);
-      g_private_set (&cache_private, cache);
-    }
+    cache = g_private_set_alloc0 (&cache_private, sizeof (GCharsetCache));
 
   G_LOCK (aliases);
   raw = _g_locale_charset_raw ();
   G_UNLOCK (aliases);
 
-  if (!(cache->raw && strcmp (cache->raw, raw) == 0))
+  if (cache->raw == NULL || strcmp (cache->raw, raw) != 0)
+    {
+      const gchar *new_charset;
+
+      g_free (cache->raw);
+      g_free (cache->charset);
+      cache->raw = g_strdup (raw);
+      cache->is_utf8 = g_utf8_get_charset_internal (raw, &new_charset);
+      cache->charset = g_strdup (new_charset);
+    }
+
+  if (charset)
+    *charset = cache->charset;
+
+  return cache->is_utf8;
+}
+
+/*
+ * Do the same as g_get_charset() but it temporarily set locale (LC_ALL to
+ * LC_TIME) to correctly check for charset about time conversion relatives.
+ *
+ * Returns: %TRUE if the returned charset is UTF-8
+ */
+gboolean
+_g_get_time_charset (const char **charset)
+{
+  static GPrivate cache_private = G_PRIVATE_INIT (charset_cache_free);
+  GCharsetCache *cache = g_private_get (&cache_private);
+  const gchar *raw;
+
+  if (!cache)
+    cache = g_private_set_alloc0 (&cache_private, sizeof (GCharsetCache));
+
+#ifdef HAVE_LANGINFO_TIME_CODESET
+  raw = nl_langinfo (_NL_TIME_CODESET);
+#else
+  G_LOCK (aliases);
+  raw = _g_locale_charset_raw ();
+  G_UNLOCK (aliases);
+#endif
+
+  if (cache->raw == NULL || strcmp (cache->raw, raw) != 0)
+    {
+      const gchar *new_charset;
+
+      g_free (cache->raw);
+      g_free (cache->charset);
+      cache->raw = g_strdup (raw);
+      cache->is_utf8 = g_utf8_get_charset_internal (raw, &new_charset);
+      cache->charset = g_strdup (new_charset);
+    }
+
+  if (charset)
+    *charset = cache->charset;
+
+  return cache->is_utf8;
+}
+/*
+ * Do the same as g_get_charset() but it temporarily set locale (LC_ALL to
+ * LC_CTYPE) to correctly check for charset about CTYPE conversion relatives.
+ *
+ * Returns: %TRUE if the returned charset is UTF-8
+ */
+gboolean
+_g_get_ctype_charset (const char **charset)
+{
+  static GPrivate cache_private = G_PRIVATE_INIT (charset_cache_free);
+  GCharsetCache *cache = g_private_get (&cache_private);
+  const gchar *raw;
+
+  if (!cache)
+    cache = g_private_set_alloc0 (&cache_private, sizeof (GCharsetCache));
+
+#ifdef HAVE_LANGINFO_CODESET
+  raw = nl_langinfo (CODESET);
+#else
+  G_LOCK (aliases);
+  raw = _g_locale_charset_raw ();
+  G_UNLOCK (aliases);
+#endif
+
+  if (cache->raw == NULL || strcmp (cache->raw, raw) != 0)
     {
       const gchar *new_charset;
 
@@ -229,6 +326,113 @@ g_get_codeset (void)
   g_get_charset (&charset);
 
   return g_strdup (charset);
+}
+
+/**
+ * g_get_console_charset:
+ * @charset: (out) (optional) (transfer none): return location for character set
+ *   name, or %NULL.
+ *
+ * Obtains the character set used by the console attached to the process,
+ * which is suitable for printing output to the terminal.
+ *
+ * Usually this matches the result returned by g_get_charset(), but in
+ * environments where the locale's character set does not match the encoding
+ * of the console this function tries to guess a more suitable value instead.
+ *
+ * On Windows the character set returned by this function is the
+ * output code page used by the console associated with the calling process.
+ * If the codepage can't be determined (for example because there is no
+ * console attached) UTF-8 is assumed.
+ *
+ * The return value is %TRUE if the locale's encoding is UTF-8, in that
+ * case you can perhaps avoid calling g_convert().
+ *
+ * The string returned in @charset is not allocated, and should not be
+ * freed.
+ *
+ * Returns: %TRUE if the returned charset is UTF-8
+ *
+ * Since: 2.62
+ */
+gboolean
+g_get_console_charset (const char **charset)
+{
+#ifdef G_OS_WIN32
+  static GPrivate cache_private = G_PRIVATE_INIT (charset_cache_free);
+  GCharsetCache *cache = g_private_get (&cache_private);
+  const gchar *locale;
+  unsigned int cp;
+  char buf[2 + 20 + 1]; /* "CP" + G_MAXUINT64 (to be safe) in decimal form (20 bytes) + "\0" */
+  const gchar *raw = NULL;
+
+  if (!cache)
+    cache = g_private_set_alloc0 (&cache_private, sizeof (GCharsetCache));
+
+  /* first try to query $LANG (works for Cygwin/MSYS/MSYS2 and others using mintty) */
+  locale = g_getenv ("LANG");
+  if (locale != NULL && locale[0] != '\0')
+    {
+      /* If the locale name contains an encoding after the dot, return it.  */
+      const char *dot = strchr (locale, '.');
+
+      if (dot != NULL)
+        {
+          const char *modifier;
+
+          dot++;
+          /* Look for the possible @... trailer and remove it, if any.  */
+          modifier = strchr (dot, '@');
+          if (modifier == NULL)
+            raw = dot;
+          else if ((gsize) (modifier - dot) < sizeof (buf))
+            {
+              memcpy (buf, dot, modifier - dot);
+              buf[modifier - dot] = '\0';
+              raw = buf;
+            }
+        }
+    }
+  /* next try querying console codepage using native win32 API */
+  if (raw == NULL)
+    {
+      cp = GetConsoleOutputCP ();
+      if (cp)
+        {
+          sprintf (buf, "CP%u", cp);
+          raw = buf;
+        }
+      else if (GetLastError () != ERROR_INVALID_HANDLE)
+        {
+          gchar *emsg = g_win32_error_message (GetLastError ());
+          g_warning ("Failed to determine console output code page: %s. "
+                     "Falling back to UTF-8", emsg);
+          g_free (emsg);
+        }
+    }
+  /* fall-back to UTF-8 if the rest failed (it's a universal default) */
+  if (raw == NULL)
+    raw = "UTF-8";
+
+  if (cache->raw == NULL || strcmp (cache->raw, raw) != 0)
+    {
+      const gchar *new_charset;
+
+      g_free (cache->raw);
+      g_free (cache->charset);
+      cache->raw = g_strdup (raw);
+      cache->is_utf8 = g_utf8_get_charset_internal (raw, &new_charset);
+      cache->charset = g_strdup (new_charset);
+    }
+
+  if (charset)
+    *charset = cache->charset;
+
+  return cache->is_utf8;
+#else
+  /* assume the locale settings match the console encoding on non-Windows OSs */
+  return g_get_charset (charset);
+#endif
 }
 
 #ifndef G_OS_WIN32
@@ -440,10 +644,15 @@ append_locale_variants (GPtrArray *array,
  * Returns a list of derived variants of @locale, which can be used to
  * e.g. construct locale-dependent filenames or search paths. The returned
  * list is sorted from most desirable to least desirable.
- * This function handles territory, charset and extra locale modifiers.
+ * This function handles territory, charset and extra locale modifiers. See
+ * [`setlocale(3)`](man:setlocale) for information about locales and their format.
  *
- * For example, if @locale is "fr_BE", then the returned list
- * is "fr_BE", "fr".
+ * @locale itself is guaranteed to be returned in the output.
+ *
+ * For example, if @locale is `fr_BE`, then the returned list
+ * is `fr_BE`, `fr`. If @locale is `en_GB.UTF-8@euro`, then the returned list
+ * is `en_GB.UTF-8@euro`, `en_GB.UTF-8`, `en_GB@euro`, `en_GB`, `en.UTF-8@euro`,
+ * `en.UTF-8`, `en@euro`, `en`.
  *
  * If you need the list of variants for the current locale,
  * use g_get_language_names().
@@ -576,15 +785,16 @@ g_get_language_names (void)
  *
  * g_get_language_names() returns g_get_language_names_with_category("LC_MESSAGES").
  *
- * Returns: (array zero-terminated=1) (transfer none): a %NULL-terminated array of strings owned by GLib
- *    that must not be modified or freed.
+ * Returns: (array zero-terminated=1) (transfer none): a %NULL-terminated array of strings owned by
+ *    the thread g_get_language_names_with_category was called from.
+ *    It must not be modified or freed. It must be copied if planned to be used in another thread.
  *
  * Since: 2.58
  */
 const gchar * const *
 g_get_language_names_with_category (const gchar *category_name)
 {
-  static GPrivate cache_private = G_PRIVATE_INIT ((void (*)(gpointer)) g_hash_table_remove_all);
+  static GPrivate cache_private = G_PRIVATE_INIT ((void (*)(gpointer)) g_hash_table_unref);
   GHashTable *cache = g_private_get (&cache_private);
   const gchar *languages;
   GLanguageNamesCache *name_cache;

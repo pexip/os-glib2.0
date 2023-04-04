@@ -1,6 +1,8 @@
 /*
  * Copyright 2015 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -28,7 +30,7 @@
 #include <errno.h>
 
 #include "gio-tool.h"
-
+#include "glib/glib-private.h"
 
 void
 print_error (const gchar *format, ...)
@@ -149,7 +151,7 @@ char *
 attribute_flags_to_string (GFileAttributeInfoFlags flags)
 {
   GString *s;
-  int i;
+  gsize i;
   gboolean first;
   struct {
     guint32 mask;
@@ -229,6 +231,7 @@ usage (void)
   g_printerr ("  cat      %s\n", _("Concatenate files to standard output"));
   g_printerr ("  copy     %s\n", _("Copy one or more files"));
   g_printerr ("  info     %s\n", _("Show information about locations"));
+  g_printerr ("  launch   %s\n", _("Launch an application from a desktop file"));
   g_printerr ("  list     %s\n", _("List the contents of locations"));
   g_printerr ("  mime     %s\n", _("Get or set the handler for a mimetype"));
   g_printerr ("  mkdir    %s\n", _("Create directories"));
@@ -253,9 +256,20 @@ main (int argc, char **argv)
   const char *command;
   gboolean do_help;
 
-  setlocale (LC_ALL, "");
+#ifdef G_OS_WIN32
+  gchar *localedir;
+#endif
+
+  setlocale (LC_ALL, GLIB_DEFAULT_LOCALE);
   textdomain (GETTEXT_PACKAGE);
+
+#ifdef G_OS_WIN32
+  localedir = _glib_get_locale_dir ();
+  bindtextdomain (GETTEXT_PACKAGE, localedir);
+  g_free (localedir);
+#else
   bindtextdomain (GETTEXT_PACKAGE, GLIB_LOCALE_DIR);
+#endif
 
 #ifdef HAVE_BIND_TEXTDOMAIN_CODESET
   bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");
@@ -301,6 +315,8 @@ main (int argc, char **argv)
     return handle_copy (argc, argv, do_help);
   else if (g_str_equal (command, "info"))
     return handle_info (argc, argv, do_help);
+  else if (g_str_equal (command, "launch"))
+    return handle_launch (argc, argv, do_help);
   else if (g_str_equal (command, "list"))
     return handle_list (argc, argv, do_help);
   else if (g_str_equal (command, "mime"))

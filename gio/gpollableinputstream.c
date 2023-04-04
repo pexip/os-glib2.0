@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -159,9 +161,9 @@ g_pollable_input_stream_default_read_nonblocking (GPollableInputStream  *stream,
 /**
  * g_pollable_input_stream_read_nonblocking:
  * @stream: a #GPollableInputStream
- * @buffer: (array length=count) (element-type guint8): a buffer to
- *     read data into (which should be at least @count bytes long).
- * @count: the number of bytes you want to read
+ * @buffer: (array length=count) (element-type guint8) (out caller-allocates): a
+ *     buffer to read data into (which should be at least @count bytes long).
+ * @count: (in): the number of bytes you want to read
  * @cancellable: (nullable): a #GCancellable, or %NULL
  * @error: #GError for error reporting, or %NULL to ignore.
  *

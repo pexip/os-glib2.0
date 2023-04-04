@@ -6,6 +6,8 @@
  * Copyright 2001 Hans Breuer
  * Copyright 2004 Tor Lillqvist
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -41,8 +43,7 @@
 #include "glibintl.h"
 
 #if defined (_MSC_VER) && !defined (HAVE_DIRENT_H)
-#include "../build/win32/dirent/dirent.h"
-#include "../build/win32/dirent/wdirent.c"
+#include "dirent/dirent.h"
 #endif
 
 #include "glib-private.h" /* g_dir_open_with_errno, g_dir_new_from_dirp */
@@ -61,7 +62,9 @@ struct _GDir
   DIR *dirp;
 #endif
 #ifdef G_OS_WIN32
-  gchar utf8_buf[FILENAME_MAX*4];
+  /* maximum encoding of FILENAME_MAX UTF-8 characters, plus a nul terminator
+   * (FILENAME_MAX is not guaranteed to include one) */
+  gchar utf8_buf[FILENAME_MAX*4 + 1];
 #endif
 };
 
@@ -113,7 +116,7 @@ g_dir_open_with_errno (const gchar *path,
     return NULL;
 #endif
 
-  return g_memdup (&dir, sizeof dir);
+  return g_memdup2 (&dir, sizeof dir);
 }
 
 /**
@@ -190,6 +193,8 @@ g_dir_new_from_dirp (gpointer dirp)
   return dir;
 #else
   g_assert_not_reached ();
+
+  return NULL;
 #endif
 }
 

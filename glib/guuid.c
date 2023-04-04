@@ -113,7 +113,7 @@ uuid_parse_string (const gchar *str,
       if (hi == -1 || lo == -1)
         return FALSE;
 
-      bytes[i++] = hi << 8 | lo;
+      bytes[i++] = hi << 4 | lo;
     }
 
   if (uuid != NULL)
@@ -193,7 +193,9 @@ g_uuid_generate_v4 (GUuid *uuid)
 /**
  * g_uuid_string_random:
  *
- * Generates a random UUID (RFC 4122 version 4) as a string.
+ * Generates a random UUID (RFC 4122 version 4) as a string. It has the same
+ * randomness guarantees as #GRand, so must not be used for cryptographic
+ * purposes such as key generation, nonces, salts or one-time pads.
  *
  * Returns: (transfer full): A string that should be freed with g_free().
  * Since: 2.52
@@ -207,4 +209,3 @@ g_uuid_string_random (void)
 
   return g_uuid_to_string (&uuid);
 }
-

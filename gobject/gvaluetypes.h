@@ -1,6 +1,8 @@
 /* GObject - GLib Type, Object, Parameter and Signal Library
  * Copyright (C) 1997-1999, 2000-2001 Tim Janik and Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -137,6 +139,19 @@ G_BEGIN_DECLS
  */
 #define G_VALUE_HOLDS_STRING(value)	 (G_TYPE_CHECK_VALUE_TYPE ((value), G_TYPE_STRING))
 /**
+ * G_VALUE_IS_INTERNED_STRING:
+ * @value: a valid #GValue structure
+ *
+ * Checks whether @value contains a string which is canonical.
+ *
+ * Returns: %TRUE if the value contains a string in its canonical
+ * representation, as returned by g_intern_string(). See also
+ * g_value_set_interned_string().
+ *
+ * Since: 2.66
+ */
+#define G_VALUE_IS_INTERNED_STRING(value) (G_VALUE_HOLDS_STRING (value) && ((value)->data[1].v_uint & G_VALUE_INTERNED_STRING)) GLIB_AVAILABLE_MACRO_IN_2_66
+/**
  * G_VALUE_HOLDS_POINTER:
  * @value: a valid #GValue structure
  * 
@@ -241,6 +256,9 @@ void		      g_value_set_string	(GValue	      *value,
 GLIB_AVAILABLE_IN_ALL
 void		      g_value_set_static_string (GValue	      *value,
 						 const gchar  *v_string);
+GLIB_AVAILABLE_IN_2_66
+void		      g_value_set_interned_string (GValue      *value,
+						   const gchar  *v_string);
 GLIB_AVAILABLE_IN_ALL
 const gchar *         g_value_get_string	(const GValue *value);
 GLIB_AVAILABLE_IN_ALL
@@ -290,7 +308,7 @@ void g_value_set_string_take_ownership          (GValue            *value,
 /**
  * gchararray:
  * 
- * A C representable type name for #G_TYPE_STRING.
+ * A C representable type name for %G_TYPE_STRING.
  */
 typedef gchar* gchararray;
 

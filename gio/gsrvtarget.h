@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -56,4 +58,3 @@ GList       *g_srv_target_list_sort    (GList       *targets);
 G_END_DECLS
 
 #endif /* __G_SRV_TARGET_H__ */
-

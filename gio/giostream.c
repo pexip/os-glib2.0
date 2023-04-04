@@ -3,6 +3,8 @@
  * Copyright © 2008 codethink
  * Copyright © 2009 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -830,7 +832,7 @@ splice_cancelled_cb (GCancellable *cancellable,
  * @callback: (scope async): a #GAsyncReadyCallback.
  * @user_data: (closure): user data passed to @callback.
  *
- * Asyncronously splice the output stream of @stream1 to the input stream of
+ * Asynchronously splice the output stream of @stream1 to the input stream of
  * @stream2, and splice the output stream of @stream2 to the input stream of
  * @stream1.
  *

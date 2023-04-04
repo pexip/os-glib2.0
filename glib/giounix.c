@@ -4,6 +4,8 @@
  * giounix.c: IO Channels using unix file descriptors
  * Copyright 1998 Owen Taylor
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -107,7 +109,8 @@ GSourceFuncs g_io_watch_funcs = {
   g_io_unix_prepare,
   g_io_unix_check,
   g_io_unix_dispatch,
-  g_io_unix_finalize
+  g_io_unix_finalize,
+  NULL, NULL
 };
 
 static GIOFuncs unix_channel_funcs = {
@@ -347,7 +350,7 @@ g_io_unix_create_watch (GIOChannel   *channel,
 
 
   source = g_source_new (&g_io_watch_funcs, sizeof (GIOUnixWatch));
-  g_source_set_name (source, "GIOChannel (Unix)");
+  g_source_set_static_name (source, "GIOChannel (Unix)");
   watch = (GIOUnixWatch *)source;
   
   watch->channel = channel;
@@ -397,7 +400,7 @@ g_io_unix_set_flags (GIOChannel *channel,
 static GIOFlags
 g_io_unix_get_flags (GIOChannel *channel)
 {
-  GIOFlags flags = 0;
+  GIOFlags flags = G_IO_FLAG_NONE;
   glong fcntl_flags;
   GIOUnixChannel *unix_channel = (GIOUnixChannel *) channel;
 
@@ -490,7 +493,7 @@ g_io_channel_new_file (const gchar *filename,
             mode_num |= MODE_PLUS;
             break;
           }
-        /* Fall through */
+        G_GNUC_FALLTHROUGH;
       default:
         g_warning ("Invalid GIOFileMode %s.", mode);
         return NULL;

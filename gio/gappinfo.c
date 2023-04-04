@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -24,8 +26,10 @@
 #include "gappinfoprivate.h"
 #include "gcontextspecificgroup.h"
 #include "gtask.h"
+#include "gcancellable.h"
 
 #include "glibintl.h"
+#include "gmarshal-internal.h"
 #include <gioerror.h>
 #include <gfile.h>
 
@@ -52,7 +56,7 @@
  * As of GLib 2.20, URIs will always be converted to POSIX paths
  * (using g_file_get_path()) when using g_app_info_launch() even if
  * the application requested an URI and not a POSIX path. For example
- * for an desktop-file based application with Exec key `totem
+ * for a desktop-file based application with Exec key `totem
  * %U` and a single URI, `sftp://foo/file.avi`, then
  * `/home/user/.gvfs/sftp on foo/file.avi` will be passed. This will
  * only work if a set of suitable GIO extensions (such as gvfs 2.26
@@ -136,7 +140,7 @@ g_app_info_dup (GAppInfo *appinfo)
  *
  * Checks if two #GAppInfos are equal.
  *
- * Note that the check <emphasis>may not</emphasis> compare each individual
+ * Note that the check *may not* compare each individual
  * field, and only does an identity check. In case detecting changes in the 
  * contents is needed, program code must additionally compare relevant fields.
  *
@@ -171,7 +175,7 @@ g_app_info_equal (GAppInfo *appinfo1,
  * Note that the returned ID may be %NULL, depending on how
  * the @appinfo has been constructed.
  *
- * Returns: a string containing the application's ID.
+ * Returns: (nullable): a string containing the application's ID.
  **/
 const char *
 g_app_info_get_id (GAppInfo *appinfo)
@@ -238,7 +242,7 @@ g_app_info_get_display_name (GAppInfo *appinfo)
  * 
  * Gets a human-readable description of an installed application.
  *
- * Returns: a string containing a description of the 
+ * Returns: (nullable): a string containing a description of the 
  * application @appinfo, or %NULL if none. 
  **/
 const char *
@@ -254,7 +258,7 @@ g_app_info_get_description (GAppInfo *appinfo)
 }
 
 /**
- * g_app_info_get_executable:
+ * g_app_info_get_executable: (virtual get_executable)
  * @appinfo: a #GAppInfo
  * 
  * Gets the executable's name for the installed application.
@@ -276,13 +280,13 @@ g_app_info_get_executable (GAppInfo *appinfo)
 
 
 /**
- * g_app_info_get_commandline:
+ * g_app_info_get_commandline: (virtual get_commandline)
  * @appinfo: a #GAppInfo
  * 
  * Gets the commandline with which the application will be
  * started.  
  *
- * Returns: (type filename): a string containing the @appinfo's commandline,
+ * Returns: (nullable) (type filename): a string containing the @appinfo's commandline,
  *     or %NULL if this information is not available
  *
  * Since: 2.20
@@ -324,7 +328,12 @@ g_app_info_set_as_default_for_type (GAppInfo    *appinfo,
 
   iface = G_APP_INFO_GET_IFACE (appinfo);
 
-  return (* iface->set_as_default_for_type) (appinfo, content_type, error);
+  if (iface->set_as_default_for_type)
+    return (* iface->set_as_default_for_type) (appinfo, content_type, error);
+
+  g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
+                       _("Setting default applications not supported yet"));
+  return FALSE;
 }
 
 /**
@@ -352,7 +361,12 @@ g_app_info_set_as_last_used_for_type (GAppInfo    *appinfo,
 
   iface = G_APP_INFO_GET_IFACE (appinfo);
 
-  return (* iface->set_as_last_used_for_type) (appinfo, content_type, error);
+  if (iface->set_as_last_used_for_type)
+    return (* iface->set_as_last_used_for_type) (appinfo, content_type, error);
+
+  g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
+                       _("Setting application as last used for type not supported yet"));
+  return FALSE;
 }
 
 /**
@@ -516,7 +530,7 @@ g_app_info_get_supported_types (GAppInfo *appinfo)
  * 
  * Gets the icon for the application.
  *
- * Returns: (transfer none): the default #GIcon for @appinfo or %NULL
+ * Returns: (nullable) (transfer none): the default #GIcon for @appinfo or %NULL
  * if there is no default icon.
  **/
 GIcon *
@@ -637,7 +651,9 @@ g_app_info_supports_files (GAppInfo *appinfo)
  * Launches the application. This passes the @uris to the launched application
  * as arguments, using the optional @context to get information
  * about the details of the launcher (like what screen it is on).
- * On error, @error will be set accordingly.
+ * On error, @error will be set accordingly. If the application only supports
+ * one URI per invocation as part of their command-line, multiple instances
+ * of the application will be spawned.
  *
  * To launch the application without arguments pass a %NULL @uris list.
  *
@@ -662,6 +678,86 @@ g_app_info_launch_uris (GAppInfo           *appinfo,
   return (* iface->launch_uris) (appinfo, uris, launch_context, error);
 }
 
+/**
+ * g_app_info_launch_uris_async:
+ * @appinfo: a #GAppInfo
+ * @uris: (nullable) (element-type utf8): a #GList containing URIs to launch.
+ * @context: (nullable): a #GAppLaunchContext or %NULL
+ * @cancellable: (nullable): a #GCancellable
+ * @callback: (nullable): a #GAsyncReadyCallback to call when the request is done
+ * @user_data: (nullable): data to pass to @callback
+ *
+ * Async version of g_app_info_launch_uris().
+ *
+ * The @callback is invoked immediately after the application launch, but it
+ * waits for activation in case of D-Bus–activated applications and also provides
+ * extended error information for sandboxed applications, see notes for
+ * g_app_info_launch_default_for_uri_async().
+ *
+ * Since: 2.60
+ **/
+void
+g_app_info_launch_uris_async (GAppInfo           *appinfo,
+                              GList              *uris,
+                              GAppLaunchContext  *context,
+                              GCancellable       *cancellable,
+                              GAsyncReadyCallback callback,
+                              gpointer            user_data)
+{
+  GAppInfoIface *iface;
+
+  g_return_if_fail (G_IS_APP_INFO (appinfo));
+  g_return_if_fail (context == NULL || G_IS_APP_LAUNCH_CONTEXT (context));
+  g_return_if_fail (cancellable == NULL || G_IS_CANCELLABLE (cancellable));
+
+  iface = G_APP_INFO_GET_IFACE (appinfo);
+  if (iface->launch_uris_async == NULL)
+    {
+      GTask *task;
+
+      task = g_task_new (appinfo, cancellable, callback, user_data);
+      g_task_set_source_tag (task, g_app_info_launch_uris_async);
+      g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
+                               "Operation not supported for the current backend.");
+      g_object_unref (task);
+
+      return;
+    }
+
+  (* iface->launch_uris_async) (appinfo, uris, context, cancellable, callback, user_data);
+}
+
+/**
+ * g_app_info_launch_uris_finish:
+ * @appinfo: a #GAppInfo
+ * @result: a #GAsyncResult
+ * @error: (nullable): a #GError
+ *
+ * Finishes a g_app_info_launch_uris_async() operation.
+ *
+ * Returns: %TRUE on successful launch, %FALSE otherwise.
+ *
+ * Since: 2.60
+ */
+gboolean
+g_app_info_launch_uris_finish (GAppInfo     *appinfo,
+                               GAsyncResult *result,
+                               GError      **error)
+{
+  GAppInfoIface *iface;
+
+  g_return_val_if_fail (G_IS_APP_INFO (appinfo), FALSE);
+
+  iface = G_APP_INFO_GET_IFACE (appinfo);
+  if (iface->launch_uris_finish == NULL)
+    {
+      g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
+                           "Operation not supported for the current backend.");
+      return FALSE;
+    }
+
+  return (* iface->launch_uris_finish) (appinfo, result, error);
+}
 
 /**
  * g_app_info_should_show:
@@ -684,15 +780,213 @@ g_app_info_should_show (GAppInfo *appinfo)
   return (* iface->should_show) (appinfo);
 }
 
-static gboolean
-launch_default_for_uri (const char         *uri,
-                        GAppLaunchContext  *context,
-                        GError            **error)
+typedef struct {
+  char *content_type;
+  gboolean must_support_uris;
+} DefaultForTypeData;
+
+static void
+default_for_type_data_free (DefaultForTypeData *data)
+{
+  g_free (data->content_type);
+  g_free (data);
+}
+
+static void
+get_default_for_type_thread (GTask         *task,
+                             gpointer       object,
+                             gpointer       task_data,
+                             GCancellable  *cancellable)
+{
+  DefaultForTypeData *data = task_data;
+  GAppInfo *info;
+
+  info = g_app_info_get_default_for_type (data->content_type,
+                                          data->must_support_uris);
+
+  if (!info)
+    {
+      g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
+                               _("Failed to find default application for "
+                                 "content type ‘%s’"), data->content_type);
+      return;
+    }
+
+  g_task_return_pointer (task, g_steal_pointer (&info), g_object_unref);
+}
+
+/**
+ * g_app_info_get_default_for_type_async:
+ * @content_type: the content type to find a #GAppInfo for
+ * @must_support_uris: if %TRUE, the #GAppInfo is expected to
+ *     support URIs
+ * @cancellable: optional #GCancellable object, %NULL to ignore
+ * @callback: (nullable): a #GAsyncReadyCallback to call when the request is done
+ * @user_data: (nullable): data to pass to @callback
+ *
+ * Asynchronously gets the default #GAppInfo for a given content type.
+ *
+ * Since: 2.74
+ */
+void
+g_app_info_get_default_for_type_async  (const char          *content_type,
+                                        gboolean             must_support_uris,
+                                        GCancellable        *cancellable,
+                                        GAsyncReadyCallback  callback,
+                                        gpointer             user_data)
+{
+  GTask *task;
+  DefaultForTypeData *data;
+
+  g_return_if_fail (content_type != NULL && *content_type != '\0');
+  g_return_if_fail (cancellable == NULL || G_IS_CANCELLABLE (cancellable));
+
+  data = g_new0 (DefaultForTypeData, 1);
+  data->content_type = g_strdup (content_type);
+  data->must_support_uris = must_support_uris;
+
+  task = g_task_new (NULL, cancellable, callback, user_data);
+  g_task_set_source_tag (task, g_app_info_get_default_for_type_async);
+  g_task_set_task_data (task, data, (GDestroyNotify) default_for_type_data_free);
+  g_task_set_check_cancellable (task, TRUE);
+  g_task_run_in_thread (task, get_default_for_type_thread);
+  g_object_unref (task);
+}
+
+static void
+get_default_for_scheme_thread (GTask         *task,
+                               gpointer       object,
+                               gpointer       task_data,
+                               GCancellable  *cancellable)
+{
+  const char *uri_scheme = task_data;
+  GAppInfo *info;
+
+  info = g_app_info_get_default_for_uri_scheme (uri_scheme);
+
+  if (!info)
+    {
+      g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
+                               _("Failed to find default application for "
+                                 "URI Scheme ‘%s’"), uri_scheme);
+      return;
+    }
+
+  g_task_return_pointer (task, g_steal_pointer (&info), g_object_unref);
+}
+
+/**
+ * g_app_info_get_default_for_uri_scheme_async:
+ * @uri_scheme: a string containing a URI scheme.
+ * @cancellable: optional #GCancellable object, %NULL to ignore
+ * @callback: (nullable): a #GAsyncReadyCallback to call when the request is done
+ * @user_data: (nullable): data to pass to @callback
+ *
+ * Asynchronously gets the default application for handling URIs with
+ * the given URI scheme. A URI scheme is the initial part
+ * of the URI, up to but not including the ':', e.g. "http",
+ * "ftp" or "sip".
+ *
+ * Since: 2.74
+ */
+void
+g_app_info_get_default_for_uri_scheme_async (const char          *uri_scheme,
+                                             GCancellable        *cancellable,
+                                             GAsyncReadyCallback  callback,
+                                             gpointer             user_data)
+{
+  GTask *task;
+
+  g_return_if_fail (uri_scheme != NULL && *uri_scheme != '\0');
+  g_return_if_fail (cancellable == NULL || G_IS_CANCELLABLE (cancellable));
+
+  task = g_task_new (NULL, cancellable, callback, user_data);
+  g_task_set_source_tag (task, g_app_info_get_default_for_uri_scheme_async);
+  g_task_set_task_data (task, g_strdup (uri_scheme), g_free);
+  g_task_set_check_cancellable (task, TRUE);
+  g_task_run_in_thread (task, get_default_for_scheme_thread);
+  g_object_unref (task);
+}
+
+/**
+ * g_app_info_get_default_for_uri_scheme_finish:
+ * @result: a #GAsyncResult
+ * @error: (nullable): a #GError
+ *
+ * Finishes a default #GAppInfo lookup started by
+ * g_app_info_get_default_for_uri_scheme_async().
+ *
+ * If no #GAppInfo is found, then @error will be set to %G_IO_ERROR_NOT_FOUND.
+ *
+ * Returns: (transfer full): #GAppInfo for given @uri_scheme or
+ *     %NULL on error.
+ *
+ * Since: 2.74
+ */
+GAppInfo *
+g_app_info_get_default_for_uri_scheme_finish (GAsyncResult  *result,
+                                              GError       **error)
+{
+  g_return_val_if_fail (g_task_is_valid (result, NULL), NULL);
+  g_return_val_if_fail (g_task_get_source_tag (G_TASK (result)) ==
+                        g_app_info_get_default_for_uri_scheme_async, NULL);
+  g_return_val_if_fail (error == NULL || *error == NULL, NULL);
+
+  return g_task_propagate_pointer (G_TASK (result), error);
+}
+
+/**
+ * g_app_info_get_default_for_type_finish:
+ * @result: a #GAsyncResult
+ * @error: (nullable): a #GError
+ *
+ * Finishes a default #GAppInfo lookup started by
+ * g_app_info_get_default_for_type_async().
+ *
+ * If no #GAppInfo is found, then @error will be set to %G_IO_ERROR_NOT_FOUND.
+ *
+ * Returns: (transfer full): #GAppInfo for given @content_type or
+ *     %NULL on error.
+ *
+ * Since: 2.74
+ */
+GAppInfo *
+g_app_info_get_default_for_type_finish (GAsyncResult  *result,
+                                        GError       **error)
+{
+  g_return_val_if_fail (g_task_is_valid (result, NULL), NULL);
+  g_return_val_if_fail (g_task_get_source_tag (G_TASK (result)) ==
+                        g_app_info_get_default_for_type_async, NULL);
+  g_return_val_if_fail (error == NULL || *error == NULL, NULL);
+
+  return g_task_propagate_pointer (G_TASK (result), error);
+}
+
+/**
+ * g_app_info_launch_default_for_uri:
+ * @uri: the uri to show
+ * @context: (nullable): an optional #GAppLaunchContext
+ * @error: (nullable): return location for an error, or %NULL
+ *
+ * Utility function that launches the default application
+ * registered to handle the specified uri. Synchronous I/O
+ * is done on the uri to detect the type of the file if
+ * required.
+ *
+ * The D-Bus–activated applications don't have to be started if your application
+ * terminates too soon after this function. To prevent this, use
+ * g_app_info_launch_default_for_uri_async() instead.
+ *
+ * Returns: %TRUE on success, %FALSE on error.
+ **/
+gboolean
+g_app_info_launch_default_for_uri (const char         *uri,
+                                   GAppLaunchContext  *launch_context,
+                                   GError            **error)
 {
   char *uri_scheme;
   GAppInfo *app_info = NULL;
-  GList l;
-  gboolean res;
+  gboolean res = FALSE;
 
   /* g_file_query_default_handler() calls
    * g_app_info_get_default_for_uri_scheme() too, but we have to do it
@@ -712,41 +1006,18 @@ launch_default_for_uri (const char         *uri,
       g_object_unref (file);
     }
 
-  if (app_info == NULL)
-    return FALSE;
+  if (app_info)
+    {
+      GList l;
 
-  l.data = (char *)uri;
-  l.next = l.prev = NULL;
-  res = g_app_info_launch_uris (app_info, &l, context, error);
-
-  g_object_unref (app_info);
-
-  return res;
-}
-
-/**
- * g_app_info_launch_default_for_uri:
- * @uri: the uri to show
- * @context: (nullable): an optional #GAppLaunchContext
- * @error: (nullable): return location for an error, or %NULL
- *
- * Utility function that launches the default application
- * registered to handle the specified uri. Synchronous I/O
- * is done on the uri to detect the type of the file if
- * required.
- * 
- * Returns: %TRUE on success, %FALSE on error.
- **/
-gboolean
-g_app_info_launch_default_for_uri (const char         *uri,
-				   GAppLaunchContext  *launch_context,
-				   GError            **error)
-{
-  if (launch_default_for_uri (uri, launch_context, error))
-    return TRUE;
+      l.data = (char *)uri;
+      l.next = l.prev = NULL;
+      res = g_app_info_launch_uris (app_info, &l, launch_context, error);
+      g_object_unref (app_info);
+    }
 
 #ifdef G_OS_UNIX
-  if (glib_should_use_portal ())
+  if (!res && glib_should_use_portal ())
     {
       const char *parent_window = NULL;
 
@@ -757,11 +1028,166 @@ g_app_info_launch_default_for_uri (const char         *uri,
         parent_window = g_environ_getenv (launch_context->priv->envp, "PARENT_WINDOW_ID");
 
       return g_openuri_portal_open_uri (uri, parent_window, error);
-
     }
 #endif
 
-  return FALSE;
+  return res;
+}
+
+typedef struct
+{
+  gchar *uri;
+  GAppLaunchContext *context;
+} LaunchDefaultForUriData;
+
+static void
+launch_default_for_uri_data_free (LaunchDefaultForUriData *data)
+{
+  g_free (data->uri);
+  g_clear_object (&data->context);
+  g_free (data);
+}
+
+#ifdef G_OS_UNIX
+static void
+launch_default_for_uri_portal_open_uri_cb (GObject      *object,
+                                           GAsyncResult *result,
+                                           gpointer      user_data)
+{
+  GTask *task = G_TASK (user_data);
+  GError *error = NULL;
+
+  if (g_openuri_portal_open_uri_finish (result, &error))
+    g_task_return_boolean (task, TRUE);
+  else
+    g_task_return_error (task, g_steal_pointer (&error));
+  g_object_unref (task);
+}
+#endif
+
+static void
+launch_default_for_uri_portal_open_uri (GTask *task, GError *error)
+{
+#ifdef G_OS_UNIX
+  LaunchDefaultForUriData *data = g_task_get_task_data (task);
+  GCancellable *cancellable = g_task_get_cancellable (task);
+
+  if (glib_should_use_portal ())
+    {
+      const char *parent_window = NULL;
+
+      /* Reset any error previously set by launch_default_for_uri */
+      g_error_free (error);
+
+      if (data->context && data->context->priv->envp)
+        parent_window = g_environ_getenv (data->context->priv->envp,
+                                          "PARENT_WINDOW_ID");
+
+      g_openuri_portal_open_uri_async (data->uri,
+                                       parent_window,
+                                       cancellable,
+                                       launch_default_for_uri_portal_open_uri_cb,
+                                       g_steal_pointer (&task));
+      return;
+    }
+#endif
+
+  g_task_return_error (task, g_steal_pointer (&error));
+  g_object_unref (task);
+}
+
+static void
+launch_default_for_uri_launch_uris_cb (GObject      *object,
+                                       GAsyncResult *result,
+                                       gpointer      user_data)
+{
+  GAppInfo *app_info = G_APP_INFO (object);
+  GTask *task = G_TASK (user_data);
+  GError *error = NULL;
+
+  if (g_app_info_launch_uris_finish (app_info, result, &error))
+    {
+      g_task_return_boolean (task, TRUE);
+      g_object_unref (task);
+    }
+  else
+    launch_default_for_uri_portal_open_uri (g_steal_pointer (&task), g_steal_pointer (&error));
+}
+
+static void
+launch_default_for_uri_launch_uris (GTask *task,
+                                    GAppInfo *app_info)
+{
+  GCancellable *cancellable = g_task_get_cancellable (task);
+  GList l;
+  LaunchDefaultForUriData *data = g_task_get_task_data (task);
+
+  l.data = (char *)data->uri;
+  l.next = l.prev = NULL;
+  g_app_info_launch_uris_async (app_info,
+                                &l,
+                                data->context,
+                                cancellable,
+                                launch_default_for_uri_launch_uris_cb,
+                                g_steal_pointer (&task));
+  g_object_unref (app_info);
+}
+
+static void
+launch_default_for_uri_default_handler_cb (GObject      *object,
+                                           GAsyncResult *result,
+                                           gpointer      user_data)
+{
+  GFile *file = G_FILE (object);
+  GTask *task = G_TASK (user_data);
+  GAppInfo *app_info = NULL;
+  GError *error = NULL;
+
+  app_info = g_file_query_default_handler_finish (file, result, &error);
+  if (app_info)
+    launch_default_for_uri_launch_uris (g_steal_pointer (&task), g_steal_pointer (&app_info));
+  else
+    launch_default_for_uri_portal_open_uri (g_steal_pointer (&task), g_steal_pointer (&error));
+}
+
+static void
+launch_default_app_for_default_handler (GTask *task)
+{
+  GFile *file;
+  GCancellable *cancellable;
+  LaunchDefaultForUriData *data;
+
+  data = g_task_get_task_data (task);
+  cancellable = g_task_get_cancellable (task);
+  file = g_file_new_for_uri (data->uri);
+
+  g_file_query_default_handler_async (file,
+                                      G_PRIORITY_DEFAULT,
+                                      cancellable,
+                                      launch_default_for_uri_default_handler_cb,
+                                      g_steal_pointer (&task));
+  g_object_unref (file);
+}
+
+static void
+launch_default_app_for_uri_cb (GObject      *object,
+                               GAsyncResult *result,
+                               gpointer      user_data)
+{
+  GTask *task = G_TASK (user_data);
+  GAppInfo *app_info;
+
+  app_info = g_app_info_get_default_for_uri_scheme_finish (result, NULL);
+
+  if (!app_info)
+    {
+      launch_default_app_for_default_handler (g_steal_pointer (&task));
+    }
+  else
+    {
+      launch_default_for_uri_launch_uris (g_steal_pointer (&task),
+                                          g_steal_pointer (&app_info));
+    }
 }
 
 /**
@@ -769,7 +1195,7 @@ g_app_info_launch_default_for_uri (const char         *uri,
  * @uri: the uri to show
  * @context: (nullable): an optional #GAppLaunchContext
  * @cancellable: (nullable): a #GCancellable
- * @callback: (nullable): a #GASyncReadyCallback to call when the request is done
+ * @callback: (nullable): a #GAsyncReadyCallback to call when the request is done
  * @user_data: (nullable): data to pass to @callback
  *
  * Async version of g_app_info_launch_default_for_uri().
@@ -778,6 +1204,10 @@ g_app_info_launch_default_for_uri (const char         *uri,
  * error information in the case where the application is
  * sandboxed and the portal may present an application chooser
  * dialog to the user.
+ *
+ * This is also useful if you want to be sure that the D-Bus–activated
+ * applications are really started before termination and if you are interested
+ * in receiving error information from their activation.
  *
  * Since: 2.50
  */
@@ -788,32 +1218,38 @@ g_app_info_launch_default_for_uri_async (const char          *uri,
                                          GAsyncReadyCallback  callback,
                                          gpointer             user_data)
 {
-  gboolean res;
-  GError *error = NULL;
   GTask *task;
+  char *uri_scheme;
+  LaunchDefaultForUriData *data;
 
-  res = launch_default_for_uri (uri, context, &error);
+  g_return_if_fail (uri != NULL);
 
-#ifdef G_OS_UNIX
-  if (!res && glib_should_use_portal ())
+  task = g_task_new (NULL, cancellable, callback, user_data);
+  g_task_set_source_tag (task, g_app_info_launch_default_for_uri_async);
+
+  data = g_new (LaunchDefaultForUriData, 1);
+  data->uri = g_strdup (uri);
+  data->context = (context != NULL) ? g_object_ref (context) : NULL;
+  g_task_set_task_data (task, g_steal_pointer (&data), (GDestroyNotify) launch_default_for_uri_data_free);
+
+  /* g_file_query_default_handler_async() calls
+   * g_app_info_get_default_for_uri_scheme() too, but we have to do it
+   * here anyway in case GFile can't parse @uri correctly.
+   */
+  uri_scheme = g_uri_parse_scheme (uri);
+  if (uri_scheme && uri_scheme[0] != '\0')
     {
-      const  char *parent_window = NULL;
-
-      if (context && context->priv->envp)
-        parent_window = g_environ_getenv (context->priv->envp, "PARENT_WINDOW_ID");
-
-      g_openuri_portal_open_uri_async (uri, parent_window, cancellable, callback, user_data);
-      return;
+      g_app_info_get_default_for_uri_scheme_async (uri_scheme,
+                                                   cancellable,
+                                                   launch_default_app_for_uri_cb,
+                                                   g_steal_pointer (&task));
     }
-#endif
-
-  task = g_task_new (context, cancellable, callback, user_data);
-  if (!res)
-    g_task_return_error (task, error);
   else
-    g_task_return_boolean (task, TRUE);
+    {
+      launch_default_app_for_default_handler (g_steal_pointer (&task));
+    }
 
-  g_object_unref (task);
+  g_free (uri_scheme);
 }
 
 /**
@@ -831,11 +1267,9 @@ gboolean
 g_app_info_launch_default_for_uri_finish (GAsyncResult  *result,
                                           GError       **error)
 {
-#ifdef G_OS_UNIX
-  return g_openuri_portal_open_uri_finish (result, error);
-#else
+  g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
+
   return g_task_propagate_boolean (G_TASK (result), error);
-#endif
 }
 
 /**
@@ -898,6 +1332,7 @@ g_app_info_delete (GAppInfo *appinfo)
 
 enum {
   LAUNCH_FAILED,
+  LAUNCH_STARTED,
   LAUNCHED,
   LAST_SIGNAL
 };
@@ -942,9 +1377,13 @@ g_app_launch_context_class_init (GAppLaunchContextClass *klass)
    * @context: the object emitting the signal
    * @startup_notify_id: the startup notification id for the failed launch
    *
-   * The ::launch-failed signal is emitted when a #GAppInfo launch
+   * The #GAppLaunchContext::launch-failed signal is emitted when a #GAppInfo launch
    * fails. The startup notification id is provided, so that the launcher
    * can cancel the startup notification.
+   *
+   * Because a launch operation may involve spawning multiple instances of the
+   * target application, you should expect this signal to be emitted multiple
+   * times, one for each spawned instance.
    *
    * Since: 2.36
    */
@@ -956,16 +1395,70 @@ g_app_launch_context_class_init (GAppLaunchContextClass *klass)
                                          G_TYPE_NONE, 1, G_TYPE_STRING);
 
   /**
+   * GAppLaunchContext::launch-started:
+   * @context: the object emitting the signal
+   * @info: the #GAppInfo that is about to be launched
+   * @platform_data: (nullable): additional platform-specific data for this launch
+   *
+   * The #GAppLaunchContext::launch-started signal is emitted when a #GAppInfo is
+   * about to be launched. If non-null the @platform_data is an
+   * GVariant dictionary mapping strings to variants (ie `a{sv}`), which
+   * contains additional, platform-specific data about this launch. On
+   * UNIX, at least the `startup-notification-id` keys will be
+   * present.
+   *
+   * The value of the `startup-notification-id` key (type `s`) is a startup
+   * notification ID corresponding to the format from the [startup-notification
+   * specification](https://specifications.freedesktop.org/startup-notification-spec/startup-notification-0.1.txt).
+   * It allows tracking the progress of the launchee through startup.
+   *
+   * It is guaranteed that this signal is followed by either a #GAppLaunchContext::launched or
+   * #GAppLaunchContext::launch-failed signal.
+   *
+   * Because a launch operation may involve spawning multiple instances of the
+   * target application, you should expect this signal to be emitted multiple
+   * times, one for each spawned instance.
+   *
+   * Since: 2.72
+   */
+  signals[LAUNCH_STARTED] = g_signal_new (I_("launch-started"),
+                                          G_OBJECT_CLASS_TYPE (object_class),
+                                          G_SIGNAL_RUN_LAST,
+                                          G_STRUCT_OFFSET (GAppLaunchContextClass, launch_started),
+                                          NULL, NULL,
+                                          _g_cclosure_marshal_VOID__OBJECT_VARIANT,
+                                          G_TYPE_NONE, 2,
+                                          G_TYPE_APP_INFO, G_TYPE_VARIANT);
+  g_signal_set_va_marshaller (signals[LAUNCH_STARTED],
+                              G_TYPE_FROM_CLASS (klass),
+                              _g_cclosure_marshal_VOID__OBJECT_VARIANTv);
+
+  /**
    * GAppLaunchContext::launched:
    * @context: the object emitting the signal
    * @info: the #GAppInfo that was just launched
    * @platform_data: additional platform-specific data for this launch
    *
-   * The ::launched signal is emitted when a #GAppInfo is successfully
-   * launched. The @platform_data is an GVariant dictionary mapping
-   * strings to variants (ie a{sv}), which contains additional,
+   * The #GAppLaunchContext::launched signal is emitted when a #GAppInfo is successfully
+   * launched.
+   *
+   * Because a launch operation may involve spawning multiple instances of the
+   * target application, you should expect this signal to be emitted multiple
+   * times, one time for each spawned instance.
+   *
+   * The @platform_data is an GVariant dictionary mapping
+   * strings to variants (ie `a{sv}`), which contains additional,
    * platform-specific data about this launch. On UNIX, at least the
-   * "pid" and "startup-notification-id" keys will be present.
+   * `pid` and `startup-notification-id` keys will be present.
+   *
+   * Since 2.72 the `pid` may be 0 if the process id wasn't known (for
+   * example if the process was launched via D-Bus). The `pid` may not be
+   * set at all in subsequent releases.
+   *
+   * On Windows, `pid` is guaranteed to be valid only for the duration of the
+   * #GAppLaunchContext::launched signal emission; after the signal is emitted,
+   * GLib will call g_spawn_close_pid(). If you need to keep the #GPid after the
+   * signal has been emitted, then you can duplicate `pid` using `DuplicateHandle()`.
    *
    * Since: 2.36
    */
@@ -973,9 +1466,13 @@ g_app_launch_context_class_init (GAppLaunchContextClass *klass)
                                     G_OBJECT_CLASS_TYPE (object_class),
                                     G_SIGNAL_RUN_LAST,
                                     G_STRUCT_OFFSET (GAppLaunchContextClass, launched),
-                                    NULL, NULL, NULL,
+                                    NULL, NULL,
+                                    _g_cclosure_marshal_VOID__OBJECT_VARIANT,
                                     G_TYPE_NONE, 2,
                                     G_TYPE_APP_INFO, G_TYPE_VARIANT);
+  g_signal_set_va_marshaller (signals[LAUNCHED],
+                              G_TYPE_FROM_CLASS (klass),
+                              _g_cclosure_marshal_VOID__OBJECT_VARIANTv);
 }
 
 static void
@@ -1000,6 +1497,10 @@ g_app_launch_context_setenv (GAppLaunchContext *context,
                              const char        *variable,
                              const char        *value)
 {
+  g_return_if_fail (G_IS_APP_LAUNCH_CONTEXT (context));
+  g_return_if_fail (variable != NULL);
+  g_return_if_fail (value != NULL);
+
   if (!context->priv->envp)
     context->priv->envp = g_get_environ ();
 
@@ -1021,6 +1522,9 @@ void
 g_app_launch_context_unsetenv (GAppLaunchContext *context,
                                const char        *variable)
 {
+  g_return_if_fail (G_IS_APP_LAUNCH_CONTEXT (context));
+  g_return_if_fail (variable != NULL);
+
   if (!context->priv->envp)
     context->priv->envp = g_get_environ ();
 
@@ -1045,6 +1549,8 @@ g_app_launch_context_unsetenv (GAppLaunchContext *context,
 char **
 g_app_launch_context_get_environment (GAppLaunchContext *context)
 {
+  g_return_val_if_fail (G_IS_APP_LAUNCH_CONTEXT (context), NULL);
+
   if (!context->priv->envp)
     context->priv->envp = g_get_environ ();
 
@@ -1061,7 +1567,7 @@ g_app_launch_context_get_environment (GAppLaunchContext *context)
  * applications are started on the same display as the launching
  * application, by setting the `DISPLAY` environment variable.
  *
- * Returns: a display string for the display.
+ * Returns: (nullable): a display string for the display.
  */
 char *
 g_app_launch_context_get_display (GAppLaunchContext *context,
@@ -1091,9 +1597,9 @@ g_app_launch_context_get_display (GAppLaunchContext *context,
  * `DESKTOP_STARTUP_ID` for the launched operation, if supported.
  *
  * Startup notification IDs are defined in the 
- * [FreeDesktop.Org Startup Notifications standard](http://standards.freedesktop.org/startup-notification-spec/startup-notification-latest.txt").
+ * [FreeDesktop.Org Startup Notifications standard](http://standards.freedesktop.org/startup-notification-spec/startup-notification-latest.txt).
  *
- * Returns: a startup notification ID for the application, or %NULL if
+ * Returns: (nullable): a startup notification ID for the application, or %NULL if
  *     not supported.
  **/
 char *

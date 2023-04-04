@@ -4,6 +4,8 @@
  * 
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -43,6 +45,9 @@
  * [thread-default-context aware][g-main-context-push-thread-default],
  * and so should not be used other than from the main thread, with no
  * thread-default-context active.
+ *
+ * In order to receive updates about volumes and mounts monitored through GVFS,
+ * a main loop must be running.
  **/
 
 G_DEFINE_TYPE (GVolumeMonitor, g_volume_monitor, G_TYPE_OBJECT)
@@ -91,7 +96,7 @@ g_volume_monitor_class_init (GVolumeMonitorClass *klass)
                                         G_SIGNAL_RUN_LAST,
                                         G_STRUCT_OFFSET (GVolumeMonitorClass, volume_added),
                                         NULL, NULL,
-                                        g_cclosure_marshal_VOID__OBJECT,
+                                        NULL,
                                         G_TYPE_NONE, 1, G_TYPE_VOLUME);
   
   /**
@@ -106,7 +111,7 @@ g_volume_monitor_class_init (GVolumeMonitorClass *klass)
                                           G_SIGNAL_RUN_LAST,
                                           G_STRUCT_OFFSET (GVolumeMonitorClass, volume_removed),
                                           NULL, NULL,
-                                          g_cclosure_marshal_VOID__OBJECT,
+                                          NULL,
                                           G_TYPE_NONE, 1, G_TYPE_VOLUME);
   
   /**
@@ -121,7 +126,7 @@ g_volume_monitor_class_init (GVolumeMonitorClass *klass)
                                           G_SIGNAL_RUN_LAST,
                                           G_STRUCT_OFFSET (GVolumeMonitorClass, volume_changed),
                                           NULL, NULL,
-                                          g_cclosure_marshal_VOID__OBJECT,
+                                          NULL,
                                           G_TYPE_NONE, 1, G_TYPE_VOLUME);
 
   /**
@@ -136,7 +141,7 @@ g_volume_monitor_class_init (GVolumeMonitorClass *klass)
                                        G_SIGNAL_RUN_LAST,
                                        G_STRUCT_OFFSET (GVolumeMonitorClass, mount_added),
                                        NULL, NULL,
-                                       g_cclosure_marshal_VOID__OBJECT,
+                                       NULL,
                                        G_TYPE_NONE, 1, G_TYPE_MOUNT);
 
   /**
@@ -151,7 +156,7 @@ g_volume_monitor_class_init (GVolumeMonitorClass *klass)
                                          G_SIGNAL_RUN_LAST,
                                          G_STRUCT_OFFSET (GVolumeMonitorClass, mount_removed),
                                          NULL, NULL,
-                                         g_cclosure_marshal_VOID__OBJECT,
+                                         NULL,
                                          G_TYPE_NONE, 1, G_TYPE_MOUNT);
 
   /**
@@ -169,7 +174,7 @@ g_volume_monitor_class_init (GVolumeMonitorClass *klass)
                                              G_SIGNAL_RUN_LAST,
                                              G_STRUCT_OFFSET (GVolumeMonitorClass, mount_pre_unmount),
                                              NULL, NULL,
-                                             g_cclosure_marshal_VOID__OBJECT,
+                                             NULL,
                                              G_TYPE_NONE, 1, G_TYPE_MOUNT);
 
   /**
@@ -184,7 +189,7 @@ g_volume_monitor_class_init (GVolumeMonitorClass *klass)
                                          G_SIGNAL_RUN_LAST,
                                          G_STRUCT_OFFSET (GVolumeMonitorClass, mount_changed),
                                          NULL, NULL,
-                                         g_cclosure_marshal_VOID__OBJECT,
+                                         NULL,
                                          G_TYPE_NONE, 1, G_TYPE_MOUNT);
 
   /**
@@ -199,7 +204,7 @@ g_volume_monitor_class_init (GVolumeMonitorClass *klass)
 					   G_SIGNAL_RUN_LAST,
 					   G_STRUCT_OFFSET (GVolumeMonitorClass, drive_connected),
 					   NULL, NULL,
-					   g_cclosure_marshal_VOID__OBJECT,
+					   NULL,
 					   G_TYPE_NONE, 1, G_TYPE_DRIVE);
   
   /**
@@ -214,7 +219,7 @@ g_volume_monitor_class_init (GVolumeMonitorClass *klass)
 					      G_SIGNAL_RUN_LAST,
 					      G_STRUCT_OFFSET (GVolumeMonitorClass, drive_disconnected),
 					      NULL, NULL,
-					      g_cclosure_marshal_VOID__OBJECT,
+					      NULL,
 					      G_TYPE_NONE, 1, G_TYPE_DRIVE);
 
   /**
@@ -229,7 +234,7 @@ g_volume_monitor_class_init (GVolumeMonitorClass *klass)
                                          G_SIGNAL_RUN_LAST,
                                          G_STRUCT_OFFSET (GVolumeMonitorClass, drive_changed),
                                          NULL, NULL,
-                                         g_cclosure_marshal_VOID__OBJECT,
+                                         NULL,
                                          G_TYPE_NONE, 1, G_TYPE_DRIVE);
 
   /**
@@ -246,7 +251,7 @@ g_volume_monitor_class_init (GVolumeMonitorClass *klass)
                                               G_SIGNAL_RUN_LAST,
                                               G_STRUCT_OFFSET (GVolumeMonitorClass, drive_eject_button),
                                               NULL, NULL,
-                                              g_cclosure_marshal_VOID__OBJECT,
+                                              NULL,
                                               G_TYPE_NONE, 1, G_TYPE_DRIVE);
 
   /**
@@ -263,7 +268,7 @@ g_volume_monitor_class_init (GVolumeMonitorClass *klass)
                                              G_SIGNAL_RUN_LAST,
                                              G_STRUCT_OFFSET (GVolumeMonitorClass, drive_stop_button),
                                              NULL, NULL,
-                                             g_cclosure_marshal_VOID__OBJECT,
+                                             NULL,
                                              G_TYPE_NONE, 1, G_TYPE_DRIVE);
 
 }
@@ -350,7 +355,7 @@ g_volume_monitor_get_mounts (GVolumeMonitor *volume_monitor)
  * 
  * Finds a #GVolume object by its UUID (see g_volume_get_uuid())
  * 
- * Returns: (transfer full): a #GVolume or %NULL if no such volume is available.
+ * Returns: (nullable) (transfer full): a #GVolume or %NULL if no such volume is available.
  *     Free the returned object with g_object_unref().
  **/
 GVolume *
@@ -374,7 +379,7 @@ g_volume_monitor_get_volume_for_uuid (GVolumeMonitor *volume_monitor,
  * 
  * Finds a #GMount object by its UUID (see g_mount_get_uuid())
  * 
- * Returns: (transfer full): a #GMount or %NULL if no such mount is available.
+ * Returns: (nullable) (transfer full): a #GMount or %NULL if no such mount is available.
  *     Free the returned object with g_object_unref().
  **/
 GMount *

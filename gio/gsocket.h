@@ -2,6 +2,8 @@
  * Copyright © 2008 Christian Kellner, Samuel Cormier-Iijima
  * Copyright © 2009 Codethink Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -192,7 +194,7 @@ gboolean               g_socket_condition_wait          (GSocket                
 GLIB_AVAILABLE_IN_2_32
 gboolean               g_socket_condition_timed_wait    (GSocket                 *socket,
 							 GIOCondition             condition,
-							 gint64                   timeout,
+							 gint64                   timeout_us,
 							 GCancellable            *cancellable,
 							 GError                 **error);
 GLIB_AVAILABLE_IN_ALL
@@ -298,7 +300,18 @@ gssize                 g_socket_send_with_blocking      (GSocket                
 							 gboolean                 blocking,
 							 GCancellable            *cancellable,
 							 GError                 **error);
-
+GLIB_AVAILABLE_IN_2_60
+GPollableReturn        g_socket_send_message_with_timeout (GSocket                *socket,
+							   GSocketAddress         *address,
+							   const GOutputVector    *vectors,
+							   gint                    num_vectors,
+							   GSocketControlMessage **messages,
+							   gint                    num_messages,
+							   gint                    flags,
+							   gint64                  timeout_us,
+							   gsize                  *bytes_written,
+							   GCancellable           *cancellable,
+							   GError                **error);
 GLIB_AVAILABLE_IN_2_36
 gboolean               g_socket_get_option              (GSocket                 *socket,
 							 gint                     level,

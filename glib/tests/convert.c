@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -138,7 +140,7 @@ test_byte_order (void)
 
 static void
 check_utf8_to_ucs4 (const char     *utf8,
-		    glong           utf8_len,
+		    gsize           utf8_len,
 		    const gunichar *ucs4,
 		    glong           ucs4_len,
 		    glong           error_pos)
@@ -292,7 +294,7 @@ check_ucs4_to_utf8 (const gunichar *ucs4,
 
 static void
 check_utf8_to_utf16 (const char      *utf8,
-		     glong            utf8_len,
+		     gsize            utf8_len,
 		     const gunichar2 *utf16,
 		     glong            utf16_len,
 		     glong            error_pos)
@@ -707,9 +709,11 @@ test_convert_embedded_nul (void)
 static void
 test_locale_to_utf8_embedded_nul (void)
 {
-  g_test_trap_subprocess ("/conversion/locale-to-utf8/embedded-nul/subprocess/utf8", 0, 0);
+  g_test_trap_subprocess ("/conversion/locale-to-utf8/embedded-nul/subprocess/utf8",
+                          0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
-  g_test_trap_subprocess ("/conversion/locale-to-utf8/embedded-nul/subprocess/iconv", 0, 0);
+  g_test_trap_subprocess ("/conversion/locale-to-utf8/embedded-nul/subprocess/iconv",
+                          0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
 }
 
@@ -758,9 +762,11 @@ test_locale_to_utf8_embedded_nul_iconv (void)
 static void
 test_locale_from_utf8_embedded_nul (void)
 {
-  g_test_trap_subprocess ("/conversion/locale-from-utf8/embedded-nul/subprocess/utf8", 0, 0);
+  g_test_trap_subprocess ("/conversion/locale-from-utf8/embedded-nul/subprocess/utf8",
+                          0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
-  g_test_trap_subprocess ("/conversion/locale-from-utf8/embedded-nul/subprocess/iconv", 0, 0);
+  g_test_trap_subprocess ("/conversion/locale-from-utf8/embedded-nul/subprocess/iconv",
+                          0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
 }
 
@@ -811,9 +817,11 @@ test_locale_from_utf8_embedded_nul_iconv (void)
 static void
 test_filename_to_utf8_embedded_nul (void)
 {
-  g_test_trap_subprocess ("/conversion/filename-to-utf8/embedded-nul/subprocess/utf8", 0, 0);
+  g_test_trap_subprocess ("/conversion/filename-to-utf8/embedded-nul/subprocess/utf8",
+                          0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
-  g_test_trap_subprocess ("/conversion/filename-to-utf8/embedded-nul/subprocess/iconv", 0, 0);
+  g_test_trap_subprocess ("/conversion/filename-to-utf8/embedded-nul/subprocess/iconv",
+                          0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
 }
 
@@ -827,8 +835,11 @@ test_filename_to_utf8_embedded_nul_utf8 (void)
   gsize bytes_read;
   GError *error = NULL;
 
+#ifndef G_OS_WIN32
+  /* G_FILENAME_ENCODING has no effect on Windows for g_get_filename_charsets() */
   g_setenv ("G_FILENAME_ENCODING", "UTF-8", TRUE);
   g_assert_true (g_get_filename_charsets (NULL));
+#endif
 
   res = g_filename_to_utf8 ("ab\0c", 4, &bytes_read, NULL, &error);
 
@@ -848,8 +859,11 @@ test_filename_to_utf8_embedded_nul_iconv (void)
   gsize bytes_read;
   GError *error = NULL;
 
+#ifndef G_OS_WIN32
+  /* G_FILENAME_ENCODING has no effect on Windows for g_get_filename_charsets() */
   g_setenv ("G_FILENAME_ENCODING", "US-ASCII", TRUE);
   g_assert_false (g_get_filename_charsets (NULL));
+#endif
 
   res = g_filename_to_utf8 ("ab\0c", 4, &bytes_read, NULL, &error);
 
@@ -862,9 +876,11 @@ test_filename_to_utf8_embedded_nul_iconv (void)
 static void
 test_filename_from_utf8_embedded_nul (void)
 {
-  g_test_trap_subprocess ("/conversion/filename-from-utf8/embedded-nul/subprocess/utf8", 0, 0);
+  g_test_trap_subprocess ("/conversion/filename-from-utf8/embedded-nul/subprocess/utf8",
+                          0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
-  g_test_trap_subprocess ("/conversion/filename-from-utf8/embedded-nul/subprocess/iconv", 0, 0);
+  g_test_trap_subprocess ("/conversion/filename-from-utf8/embedded-nul/subprocess/iconv",
+                          0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
 }
 
@@ -878,8 +894,11 @@ test_filename_from_utf8_embedded_nul_utf8 (void)
   gsize bytes_read;
   GError *error = NULL;
 
+#ifndef G_OS_WIN32
+  /* G_FILENAME_ENCODING has no effect on Windows for g_get_filename_charsets() */
   g_setenv ("G_FILENAME_ENCODING", "UTF-8", TRUE);
   g_assert_true (g_get_filename_charsets (NULL));
+#endif
 
   res = g_filename_from_utf8 ("ab\0c", 4, &bytes_read, NULL, &error);
 
@@ -899,8 +918,11 @@ test_filename_from_utf8_embedded_nul_iconv (void)
   gsize bytes_read;
   GError *error = NULL;
 
+#ifndef G_OS_WIN32
+  /* G_FILENAME_ENCODING has no effect on Windows for g_get_filename_charsets() */
   g_setenv ("G_FILENAME_ENCODING", "US-ASCII", TRUE);
   g_assert_false (g_get_filename_charsets (NULL));
+#endif
 
   res = g_filename_from_utf8 ("ab\0c", 4, &bytes_read, NULL, &error);
 

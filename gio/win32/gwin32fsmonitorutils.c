@@ -92,7 +92,7 @@ g_win32_fs_monitor_handle_event (GWin32FSMonitorPrivate   *monitor,
           monitor->pfni_prev->Action == FILE_ACTION_RENAMED_OLD_NAME)
         {
           /* don't bother sending events, was already sent (rename) */
-          fme = -1;
+          fme = (GFileMonitorEvent) -1;
         }
       else
         fme = G_FILE_MONITOR_EVENT_MOVED_IN;
@@ -104,7 +104,7 @@ g_win32_fs_monitor_handle_event (GWin32FSMonitorPrivate   *monitor,
       break;
     }
 
-  if (fme != -1)
+  if (fme != (GFileMonitorEvent) -1)
     return g_file_monitor_source_handle_event (monitor->fms,
                                                fme,
                                                filename,
@@ -345,7 +345,7 @@ g_win32_fs_monitor_init (GWin32FSMonitorPrivate *monitor,
     monitor->file_attribs = INVALID_FILE_ATTRIBUTES;
   monitor->pfni_prev = NULL;
   monitor->hDirectory = CreateFileW (wdirname_with_long_prefix != NULL ? wdirname_with_long_prefix : monitor->wfullpath_with_long_prefix,
-                                     FILE_GENERIC_READ | FILE_GENERIC_WRITE,
+                                     FILE_LIST_DIRECTORY,
                                      FILE_SHARE_DELETE | FILE_SHARE_READ | FILE_SHARE_WRITE,
                                      NULL,
                                      OPEN_EXISTING,
@@ -416,7 +416,7 @@ g_win32_fs_monitor_close_handle (GWin32FSMonitorPrivate *monitor)
   /* This triggers a last callback() with nBytes==0. */
 
   /* Actually I am not so sure about that, it seems to trigger a last
-   * callback allright, but the way to recognize that it is the final
+   * callback correctly, but the way to recognize that it is the final
    * one is not to check for nBytes==0, I think that was a
    * misunderstanding.
    */

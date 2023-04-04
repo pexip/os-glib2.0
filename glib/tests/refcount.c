@@ -2,6 +2,8 @@
  *
  * Copyright 2018  Emmanuele Bassi
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -76,7 +78,8 @@ test_grefcount (void)
 
 /* test_grefcount_saturation: Saturating a grefcount counter
  * does not cause an overflow; additionally, if we're building
- * with checks enabled, it'll cause a warning
+ * with checks enabled or with non-GCC compilers, it'll cause a
+ * warning
  */
 static void
 test_grefcount_saturation (void)
@@ -97,18 +100,18 @@ test_grefcount_saturation (void)
       exit (0);
     }
 
-  g_test_trap_subprocess (NULL, 0, 0);
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
 
-#ifndef G_DISABLE_CHECKS
-  /* Ensure that we got a warning when building with checks; the
-   * test will fail because of the critical warning being caught
-   * by GTest
+#if defined (G_DISABLE_CHECKS) && defined (__GNUC__)
+  /* With checks disabled we don't get any warning */
+  g_test_trap_assert_passed ();
+#else
+  /* Ensure that we got a warning when building with checks or with
+   * non-GCC compilers; the test will fail because of the critical
+   * warning being caught by GTest
    */
   g_test_trap_assert_failed ();
   g_test_trap_assert_stderr ("*saturation*");
-#else
-  /* With checks disabled we don't get any warning */
-  g_test_trap_assert_passed ();
 #endif
 }
 
@@ -167,9 +170,9 @@ test_gatomicrefcount (void)
   g_assert_true (g_atomic_ref_count_dec (&a));
 }
 
-/* test_grefcount_saturation: Saturating a gatomicrefcount counter
- * does not cause an overflow; additionally, if we're building
- * with checks enabled, it'll cause a warning
+/* test_gatomicrefcount_saturation: Saturating a gatomicrefcount counter
+ * does not cause an overflow; additionally, if we're building with
+ * checks enabled or with non-GCC compilers, it'll cause a warning
  */
 static void
 test_gatomicrefcount_saturation (void)
@@ -190,18 +193,18 @@ test_gatomicrefcount_saturation (void)
       exit (0);
     }
 
-  g_test_trap_subprocess (NULL, 0, 0);
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
 
-#ifndef G_DISABLE_CHECKS
-  /* Ensure that we got a warning when building with checks; the
-   * test will fail because of the critical warning being caught
-   * by GTest
+#if defined (G_DISABLE_CHECKS) && defined (__GNUC__)
+  /* With checks disabled we don't get any warning */
+  g_test_trap_assert_passed ();
+#else
+  /* Ensure that we got a warning when building with checks or with
+   * non-GCC compilers; the test will fail because of the critical
+   * warning being caught by GTest
    */
   g_test_trap_assert_failed ();
   g_test_trap_assert_stderr ("*saturation*");
-#else
-  /* With checks disabled we don't get any warning */
-  g_test_trap_assert_passed ();
 #endif
 }
 

@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -23,25 +25,28 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "giotypes.h"
-#include "gioenumtypes.h"
-#include "gsocket.h"
 #include "gdbusauthobserver.h"
-#include "gdbusprivate.h"
-#include "gdbusmessage.h"
 #include "gdbusconnection.h"
-#include "gdbusproxy.h"
+#include "gdbusdaemon.h"
 #include "gdbuserror.h"
 #include "gdbusintrospection.h"
-#include "gtask.h"
+#include "gdbusmessage.h"
+#include "gdbusprivate.h"
+#include "gdbusproxy.h"
 #include "ginputstream.h"
-#include "gmemoryinputstream.h"
+#include "gioenumtypes.h"
+#include "giomodule-priv.h"
 #include "giostream.h"
+#include "giotypes.h"
+#include "glib-private.h"
 #include "glib/gstdio.h"
+#include "gmemoryinputstream.h"
+#include "gsocket.h"
 #include "gsocketaddress.h"
-#include "gsocketcontrolmessage.h"
 #include "gsocketconnection.h"
+#include "gsocketcontrolmessage.h"
 #include "gsocketoutputstream.h"
+#include "gtask.h"
 
 #ifdef G_OS_UNIX
 #include "gunixfdmessage.h"
@@ -51,6 +56,9 @@
 
 #ifdef G_OS_WIN32
 #include <windows.h>
+#include <io.h>
+#include <conio.h>
+#include "gwin32sid.h"
 #endif
 
 #include "glibintl.h"
@@ -179,6 +187,7 @@ _g_socket_read_with_control_messages (GSocket                 *socket,
 
   task = g_task_new (socket, cancellable, callback, user_data);
   g_task_set_source_tag (task, _g_socket_read_with_control_messages);
+  g_task_set_name (task, "[gio] D-Bus read");
   g_task_set_task_data (task, data, (GDestroyNotify) read_with_control_data_free);
 
   if (g_socket_condition_check (socket, G_IO_IN))
@@ -260,7 +269,7 @@ ensure_required_types (void)
 
 typedef struct
 {
-  volatile gint refcount;
+  gint refcount;  /* (atomic) */
   GThread *thread;
   GMainContext *context;
   GMainLoop *loop;
@@ -336,12 +345,12 @@ typedef enum {
 
 struct GDBusWorker
 {
-  volatile gint                       ref_count;
+  gint                                ref_count;  /* (atomic) */
 
   SharedThreadData                   *shared_thread_data;
 
   /* really a boolean, but GLib 2.28 lacks atomic boolean ops */
-  volatile gint                       stopped;
+  gint                                stopped;  /* (atomic) */
 
   /* TODO: frozen (e.g. G_DBUS_CONNECTION_FLAGS_DELAY_MESSAGE_PROCESSING) currently
    * only affects messages received from the other peer (since GDBusServer is the
@@ -404,6 +413,7 @@ typedef struct
   GMutex  mutex;
   GCond   cond;
   guint64 number_to_wait_for;
+  gboolean finished;
   GError *error;
 } FlushData;
 
@@ -488,9 +498,9 @@ _g_dbus_worker_emit_message_about_to_be_sent (GDBusWorker  *worker,
 {
   GDBusMessage *ret;
   if (!g_atomic_int_get (&worker->stopped))
-    ret = worker->message_about_to_be_sent_callback (worker, message, worker->user_data);
+    ret = worker->message_about_to_be_sent_callback (worker, g_steal_pointer (&message), worker->user_data);
   else
-    ret = message;
+    ret = g_steal_pointer (&message);
   return ret;
 }
 
@@ -502,13 +512,13 @@ _g_dbus_worker_queue_or_deliver_received_message (GDBusWorker  *worker,
   if (worker->frozen || g_queue_get_length (worker->received_messages_while_frozen) > 0)
     {
       /* queue up */
-      g_queue_push_tail (worker->received_messages_while_frozen, message);
+      g_queue_push_tail (worker->received_messages_while_frozen, g_steal_pointer (&message));
     }
   else
     {
       /* not frozen, nor anything in queue */
       _g_dbus_worker_emit_message_received (worker, message);
-      g_object_unref (message);
+      g_clear_object (&message);
     }
 }
 
@@ -525,7 +535,7 @@ unfreeze_in_idle_cb (gpointer user_data)
       while ((message = g_queue_pop_head (worker->received_messages_while_frozen)) != NULL)
         {
           _g_dbus_worker_emit_message_received (worker, message);
-          g_object_unref (message);
+          g_clear_object (&message);
         }
       worker->frozen = FALSE;
     }
@@ -548,7 +558,7 @@ _g_dbus_worker_unfreeze (GDBusWorker *worker)
                          unfreeze_in_idle_cb,
                          _g_dbus_worker_ref (worker),
                          (GDestroyNotify) _g_dbus_worker_unref);
-  g_source_set_name (idle_source, "[gio] unfreeze_in_idle_cb");
+  g_source_set_static_name (idle_source, "[gio] unfreeze_in_idle_cb");
   g_source_attach (idle_source, worker->shared_thread_data->context);
   g_source_unref (idle_source);
 }
@@ -697,7 +707,7 @@ _g_dbus_worker_do_read_cb (GInputStream  *input_stream,
            worker);
 #endif
 
-  /* TODO: hmm, hmm... */
+  /* The read failed, which could mean the dbus-daemon was sent SIGTERM. */
   if (bytes_read == 0)
     {
       g_set_error (&error,
@@ -792,7 +802,7 @@ _g_dbus_worker_do_read_cb (GInputStream  *input_stream,
             }
 
           /* yay, got a message, go deliver it */
-          _g_dbus_worker_queue_or_deliver_received_message (worker, message);
+          _g_dbus_worker_queue_or_deliver_received_message (worker, g_steal_pointer (&message));
 
           /* start reading another message! */
           worker->read_buffer_bytes_wanted = 0;
@@ -809,11 +819,11 @@ _g_dbus_worker_do_read_cb (GInputStream  *input_stream,
  out:
   g_mutex_unlock (&worker->read_lock);
 
-  /* gives up the reference acquired when calling g_input_stream_read_async() */
-  _g_dbus_worker_unref (worker);
-
   /* check if there is any pending close */
   schedule_pending_close (worker);
+
+  /* gives up the reference acquired when calling g_input_stream_read_async() */
+  _g_dbus_worker_unref (worker);
 }
 
 /* called in private thread shared by all GDBusConnection instances (with read-lock held) */
@@ -1079,8 +1089,11 @@ write_message_continue_writing (MessageToWriteData *data)
   else
     {
 #ifdef G_OS_UNIX
-      if (fd_list != NULL)
+      if (data->total_written == 0 && fd_list != NULL)
         {
+          /* We were trying to write byte 0 of the message, which needs
+           * the fd list to be attached to it, but this connection doesn't
+           * support doing that. */
           g_task_return_new_error (task,
                                    G_IO_ERROR,
                                    G_IO_ERROR_FAILED,
@@ -1118,6 +1131,7 @@ write_message_async (GDBusWorker         *worker,
 {
   data->task = g_task_new (NULL, NULL, callback, user_data);
   g_task_set_source_tag (data->task, write_message_async);
+  g_task_set_name (data->task, "[gio] D-Bus write message");
   data->total_written = 0;
   write_message_continue_writing (data);
 }
@@ -1154,6 +1168,7 @@ flush_data_list_complete (const GList  *flushers,
       f->error = error != NULL ? g_error_copy (error) : NULL;
 
       g_mutex_lock (&f->mutex);
+      f->finished = TRUE;
       g_cond_signal (&f->cond);
       g_mutex_unlock (&f->mutex);
     }
@@ -1190,13 +1205,6 @@ ostream_flush_cb (GObject      *source_object,
         }
     }
 
-  g_assert (data->flushers != NULL);
-  flush_data_list_complete (data->flushers, error);
-  g_list_free (data->flushers);
-
-  if (error != NULL)
-    g_error_free (error);
-
   /* Make sure we tell folks that we don't have additional
      flushes pending */
   g_mutex_lock (&data->worker->write_lock);
@@ -1204,6 +1212,12 @@ ostream_flush_cb (GObject      *source_object,
   g_assert (data->worker->output_pending == PENDING_FLUSH);
   data->worker->output_pending = PENDING_NONE;
   g_mutex_unlock (&data->worker->write_lock);
+
+  g_assert (data->flushers != NULL);
+  flush_data_list_complete (data->flushers, error);
+  g_list_free (data->flushers);
+  if (error != NULL)
+    g_error_free (error);
 
   /* OK, cool, finally kick off the next write */
   continue_writing (data->worker);
@@ -1373,6 +1387,10 @@ iostream_close_cb (GObject      *source_object,
   g_assert (worker->output_pending == PENDING_CLOSE);
   worker->output_pending = PENDING_NONE;
 
+  /* Ensure threads waiting for pending flushes to finish will be unblocked. */
+  worker->write_num_messages_flushed =
+    worker->write_num_messages_written + g_list_length(pending_flush_attempts);
+
   g_mutex_unlock (&worker->write_lock);
 
   while (pending_close_attempts != NULL)
@@ -1495,7 +1513,7 @@ continue_writing (GDBusWorker *worker)
         }
       else
         {
-          /* filters altered the message -> reencode */
+          /* filters altered the message -> re-encode */
           error = NULL;
           new_blob = g_dbus_message_to_blob (data->message,
                                              &new_blob_size,
@@ -1587,7 +1605,7 @@ schedule_writing_unlocked (GDBusWorker        *worker,
                              continue_writing_in_idle_cb,
                              _g_dbus_worker_ref (worker),
                              (GDestroyNotify) _g_dbus_worker_unref);
-      g_source_set_name (idle_source, "[gio] continue_writing_in_idle_cb");
+      g_source_set_static_name (idle_source, "[gio] continue_writing_in_idle_cb");
       g_source_attach (idle_source, worker->shared_thread_data->context);
       g_source_unref (idle_source);
     }
@@ -1682,7 +1700,7 @@ _g_dbus_worker_new (GIOStream                              *stream,
                          _g_dbus_worker_do_initial_read,
                          _g_dbus_worker_ref (worker),
                          (GDestroyNotify) _g_dbus_worker_unref);
-  g_source_set_name (idle_source, "[gio] _g_dbus_worker_do_initial_read");
+  g_source_set_static_name (idle_source, "[gio] _g_dbus_worker_do_initial_read");
   g_source_attach (idle_source, worker->shared_thread_data->context);
   g_source_unref (idle_source);
 
@@ -1780,6 +1798,7 @@ _g_dbus_worker_flush_sync (GDBusWorker    *worker,
       g_mutex_init (&data->mutex);
       g_cond_init (&data->cond);
       data->number_to_wait_for = worker->write_num_messages_written + pending_writes;
+      data->finished = FALSE;
       g_mutex_lock (&data->mutex);
 
       schedule_writing_unlocked (worker, NULL, data, NULL);
@@ -1788,10 +1807,13 @@ _g_dbus_worker_flush_sync (GDBusWorker    *worker,
 
   if (data != NULL)
     {
-      g_cond_wait (&data->cond, &data->mutex);
-      g_mutex_unlock (&data->mutex);
+      /* Wait for flush operations to finish. */
+      while (!data->finished)
+        {
+          g_cond_wait (&data->cond, &data->mutex);
+        }
 
-      /* note:the element is removed from worker->write_pending_flushes in flush_cb() above */
+      g_mutex_unlock (&data->mutex);
       g_cond_clear (&data->cond);
       g_mutex_clear (&data->mutex);
       if (data->error != NULL)
@@ -1817,6 +1839,7 @@ _g_dbus_worker_flush_sync (GDBusWorker    *worker,
 #define G_DBUS_DEBUG_RETURN         (1<<7)
 #define G_DBUS_DEBUG_EMISSION       (1<<8)
 #define G_DBUS_DEBUG_ADDRESS        (1<<9)
+#define G_DBUS_DEBUG_PROXY          (1<<10)
 
 static gint _gdbus_debug_flags = 0;
 
@@ -1890,6 +1913,13 @@ _g_dbus_debug_address (void)
   return (_gdbus_debug_flags & G_DBUS_DEBUG_ADDRESS) != 0;
 }
 
+gboolean
+_g_dbus_debug_proxy (void)
+{
+  _g_dbus_initialize ();
+  return (_gdbus_debug_flags & G_DBUS_DEBUG_PROXY) != 0;
+}
+
 G_LOCK_DEFINE_STATIC (print_lock);
 
 void
@@ -1915,15 +1945,14 @@ _g_dbus_debug_print_unlock (void)
 void
 _g_dbus_initialize (void)
 {
-  static volatile gsize initialized = 0;
+  static gsize initialized = 0;
 
   if (g_once_init_enter (&initialized))
     {
-      volatile GQuark g_dbus_error_domain;
       const gchar *debug;
 
-      g_dbus_error_domain = G_DBUS_ERROR;
-      (g_dbus_error_domain); /* To avoid -Wunused-but-set-variable */
+      /* Ensure the domain is registered. */
+      g_dbus_error_quark ();
 
       debug = g_getenv ("G_DBUS_DEBUG");
       if (debug != NULL)
@@ -1938,7 +1967,8 @@ _g_dbus_initialize (void)
             { "incoming",       G_DBUS_DEBUG_INCOMING       },
             { "return",         G_DBUS_DEBUG_RETURN         },
             { "emission",       G_DBUS_DEBUG_EMISSION       },
-            { "address",        G_DBUS_DEBUG_ADDRESS        }
+            { "address",        G_DBUS_DEBUG_ADDRESS        },
+            { "proxy",          G_DBUS_DEBUG_PROXY          }
           };
 
           _gdbus_debug_flags = g_parse_debug_string (debug, keys, G_N_ELEMENTS (keys));
@@ -1984,67 +2014,367 @@ _g_dbus_compute_complete_signature (GDBusArgInfo **args)
 
 #ifdef G_OS_WIN32
 
-extern BOOL WINAPI ConvertSidToStringSidA (PSID Sid, LPSTR *StringSid);
+#define DBUS_DAEMON_ADDRESS_INFO "DBusDaemonAddressInfo"
+#define DBUS_DAEMON_MUTEX "DBusDaemonMutex"
+#define UNIQUE_DBUS_INIT_MUTEX "UniqueDBusInitMutex"
+#define DBUS_AUTOLAUNCH_MUTEX "DBusAutolaunchMutex"
+
+static void
+release_mutex (HANDLE mutex)
+{
+  ReleaseMutex (mutex);
+  CloseHandle (mutex);
+}
+
+static HANDLE
+acquire_mutex (const char *mutexname)
+{
+  HANDLE mutex;
+  DWORD res;
+
+  mutex = CreateMutexA (NULL, FALSE, mutexname);
+  if (!mutex)
+    return 0;
+
+  res = WaitForSingleObject (mutex, INFINITE);
+  switch (res)
+    {
+    case WAIT_ABANDONED:
+      release_mutex (mutex);
+      return 0;
+    case WAIT_FAILED:
+    case WAIT_TIMEOUT:
+      return 0;
+    }
+
+  return mutex;
+}
+
+static gboolean
+is_mutex_owned (const char *mutexname)
+{
+  HANDLE mutex;
+  gboolean res = FALSE;
+
+  mutex = CreateMutexA (NULL, FALSE, mutexname);
+  if (WaitForSingleObject (mutex, 10) == WAIT_TIMEOUT)
+    res = TRUE;
+  else
+    ReleaseMutex (mutex);
+  CloseHandle (mutex);
+
+  return res;
+}
+
+static char *
+read_shm (const char *shm_name)
+{
+  HANDLE shared_mem;
+  char *shared_data;
+  char *res;
+  int i;
+
+  res = NULL;
+
+  for (i = 0; i < 20; i++)
+    {
+      shared_mem = OpenFileMappingA (FILE_MAP_READ, FALSE, shm_name);
+      if (shared_mem != 0)
+	break;
+      Sleep (100);
+    }
+
+  if (shared_mem != 0)
+    {
+      shared_data = MapViewOfFile (shared_mem, FILE_MAP_READ, 0, 0, 0);
+      /* It looks that a race is possible here:
+       * if the dbus process already created mapping but didn't fill it
+       * the code below may read incorrect address.
+       * Also this is a bit complicated by the fact that
+       * any change in the "synchronization contract" between processes
+       * should be accompanied with renaming all of used win32 named objects:
+       * otherwise libgio-2.0-0.dll of different versions shipped with
+       * different apps may break each other due to protocol difference.
+       */
+      if (shared_data != NULL)
+	{
+	  res = g_strdup (shared_data);
+	  UnmapViewOfFile (shared_data);
+	}
+      CloseHandle (shared_mem);
+    }
+
+  return res;
+}
+
+static HANDLE
+set_shm (const char *shm_name, const char *value)
+{
+  HANDLE shared_mem;
+  char *shared_data;
+
+  shared_mem = CreateFileMappingA (INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE,
+				   0, strlen (value) + 1, shm_name);
+  if (shared_mem == 0)
+    return 0;
+
+  shared_data = MapViewOfFile (shared_mem, FILE_MAP_WRITE, 0, 0, 0 );
+  if (shared_data == NULL)
+    return 0;
+
+  strcpy (shared_data, value);
+
+  UnmapViewOfFile (shared_data);
+
+  return shared_mem;
+}
+
+/* These keep state between publish_session_bus and unpublish_session_bus */
+static HANDLE published_daemon_mutex;
+static HANDLE published_shared_mem;
+
+static gboolean
+publish_session_bus (const char *address)
+{
+  HANDLE init_mutex;
+
+  init_mutex = acquire_mutex (UNIQUE_DBUS_INIT_MUTEX);
+
+  published_daemon_mutex = CreateMutexA (NULL, FALSE, DBUS_DAEMON_MUTEX);
+  if (WaitForSingleObject (published_daemon_mutex, 10 ) != WAIT_OBJECT_0)
+    {
+      release_mutex (init_mutex);
+      CloseHandle (published_daemon_mutex);
+      published_daemon_mutex = NULL;
+      return FALSE;
+    }
+
+  published_shared_mem = set_shm (DBUS_DAEMON_ADDRESS_INFO, address);
+  if (!published_shared_mem)
+    {
+      release_mutex (init_mutex);
+      CloseHandle (published_daemon_mutex);
+      published_daemon_mutex = NULL;
+      return FALSE;
+    }
+
+  release_mutex (init_mutex);
+  return TRUE;
+}
+
+static void
+unpublish_session_bus (void)
+{
+  HANDLE init_mutex;
+
+  init_mutex = acquire_mutex (UNIQUE_DBUS_INIT_MUTEX);
+
+  CloseHandle (published_shared_mem);
+  published_shared_mem = NULL;
+
+  release_mutex (published_daemon_mutex);
+  published_daemon_mutex = NULL;
+
+  release_mutex (init_mutex);
+}
+
+static void
+wait_console_window (void)
+{
+  FILE *console = fopen ("CONOUT$", "w");
+
+  SetConsoleTitleW (L"gdbus-daemon output. Type any character to close this window.");
+  fprintf (console, _("(Type any character to close this window)\n"));
+  fflush (console);
+  _getch ();
+}
+
+static void
+open_console_window (void)
+{
+  if (((HANDLE) _get_osfhandle (fileno (stdout)) == INVALID_HANDLE_VALUE ||
+       (HANDLE) _get_osfhandle (fileno (stderr)) == INVALID_HANDLE_VALUE) && AllocConsole ())
+    {
+      if ((HANDLE) _get_osfhandle (fileno (stdout)) == INVALID_HANDLE_VALUE)
+        freopen ("CONOUT$", "w", stdout);
+
+      if ((HANDLE) _get_osfhandle (fileno (stderr)) == INVALID_HANDLE_VALUE)
+        freopen ("CONOUT$", "w", stderr);
+
+      SetConsoleTitleW (L"gdbus-daemon debug output.");
+
+      atexit (wait_console_window);
+    }
+}
+
+static void
+idle_timeout_cb (GDBusDaemon *daemon, gpointer user_data)
+{
+  GMainLoop *loop = user_data;
+  g_main_loop_quit (loop);
+}
+
+/* Satisfies STARTF_FORCEONFEEDBACK */
+static void
+turn_off_the_starting_cursor (void)
+{
+  MSG msg;
+  BOOL bRet;
+
+  PostQuitMessage (0);
+
+  while ((bRet = GetMessage (&msg, 0, 0, 0)) != 0)
+    {
+      if (bRet == -1)
+        continue;
+
+      TranslateMessage (&msg);
+      DispatchMessage (&msg);
+    }
+}
+
+void __stdcall
+g_win32_run_session_bus (void* hwnd, void* hinst, const char* cmdline, int cmdshow)
+{
+  GDBusDaemon *daemon;
+  GMainLoop *loop;
+  const char *address;
+  GError *error = NULL;
+
+  turn_off_the_starting_cursor ();
+
+  if (g_getenv ("GDBUS_DAEMON_DEBUG") != NULL)
+    open_console_window ();
+
+  address = "nonce-tcp:";
+  daemon = _g_dbus_daemon_new (address, NULL, &error);
+  if (daemon == NULL)
+    {
+      g_printerr ("Can't init bus: %s\n", error->message);
+      g_error_free (error);
+      return;
+    }
+
+  loop = g_main_loop_new (NULL, FALSE);
+
+  /* There is a subtle detail with "idle-timeout" signal of dbus daemon:
+   * It is fired on idle after last client disconnection,
+   * but (at least with glib 2.59.1) it is NEVER fired
+   * if no clients connect to daemon at all.
+   * This may lead to infinite run of this daemon process.
+   */
+  g_signal_connect (daemon, "idle-timeout", G_CALLBACK (idle_timeout_cb), loop);
+
+  if (publish_session_bus (_g_dbus_daemon_get_address (daemon)))
+    {
+      g_main_loop_run (loop);
+
+      unpublish_session_bus ();
+    }
+
+  g_main_loop_unref (loop);
+  g_object_unref (daemon);
+}
+
+static gboolean autolaunch_binary_absent = FALSE;
+
+static wchar_t *
+find_dbus_process_path (void)
+{
+  wchar_t *dbus_path;
+  gchar *exe_path = GLIB_PRIVATE_CALL (g_win32_find_helper_executable_path) ("gdbus.exe", _g_io_win32_get_module ());
+  dbus_path = g_utf8_to_utf16 (exe_path, -1, NULL, NULL, NULL);
+  g_free (exe_path);
+
+  if (dbus_path == NULL)
+    return NULL;
+
+  if (GetFileAttributesW (dbus_path) == INVALID_FILE_ATTRIBUTES)
+    {
+      g_free (dbus_path);
+      return NULL;
+    }
+
+  return dbus_path;
+}
 
 gchar *
-_g_dbus_win32_get_user_sid (void)
+_g_dbus_win32_get_session_address_dbus_launch (GError **error)
 {
-  HANDLE h;
-  TOKEN_USER *user;
-  DWORD token_information_len;
-  PSID psid;
-  gchar *sid;
-  gchar *ret;
+  HANDLE autolaunch_mutex, init_mutex;
+  char *address = NULL;
 
-  ret = NULL;
-  user = NULL;
-  h = INVALID_HANDLE_VALUE;
+  autolaunch_mutex = acquire_mutex (DBUS_AUTOLAUNCH_MUTEX);
 
-  if (!OpenProcessToken (GetCurrentProcess (), TOKEN_QUERY, &h))
+  init_mutex = acquire_mutex (UNIQUE_DBUS_INIT_MUTEX);
+
+  if (is_mutex_owned (DBUS_DAEMON_MUTEX))
+    address = read_shm (DBUS_DAEMON_ADDRESS_INFO);
+
+  release_mutex (init_mutex);
+
+  if (address == NULL && !autolaunch_binary_absent)
     {
-      g_warning ("OpenProcessToken failed with error code %d", (gint) GetLastError ());
-      goto out;
-    }
-
-  /* Get length of buffer */
-  token_information_len = 0;
-  if (!GetTokenInformation (h, TokenUser, NULL, 0, &token_information_len))
-    {
-      if (GetLastError () != ERROR_INSUFFICIENT_BUFFER)
+      wchar_t *dbus_path = find_dbus_process_path ();
+      if (dbus_path == NULL)
         {
-          g_warning ("GetTokenInformation() failed with error code %d", (gint) GetLastError ());
-          goto out;
+          /* warning won't be raised another time
+           * since autolaunch_binary_absent would be already set.
+           */
+          autolaunch_binary_absent = TRUE;
+          g_warning ("win32 session dbus binary not found");
+        }
+      else
+        {
+          PROCESS_INFORMATION pi = { 0 };
+          STARTUPINFOW si = { 0 };
+          BOOL res = FALSE;
+          wchar_t args[MAX_PATH * 2 + 100] = { 0 };
+          wchar_t working_dir[MAX_PATH + 2] = { 0 };
+          wchar_t *p;
+
+          wcscpy (working_dir, dbus_path);
+          p = wcsrchr (working_dir, L'\\');
+          if (p != NULL)
+            *p = L'\0';
+
+          wcscpy (args, L"\"");
+          wcscat (args, dbus_path);
+          wcscat (args, L"\" ");
+#define _L_PREFIX_FOR_EXPANDED(arg) L##arg
+#define _L_PREFIX(arg) _L_PREFIX_FOR_EXPANDED (arg)
+          wcscat (args, _L_PREFIX (_GDBUS_ARG_WIN32_RUN_SESSION_BUS));
+#undef _L_PREFIX
+#undef _L_PREFIX_FOR_EXPANDED
+
+          res = CreateProcessW (dbus_path, args,
+                                0, 0, FALSE,
+                                NORMAL_PRIORITY_CLASS | CREATE_NO_WINDOW | DETACHED_PROCESS,
+                                0, working_dir,
+                                &si, &pi);
+
+          if (res)
+            {
+              address = read_shm (DBUS_DAEMON_ADDRESS_INFO);
+              if (address == NULL)
+                g_warning ("%S dbus binary failed to launch bus, maybe incompatible version", dbus_path);
+            }
+
+          g_free (dbus_path);
         }
     }
-  user = g_malloc (token_information_len);
-  if (!GetTokenInformation (h, TokenUser, user, token_information_len, &token_information_len))
-    {
-      g_warning ("GetTokenInformation() failed with error code %d", (gint) GetLastError ());
-      goto out;
-    }
 
-  psid = user->User.Sid;
-  if (!IsValidSid (psid))
-    {
-      g_warning ("Invalid SID");
-      goto out;
-    }
+  release_mutex (autolaunch_mutex);
 
-  if (!ConvertSidToStringSidA (psid, &sid))
-    {
-      g_warning ("Invalid SID");
-      goto out;
-    }
+  if (address == NULL)
+    g_set_error (error,
+		 G_IO_ERROR,
+		 G_IO_ERROR_FAILED,
+		 _("Session dbus not running, and autolaunch failed"));
 
-  ret = g_strdup (sid);
-  LocalFree (sid);
-
-out:
-  g_free (user);
-  if (h != INVALID_HANDLE_VALUE)
-    CloseHandle (h);
-  return ret;
+  return address;
 }
+
 #endif
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -2093,31 +2423,63 @@ _g_dbus_get_machine_id (GError **error)
 
   return res;
 #else
-  gchar *ret;
-  GError *first_error;
-  /* TODO: use PACKAGE_LOCALSTATEDIR ? */
-  ret = NULL;
-  first_error = NULL;
-  if (!g_file_get_contents ("/var/lib/dbus/machine-id",
+  gchar *ret = NULL;
+  GError *first_error = NULL;
+  gsize i;
+  gboolean non_zero = FALSE;
+
+  /* Copy what dbus.git does: allow the /var/lib path to be configurable at
+   * build time, but hard-code the system-wide machine ID path in /etc. */
+  const gchar *var_lib_path = LOCALSTATEDIR "/lib/dbus/machine-id";
+  const gchar *etc_path = "/etc/machine-id";
+
+  if (!g_file_get_contents (var_lib_path,
                             &ret,
                             NULL,
                             &first_error) &&
-      !g_file_get_contents ("/etc/machine-id",
+      !g_file_get_contents (etc_path,
                             &ret,
                             NULL,
                             NULL))
     {
-      g_propagate_prefixed_error (error, first_error,
-                                  _("Unable to load /var/lib/dbus/machine-id or /etc/machine-id: "));
+      g_propagate_prefixed_error (error, g_steal_pointer (&first_error),
+                                  /* Translators: Both placeholders are file paths */
+                                  _("Unable to load %s or %s: "),
+                                  var_lib_path, etc_path);
+      return NULL;
     }
-  else
+
+  /* ignore the error from the first try, if any */
+  g_clear_error (&first_error);
+
+  /* Validate the machine ID. From `man 5 machine-id`:
+   * > The machine ID is a single newline-terminated, hexadecimal, 32-character,
+   * > lowercase ID. When decoded from hexadecimal, this corresponds to a
+   * > 16-byte/128-bit value. This ID may not be all zeros.
+   */
+  for (i = 0; ret[i] != '\0' && ret[i] != '\n'; i++)
     {
-      /* ignore the error from the first try, if any */
-      g_clear_error (&first_error);
-      /* TODO: validate value */
-      g_strstrip (ret);
+      /* Break early if it’s invalid. */
+      if (!g_ascii_isxdigit (ret[i]) || g_ascii_isupper (ret[i]))
+        break;
+
+      if (ret[i] != '0')
+        non_zero = TRUE;
     }
-  return ret;
+
+  if (i != 32 || ret[i] != '\n' || ret[i + 1] != '\0' || !non_zero)
+    {
+      g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                   "Invalid machine ID in %s or %s",
+                   var_lib_path, etc_path);
+      g_free (ret);
+      return NULL;
+    }
+
+  /* Strip trailing newline. */
+  ret[32] = '\0';
+
+  return g_steal_pointer (&ret);
 #endif
 }
 

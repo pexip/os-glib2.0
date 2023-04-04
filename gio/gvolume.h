@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -30,7 +32,6 @@
 
 G_BEGIN_DECLS
 
-#ifndef G_DISABLE_DEPRECATED
 /**
  * G_VOLUME_IDENTIFIER_KIND_HAL_UDI:
  *
@@ -38,8 +39,7 @@ G_BEGIN_DECLS
  *
  * Deprecated: 2.58: Do not use, HAL is deprecated.
  */
-#define G_VOLUME_IDENTIFIER_KIND_HAL_UDI "hal-udi"
-#endif /* G_DISABLE_DEPRECATED */
+#define G_VOLUME_IDENTIFIER_KIND_HAL_UDI "hal-udi" GLIB_DEPRECATED_MACRO_IN_2_58
 
 /**
  * G_VOLUME_IDENTIFIER_KIND_UNIX_DEVICE:
@@ -74,8 +74,8 @@ G_BEGIN_DECLS
  *
  * The string used to obtain the volume class with g_volume_get_identifier().
  *
- * Known volume classes include `device` and `network`. Other classes may
- * be added in the future.
+ * Known volume classes include `device`, `network`, and `loop`. Other
+ * classes may be added in the future.
  *
  * This is intended to be used by applications to classify #GVolume
  * instances into different sections - for example a file manager or

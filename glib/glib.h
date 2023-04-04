@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -80,8 +82,9 @@
 #include <glib/gslist.h>
 #include <glib/gspawn.h>
 #include <glib/gstrfuncs.h>
-#include <glib/gstring.h>
 #include <glib/gstringchunk.h>
+#include <glib/gstring.h>
+#include <glib/gstrvbuilder.h>
 #include <glib/gtestutils.h>
 #include <glib/gthread.h>
 #include <glib/gthreadpool.h>
@@ -91,27 +94,27 @@
 #include <glib/gtree.h>
 #include <glib/gtypes.h>
 #include <glib/gunicode.h>
-#include <glib/gurifuncs.h>
+#include <glib/guri.h>
 #include <glib/gutils.h>
 #include <glib/guuid.h>
-#include <glib/gvarianttype.h>
 #include <glib/gvariant.h>
+#include <glib/gvarianttype.h>
 #include <glib/gversion.h>
 #include <glib/gversionmacros.h>
+
 #ifdef G_PLATFORM_WIN32
 #include <glib/gwin32.h>
 #endif
 
-#ifndef G_DISABLE_DEPRECATED
 #include <glib/deprecated/gallocator.h>
 #include <glib/deprecated/gcache.h>
 #include <glib/deprecated/gcompletion.h>
 #include <glib/deprecated/gmain.h>
 #include <glib/deprecated/grel.h>
 #include <glib/deprecated/gthread.h>
-#endif /* G_DISABLE_DEPRECATED */
 
 #include <glib/glib-autocleanups.h>
+#include <glib/glib-typeof.h>
 
 #undef __GLIB_H_INSIDE__
 

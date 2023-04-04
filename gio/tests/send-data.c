@@ -20,7 +20,7 @@ static GOptionEntry cmd_entries[] = {
    "Time out socket I/O after the specified number of seconds", NULL},
   {"verbose", 'v', 0, G_OPTION_ARG_NONE, &verbose,
    "Verbose debugging output", NULL},
-  {NULL}
+  G_OPTION_ENTRY_NULL
 };
 
 static gpointer
@@ -66,14 +66,14 @@ socket_client_event (GSocketClient *client,
 		     GSocketConnection *connection)
 {
   static GEnumClass *event_class;
-  GTimeVal tv;
+  gint64 now_us;
 
   if (!event_class)
     event_class = g_type_class_ref (G_TYPE_SOCKET_CLIENT_EVENT);
 
-  g_get_current_time (&tv);
-  printf ("% 12ld.%06ld GSocketClient => %s [%s]\n",
-	  tv.tv_sec, tv.tv_usec,
+  now_us = g_get_real_time ();
+  g_print ("%" G_GINT64_FORMAT " GSocketClient => %s [%s]\n",
+	  now_us,
 	  g_enum_get_value (event_class, event)->value_nick,
 	  connection ? G_OBJECT_TYPE_NAME (connection) : "");
 }

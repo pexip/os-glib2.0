@@ -2,6 +2,8 @@
  * Copyright 2015 Lars Uebernickel
  * Copyright 2015 Ryan Lortie
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -24,6 +26,7 @@
 
 #include "glistmodel.h"
 #include "glibintl.h"
+#include "gmarshal-internal.h"
 
 G_DEFINE_INTERFACE (GListModel, g_list_model, G_TYPE_OBJECT)
 
@@ -72,7 +75,7 @@ G_DEFINE_INTERFACE (GListModel, g_list_model, G_TYPE_OBJECT)
  * it are gone.
  *
  * On the other side, a consumer is expected only to hold references on
- * objects that are currently "user visible", in order to faciliate the
+ * objects that are currently "user visible", in order to facilitate the
  * maximum level of laziness in the implementation of the list and to
  * reduce the required number of signal connections at a given time.
  *
@@ -81,6 +84,21 @@ G_DEFINE_INTERFACE (GListModel, g_list_model, G_TYPE_OBJECT)
  * implementation, but typically it will be from the thread that owns
  * the [thread-default main context][g-main-context-push-thread-default]
  * in effect at the time that the model was created.
+ *
+ * Over time, it has established itself as good practice for listmodel
+ * implementations to provide properties `item-type` and `n-items` to
+ * ease working with them. While it is not required, it is recommended
+ * that implementations provide these two properties. They should return
+ * the values of g_list_model_get_item_type() and g_list_model_get_n_items()
+ * respectively and be defined as such:
+ * |[<!-- language="C" -->
+ * properties[PROP_ITEM_TYPE] =
+ *   g_param_spec_gtype ("item-type", "", "", G_TYPE_OBJECT,
+ *                       G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+ * properties[PROP_N_ITEMS] =
+ *   g_param_spec_uint ("n-items", "", "", 0, G_MAXUINT, 0,
+ *                      G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
+ * ]|
  */
 
 /**
@@ -130,9 +148,12 @@ g_list_model_default_init (GListModelInterface *iface)
    * @removed: the number of items removed
    * @added: the number of items added
    *
-   * This signal is emitted whenever items were added or removed to
-   * @list. At @position, @removed items were removed and @added items
-   * were added in their place.
+   * This signal is emitted whenever items were added to or removed
+   * from @list. At @position, @removed items were removed and @added
+   * items were added in their place.
+   *
+   * Note: If `removed != added`, the positions of all later items
+   * in the model change.
    *
    * Since: 2.44
    */
@@ -141,18 +162,23 @@ g_list_model_default_init (GListModelInterface *iface)
                                               G_SIGNAL_RUN_LAST,
                                               0,
                                               NULL, NULL,
-                                              g_cclosure_marshal_generic,
+                                              _g_cclosure_marshal_VOID__UINT_UINT_UINT,
                                               G_TYPE_NONE,
                                               3, G_TYPE_UINT, G_TYPE_UINT, G_TYPE_UINT);
+  g_signal_set_va_marshaller (g_list_model_changed_signal,
+                              G_TYPE_FROM_INTERFACE (iface),
+                              _g_cclosure_marshal_VOID__UINT_UINT_UINTv);
 }
 
 /**
  * g_list_model_get_item_type:
  * @list: a #GListModel
  *
- * Gets the type of the items in @list. All items returned from
- * g_list_model_get_type() are of that type or a subtype, or are an
- * implementation of that interface.
+ * Gets the type of the items in @list.
+ *
+ * All items returned from g_list_model_get_item() are of the type
+ * returned by this function, or a subtype, or if the type is an
+ * interface, they are an implementation of that interface.
  *
  * The item type of a #GListModel can not change during the life of the
  * model.
@@ -196,11 +222,15 @@ g_list_model_get_n_items (GListModel *list)
  * @list: a #GListModel
  * @position: the position of the item to fetch
  *
- * Get the item at @position. If @position is greater than the number of
- * items in @list, %NULL is returned.
+ * Get the item at @position.
+ *
+ * If @position is greater than the number of items in @list, %NULL is
+ * returned.
  *
  * %NULL is never returned for an index that is smaller than the length
- * of the list.  See g_list_model_get_n_items().
+ * of the list.
+ *
+ * See also: g_list_model_get_n_items()
  *
  * Returns: (transfer full) (nullable): the item at @position.
  *
@@ -220,11 +250,18 @@ g_list_model_get_item (GListModel *list,
  * @list: a #GListModel
  * @position: the position of the item to fetch
  *
- * Get the item at @position. If @position is greater than the number of
- * items in @list, %NULL is returned.
+ * Get the item at @position.
+ *
+ * If @position is greater than the number of items in @list, %NULL is
+ * returned.
  *
  * %NULL is never returned for an index that is smaller than the length
- * of the list.  See g_list_model_get_n_items().
+ * of the list.
+ *
+ * This function is meant to be used by language bindings in place
+ * of g_list_model_get_item().
+ *
+ * See also: g_list_model_get_n_items()
  *
  * Returns: (transfer full) (nullable): the object at @position.
  *

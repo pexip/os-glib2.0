@@ -1,6 +1,8 @@
 /* GIO default value tests
  * Copyright (C) 2013 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -29,7 +31,6 @@ check_property (const char *output,
   if (g_param_value_defaults (pspec, value))
       return;
 
-  g_value_init (&default_value, G_PARAM_SPEC_VALUE_TYPE (pspec));
   g_param_value_set_default (pspec, &default_value);
 
   v = g_strdup_value_contents (value);

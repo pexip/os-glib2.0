@@ -1,6 +1,8 @@
 /*
  * Copyright © 2010 Codethink Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -395,7 +397,7 @@ g_simple_action_class_init (GSimpleActionClass *class)
                   G_TYPE_SIMPLE_ACTION,
                   G_SIGNAL_RUN_LAST | G_SIGNAL_MUST_COLLECT,
                   0, NULL, NULL,
-                  g_cclosure_marshal_VOID__VARIANT,
+                  NULL,
                   G_TYPE_NONE, 1,
                   G_TYPE_VARIANT);
 
@@ -445,7 +447,7 @@ g_simple_action_class_init (GSimpleActionClass *class)
                   G_TYPE_SIMPLE_ACTION,
                   G_SIGNAL_RUN_LAST | G_SIGNAL_MUST_COLLECT,
                   0, NULL, NULL,
-                  g_cclosure_marshal_VOID__VARIANT,
+                  NULL,
                   G_TYPE_NONE, 1,
                   G_TYPE_VARIANT);
 

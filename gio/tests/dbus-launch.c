@@ -1,7 +1,9 @@
 /*
- * Mock version of dbus-launch, for gdbus-unix-addresses test
+ * Mock version of dbus-launch, for gdbus-address-get-session test
  *
  * Copyright © 2015 Collabora Ltd.
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public

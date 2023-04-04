@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1998  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -121,7 +123,7 @@ ensure_gettext_initialized (void)
  * This is an internal function and should only be used by
  * the internals of glib (such as libgio).
  *
- * Returns: the transation of @str to the current locale
+ * Returns: the translation of @str to the current locale
  */
 const gchar *
 glib_gettext (const gchar *str)
@@ -498,7 +500,7 @@ g_dngettext (const gchar *domain,
  *   // Rest of your application.
  * }
  * ]|
- * where `DATADIR` is as typically provided by automake.
+ * where `DATADIR` is as typically provided by automake or Meson.
  *
  * For a library, you only have to call bindtextdomain() and
  * bind_textdomain_codeset() in your initialization function. If your library
@@ -635,4 +637,3 @@ g_dngettext (const gchar *domain,
  *
  * Since: 2.18
  */
-

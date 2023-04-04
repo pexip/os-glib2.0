@@ -2,6 +2,8 @@
  *
  * Copyright 2018  Emmanuele Bassi
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -144,7 +146,7 @@
  * If you need to clear the contents of the data, you will need to use an
  * ancillary function that calls g_rc_box_release_full():
  *
- * |[<!-- laguage="C" -->
+ * |[<!-- language="C" -->
  * static void
  * my_data_struct_release (MyDataStruct *data)
  * {
@@ -152,10 +154,10 @@
  *   g_atomic_rc_box_release_full (data, (GDestroyNotify) my_data_struct_clear);
  * }
  *
- * G_DEFINE_AUTOPTR_CLEANUP_FUNC (MyDataStruct, my_data_struct_clear)
+ * G_DEFINE_AUTOPTR_CLEANUP_FUNC (MyDataStruct, my_data_struct_release)
  * ]|
  *
- * Since: 2.58.
+ * Since: 2.58
  */
 
 /**
@@ -168,6 +170,9 @@
  * The data will be freed when its reference count drops to
  * zero.
  *
+ * The allocated data is guaranteed to be suitably aligned for any
+ * built-in type.
+ *
  * Returns: (transfer full) (not nullable): a pointer to the allocated memory
  *
  * Since: 2.58
@@ -177,7 +182,7 @@ g_atomic_rc_box_alloc (gsize block_size)
 {
   g_return_val_if_fail (block_size > 0, NULL);
 
-  return g_rc_box_alloc_full (block_size, TRUE, FALSE);
+  return g_rc_box_alloc_full (block_size, STRUCT_ALIGNMENT, TRUE, FALSE);
 }
 
 /**
@@ -185,12 +190,15 @@ g_atomic_rc_box_alloc (gsize block_size)
  * @block_size: the size of the allocation, must be greater than 0
  *
  * Allocates @block_size bytes of memory, and adds atomic
- * referenc counting semantics to it.
+ * reference counting semantics to it.
  *
  * The contents of the returned data is set to zero.
  *
  * The data will be freed when its reference count drops to
  * zero.
+ *
+ * The allocated data is guaranteed to be suitably aligned for any
+ * built-in type.
  *
  * Returns: (transfer full) (not nullable): a pointer to the allocated memory
  *
@@ -201,7 +209,7 @@ g_atomic_rc_box_alloc0 (gsize block_size)
 {
   g_return_val_if_fail (block_size > 0, NULL);
 
-  return g_rc_box_alloc_full (block_size, TRUE, TRUE);
+  return g_rc_box_alloc_full (block_size, STRUCT_ALIGNMENT, TRUE, TRUE);
 }
 
 /**
@@ -244,7 +252,7 @@ g_atomic_rc_box_alloc0 (gsize block_size)
  * @block_size: the number of bytes to copy, must be greater than 0
  * @mem_block: (not nullable): the memory to copy
  *
- * Allocates a new block of data with atomit reference counting
+ * Allocates a new block of data with atomic reference counting
  * semantics, and copies @block_size bytes of @mem_block
  * into it.
  *
@@ -262,7 +270,7 @@ gpointer
   g_return_val_if_fail (block_size > 0, NULL);
   g_return_val_if_fail (mem_block != NULL, NULL);
 
-  res = g_rc_box_alloc_full (block_size, TRUE, FALSE);
+  res = g_rc_box_alloc_full (block_size, STRUCT_ALIGNMENT, TRUE, FALSE);
   memcpy (res, mem_block, block_size);
 
   return res;
@@ -339,13 +347,15 @@ g_atomic_rc_box_release_full (gpointer       mem_block,
 
   if (g_atomic_ref_count_dec (&real_box->ref_count))
     {
+      char *real_mem = (char *) real_box - real_box->private_offset;
+
       TRACE (GLIB_RCBOX_RELEASE (mem_block, 1));
 
       if (clear_func != NULL)
         clear_func (mem_block);
 
       TRACE (GLIB_RCBOX_FREE (mem_block));
-      g_free (real_box);
+      g_free (real_mem);
     }
 }
 

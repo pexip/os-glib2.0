@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -127,6 +129,11 @@ GLIB_AVAILABLE_IN_ALL
 GString*     g_string_erase             (GString         *string,
                                          gssize           pos,
                                          gssize           len);
+GLIB_AVAILABLE_IN_2_68
+guint         g_string_replace          (GString         *string,
+                                         const gchar     *find,
+                                         const gchar     *replace,
+                                         guint            limit);
 GLIB_AVAILABLE_IN_ALL
 GString*     g_string_ascii_down        (GString         *string);
 GLIB_AVAILABLE_IN_ALL
@@ -179,10 +186,8 @@ GString *g_string_down (GString *string);
 GLIB_DEPRECATED
 GString *g_string_up   (GString *string);
 
-#ifndef G_DISABLE_DEPRECATED
-#define  g_string_sprintf  g_string_printf
-#define  g_string_sprintfa g_string_append_printf
-#endif
+#define  g_string_sprintf  g_string_printf GLIB_DEPRECATED_MACRO_IN_2_26_FOR(g_string_printf)
+#define  g_string_sprintfa g_string_append_printf GLIB_DEPRECATED_MACRO_IN_2_26_FOR(g_string_append_printf)
 
 G_END_DECLS
 

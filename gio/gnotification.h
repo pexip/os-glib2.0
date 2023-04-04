@@ -1,6 +1,8 @@
 /*
  * Copyright © 2013 Lars Uebernickel
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -58,6 +60,10 @@ void                    g_notification_set_urgent                       (GNotifi
 GLIB_AVAILABLE_IN_2_42
 void                    g_notification_set_priority                     (GNotification         *notification,
                                                                          GNotificationPriority  priority);
+
+GLIB_AVAILABLE_IN_2_70
+void                    g_notification_set_category                     (GNotification *notification,
+                                                                         const gchar   *category);
 
 GLIB_AVAILABLE_IN_2_40
 void                    g_notification_add_button                       (GNotification *notification,

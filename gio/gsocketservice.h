@@ -3,6 +3,8 @@
  * Copyright © 2009 Codethink Limited
  * Copyright © 2009 Red Hat, Inc
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -48,7 +50,7 @@ typedef struct _GSocketServiceClass                         GSocketServiceClass;
 
 /**
  * GSocketServiceClass:
- * @incomming: signal emitted when new connections are accepted
+ * @incoming: signal emitted when new connections are accepted
  *
  * Class structure for #GSocketService.
  */

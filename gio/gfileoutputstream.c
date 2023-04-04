@@ -2,6 +2,8 @@
  * 
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -271,7 +273,7 @@ g_file_output_stream_query_info_finish (GFileOutputStream     *stream,
  * This must be called after the stream has been written
  * and closed, as the etag can change while writing.
  * 
- * Returns: the entity tag for the stream.
+ * Returns: (nullable) (transfer full): the entity tag for the stream.
  **/
 char *
 g_file_output_stream_get_etag (GFileOutputStream  *stream)

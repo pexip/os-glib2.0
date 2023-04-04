@@ -1,6 +1,8 @@
 /*
  * Copyright (C) 2018 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as
  * published by the Free Software Foundation; either version 2.1 of the
@@ -38,7 +40,7 @@ test_trash_not_supported (void)
   gchar *parent_dirname;
   GStatBuf parent_stat, home_stat;
 
-  g_test_bug ("251");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/issues/251");
 
   /* The test assumes that tmp file is located on system internal mount. */
   file = g_file_new_tmp ("test-trashXXXXXX", &stream, &error);
@@ -105,17 +107,13 @@ test_trash_symlinks (void)
   gchar *target, *tmp, *target_over_symlink;
   GError *error = NULL;
 
-  g_test_bug ("1522");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/issues/1522");
 
   target = g_build_filename (g_get_home_dir (), ".local", NULL);
 
   if (!g_file_test (target, G_FILE_TEST_IS_DIR))
     {
-      gchar *message;
-
-      message = g_strdup_printf ("Directory '%s' does not exist", target);
-      g_test_skip (message);
-      g_free (message);
+      g_test_skip_printf ("Directory '%s' does not exist", target);
       g_free (target);
       return;
     }
@@ -124,12 +122,7 @@ test_trash_symlinks (void)
 
   if (target_mount == NULL)
     {
-      gchar *message;
-
-      message = g_strdup_printf ("Unable to determine mount point for %s",
-                                 target);
-      g_test_skip (message);
-      g_free (message);
+      g_test_skip_printf ("Unable to determine mount point for %s", target);
       g_free (target);
       return;
     }
@@ -144,11 +137,7 @@ test_trash_symlinks (void)
 
   if (tmp_mount == NULL)
     {
-      gchar *message;
-
-      message = g_strdup_printf ("Unable to determine mount point for %s", tmp);
-      g_test_skip (message);
-      g_free (message);
+      g_test_skip_printf ("Unable to determine mount point for %s", tmp);
       g_unix_mount_free (target_mount);
       g_free (target);
       g_free (tmp);
@@ -204,11 +193,8 @@ main (int argc, char *argv[])
 {
   g_test_init (&argc, &argv, NULL);
 
-  g_test_bug_base ("https://gitlab.gnome.org/GNOME/glib/issues/");
-
   g_test_add_func ("/trash/not-supported", test_trash_not_supported);
   g_test_add_func ("/trash/symlinks", test_trash_symlinks);
 
   return g_test_run ();
 }
-

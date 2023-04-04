@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -65,6 +67,129 @@ GLIB_AVAILABLE_IN_ALL
 const gchar *         g_get_application_name (void);
 GLIB_AVAILABLE_IN_ALL
 void                  g_set_application_name (const gchar *application_name);
+GLIB_AVAILABLE_IN_2_64
+gchar *               g_get_os_info          (const gchar *key_name);
+
+/**
+ * G_OS_INFO_KEY_NAME:
+ *
+ * A key to get the name of the operating system excluding version information suitable for presentation to the user, e.g. "YoYoOS"
+ *
+ * Since: 2.64
+ */
+#define G_OS_INFO_KEY_NAME \
+    GLIB_AVAILABLE_MACRO_IN_2_64 \
+    "NAME"
+
+/**
+ * G_OS_INFO_KEY_PRETTY_NAME:
+ *
+ * A key to get the name of the operating system in a format suitable for presentation to the user, e.g. "YoYoOS Foo"
+ *
+ * Since: 2.64
+ */
+#define G_OS_INFO_KEY_PRETTY_NAME \
+    GLIB_AVAILABLE_MACRO_IN_2_64 \
+    "PRETTY_NAME"
+
+/**
+ * G_OS_INFO_KEY_VERSION:
+ *
+ * A key to get the operating system version suitable for presentation to the user, e.g. "42 (Foo)"
+ *
+ * Since: 2.64
+ */
+#define G_OS_INFO_KEY_VERSION \
+    GLIB_AVAILABLE_MACRO_IN_2_64 \
+    "VERSION"
+
+/**
+ * G_OS_INFO_KEY_VERSION_CODENAME:
+ *
+ * A key to get a codename identifying the operating system release suitable for processing by scripts or usage in generated filenames, e.g. "foo"
+ *
+ * Since: 2.64
+ */
+#define G_OS_INFO_KEY_VERSION_CODENAME \
+    GLIB_AVAILABLE_MACRO_IN_2_64 \
+    "VERSION_CODENAME"
+
+/**
+ * G_OS_INFO_KEY_VERSION_ID:
+ *
+ * A key to get the version of the operating system suitable for processing by scripts or usage in generated filenames, e.g. "42"
+ *
+ * Since: 2.64
+ */
+#define G_OS_INFO_KEY_VERSION_ID \
+    GLIB_AVAILABLE_MACRO_IN_2_64 \
+    "VERSION_ID"
+
+/**
+ * G_OS_INFO_KEY_ID:
+ *
+ * A key to get an ID identifying the operating system suitable for processing by scripts or usage in generated filenames, e.g. "yoyoos"
+ *
+ * Since: 2.64
+ */
+#define G_OS_INFO_KEY_ID \
+    GLIB_AVAILABLE_MACRO_IN_2_64 \
+    "ID"
+
+/**
+ * G_OS_INFO_KEY_HOME_URL:
+ *
+ * A key to get the homepage for the operating system, e.g. "https://www.yoyo-os.com/"
+ *
+ * Since: 2.64
+ */
+#define G_OS_INFO_KEY_HOME_URL \
+    GLIB_AVAILABLE_MACRO_IN_2_64 \
+    "HOME_URL"
+
+/**
+ * G_OS_INFO_KEY_DOCUMENTATION_URL:
+ *
+ * A key to get the documentation page for the operating system, e.g. "https://docs.yoyo-os.com/"
+ *
+ * Since: 2.64
+ */
+#define G_OS_INFO_KEY_DOCUMENTATION_URL \
+    GLIB_AVAILABLE_MACRO_IN_2_64 \
+    "DOCUMENTATION_URL"
+
+/**
+ * G_OS_INFO_KEY_SUPPORT_URL:
+ *
+ * A key to get the support page for the operating system, e.g. "https://support.yoyo-os.com/"
+ *
+ * Since: 2.64
+ */
+#define G_OS_INFO_KEY_SUPPORT_URL \
+    GLIB_AVAILABLE_MACRO_IN_2_64 \
+    "SUPPORT_URL"
+
+/**
+ * G_OS_INFO_KEY_BUG_REPORT_URL:
+ *
+ * A key to get the bug reporting page for the operating system, e.g. "https://bugs.yoyo-os.com/"
+ *
+ * Since: 2.64
+ */
+#define G_OS_INFO_KEY_BUG_REPORT_URL \
+    GLIB_AVAILABLE_MACRO_IN_2_64 \
+    "BUG_REPORT_URL"
+
+/**
+ * G_OS_INFO_KEY_PRIVACY_POLICY_URL:
+ *
+ * A key to get the privacy policy for the operating system, e.g. "https://privacy.yoyo-os.com/"
+ *
+ * Since: 2.64
+ */
+#define G_OS_INFO_KEY_PRIVACY_POLICY_URL \
+    GLIB_AVAILABLE_MACRO_IN_2_64 \
+    "PRIVACY_POLICY_URL"
 
 GLIB_AVAILABLE_IN_ALL
 void      g_reload_user_special_dirs_cache     (void);
@@ -74,11 +199,13 @@ GLIB_AVAILABLE_IN_ALL
 const gchar *         g_get_user_config_dir    (void);
 GLIB_AVAILABLE_IN_ALL
 const gchar *         g_get_user_cache_dir     (void);
+GLIB_AVAILABLE_IN_2_72
+const gchar *         g_get_user_state_dir     (void);
 GLIB_AVAILABLE_IN_ALL
 const gchar * const * g_get_system_data_dirs   (void);
 
 #ifdef G_OS_WIN32
-/* This functions is not part of the public GLib API */
+/* This function is not part of the public GLib API */
 GLIB_AVAILABLE_IN_ALL
 const gchar * const * g_win32_get_system_data_dirs_for_module (void (*address_of_function)(void));
 #endif
@@ -182,7 +309,9 @@ typedef enum
   G_FORMAT_SIZE_DEFAULT     = 0,
   G_FORMAT_SIZE_LONG_FORMAT = 1 << 0,
   G_FORMAT_SIZE_IEC_UNITS   = 1 << 1,
-  G_FORMAT_SIZE_BITS        = 1 << 2
+  G_FORMAT_SIZE_BITS        = 1 << 2,
+  G_FORMAT_SIZE_ONLY_VALUE GLIB_AVAILABLE_ENUMERATOR_IN_2_74 = 1 << 3,
+  G_FORMAT_SIZE_ONLY_UNIT GLIB_AVAILABLE_ENUMERATOR_IN_2_74 = 1 << 4
 } GFormatSizeFlags;
 
 GLIB_AVAILABLE_IN_2_30
@@ -194,7 +323,10 @@ gchar *g_format_size        (guint64          size);
 GLIB_DEPRECATED_IN_2_30_FOR(g_format_size)
 gchar *g_format_size_for_display (goffset size);
 
-#ifndef G_DISABLE_DEPRECATED
+#define g_ATEXIT(proc)	(atexit (proc)) GLIB_DEPRECATED_MACRO_IN_2_32
+#define g_memmove(dest,src,len) \
+  G_STMT_START { memmove ((dest), (src), (len)); } G_STMT_END  GLIB_DEPRECATED_MACRO_IN_2_40_FOR(memmove)
+
 /**
  * GVoidFunc:
  *
@@ -202,10 +334,13 @@ gchar *g_format_size_for_display (goffset size);
  * and has no return value. It is used to specify the type
  * function passed to g_atexit().
  */
-typedef void (*GVoidFunc) (void);
-#define ATEXIT(proc) g_ATEXIT(proc)
+typedef void (*GVoidFunc) (void) GLIB_DEPRECATED_TYPE_IN_2_32;
+#define ATEXIT(proc) g_ATEXIT(proc) GLIB_DEPRECATED_MACRO_IN_2_32
+
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 GLIB_DEPRECATED
 void	g_atexit		(GVoidFunc    func);
+G_GNUC_END_IGNORE_DEPRECATIONS
 
 #ifdef G_OS_WIN32
 /* It's a bad idea to wrap atexit() on Windows. If the GLib DLL calls
@@ -217,9 +352,7 @@ void	g_atexit		(GVoidFunc    func);
 #if (defined(__MINGW_H) && !defined(_STDLIB_H_)) || (defined(_MSC_VER) && !defined(_INC_STDLIB))
 int atexit (void (*)(void));
 #endif
-#define g_atexit(func) atexit(func)
-#endif
-
+#define g_atexit(func) atexit(func) GLIB_DEPRECATED_MACRO_IN_2_32
 #endif
 
 
@@ -307,11 +440,9 @@ g_bit_storage_impl (gulong number)
 #  define g_abort() abort ()
 #else
 GLIB_AVAILABLE_IN_2_50
-void g_abort (void) G_GNUC_NORETURN G_ANALYZER_NORETURN;
+G_NORETURN void g_abort (void) G_ANALYZER_NORETURN;
 #endif
 #endif
-
-#ifndef G_DISABLE_DEPRECATED
 
 /*
  * This macro is deprecated. This DllMain() is too complex. It is
@@ -331,7 +462,7 @@ void g_abort (void) G_GNUC_NORETURN G_ANALYZER_NORETURN;
  */
 
 #ifndef G_PLATFORM_WIN32
-# define G_WIN32_DLLMAIN_FOR_DLL_NAME(static, dll_name)
+# define G_WIN32_DLLMAIN_FOR_DLL_NAME(static, dll_name) GLIB_DEPRECATED_MACRO_IN_2_26
 #else
 # define G_WIN32_DLLMAIN_FOR_DLL_NAME(static, dll_name)			\
 static char *dll_name;							\
@@ -354,10 +485,7 @@ DllMain (HINSTANCE hinstDLL,						\
     }									\
 									\
   return TRUE;								\
-}
-
-#endif	/* !G_DISABLE_DEPRECATED */
-
+} GLIB_DEPRECATED_MACRO_IN_2_26
 #endif /* G_PLATFORM_WIN32 */
 
 G_END_DECLS

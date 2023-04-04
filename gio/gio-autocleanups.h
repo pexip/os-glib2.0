@@ -1,6 +1,8 @@
 /*
  * Copyright © 2015 Canonical Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -112,6 +114,8 @@ G_DEFINE_AUTOPTR_CLEANUP_FUNC(GResource, g_resource_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GSeekable, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GSettingsBackend, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GSettingsSchema, g_settings_schema_unref)
+G_DEFINE_AUTOPTR_CLEANUP_FUNC(GSettingsSchemaKey, g_settings_schema_key_unref)
+G_DEFINE_AUTOPTR_CLEANUP_FUNC(GSettingsSchemaSource, g_settings_schema_source_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GSettings, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GSimpleActionGroup, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GSimpleAction, g_object_unref)

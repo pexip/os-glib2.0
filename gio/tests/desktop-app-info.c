@@ -1,6 +1,8 @@
 /* 
  * Copyright (C) 2008 Red Hat, Inc
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -27,26 +29,37 @@
 #include <string.h>
 #include <unistd.h>
 
-static char *basedir;
-
-static GAppInfo * 
-create_app_info (const char *name)
+static GAppInfo *
+create_command_line_app_info (const char *name,
+                              const char *command_line,
+                              const char *default_for_type)
 {
-  GError *error;
   GAppInfo *info;
+  GError *error = NULL;
 
-  error = NULL;
-  info = g_app_info_create_from_commandline ("true blah",
+  info = g_app_info_create_from_commandline (command_line,
                                              name,
                                              G_APP_INFO_CREATE_NONE,
                                              &error);
-  g_assert (error == NULL);
+  g_assert_no_error (error);
+
+  g_app_info_set_as_default_for_type (info, default_for_type, &error);
+  g_assert_no_error (error);
+
+  return g_steal_pointer (&info);
+}
+
+static GAppInfo *
+create_app_info (const char *name)
+{
+  GError *error = NULL;
+  GAppInfo *info;
+
+  info = create_command_line_app_info (name, "true blah", "application/x-blah");
 
   /* this is necessary to ensure that the info is saved */
-  g_app_info_set_as_default_for_type (info, "application/x-blah", &error);
-  g_assert (error == NULL);
   g_app_info_remove_supports_type (info, "application/x-blah", &error);
-  g_assert (error == NULL);
+  g_assert_no_error (error);
   g_app_info_reset_type_associations ("application/x-blah");
   
   return info;
@@ -64,34 +77,34 @@ test_delete (void)
   info = create_app_info ("Blah");
  
   id = g_app_info_get_id (info);
-  g_assert (id != NULL);
+  g_assert_nonnull (id);
 
-  filename = g_build_filename (basedir, "applications", id, NULL);
+  filename = g_build_filename (g_get_user_data_dir (), "applications", id, NULL);
 
   res = g_file_test (filename, G_FILE_TEST_EXISTS);
-  g_assert (res);
+  g_assert_true (res);
 
   res = g_app_info_can_delete (info);
-  g_assert (res);
+  g_assert_true (res);
 
   res = g_app_info_delete (info);
-  g_assert (res);
+  g_assert_true (res);
 
   res = g_file_test (filename, G_FILE_TEST_EXISTS);
-  g_assert (!res);
+  g_assert_false (res);
 
   g_object_unref (info);
 
   if (g_file_test ("/usr/share/applications/gedit.desktop", G_FILE_TEST_EXISTS))
     {
       info = (GAppInfo*)g_desktop_app_info_new_from_filename ("/usr/share/applications/gedit.desktop");
-      g_assert (info);
+      g_assert_nonnull (info);
      
       res = g_app_info_can_delete (info);
-      g_assert (!res);
+      g_assert_false (res);
  
       res = g_app_info_delete (info);
-      g_assert (!res);
+      g_assert_false (res);
     }
 
   g_free (filename);
@@ -109,41 +122,62 @@ test_default (void)
   info3 = create_app_info ("Blah3");
 
   g_app_info_set_as_default_for_type (info1, "application/x-test", &error);
-  g_assert (error == NULL);
+  g_assert_no_error (error);
 
   g_app_info_set_as_default_for_type (info2, "application/x-test", &error);
-  g_assert (error == NULL);
+  g_assert_no_error (error);
 
   info = g_app_info_get_default_for_type ("application/x-test", FALSE);
-  g_assert (info != NULL);
+  g_assert_nonnull (info);
   g_assert_cmpstr (g_app_info_get_id (info), ==, g_app_info_get_id (info2));
+  g_object_unref (info);
+
+  g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                         "*assertion*uri_scheme*failed*");
+  g_assert_null (g_app_info_get_default_for_uri_scheme (NULL));
+  g_test_assert_expected_messages ();
+
+  g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                         "*assertion*uri_scheme*failed*");
+  g_assert_null (g_app_info_get_default_for_uri_scheme (""));
+  g_test_assert_expected_messages ();
+
+  g_app_info_set_as_default_for_type (info3, "x-scheme-handler/glib", &error);
+  g_assert_no_error (error);
+  info = g_app_info_get_default_for_uri_scheme ("glib");
+  g_assert_nonnull (info);
+  g_assert_true (g_app_info_equal (info, info3));
   g_object_unref (info);
 
   /* now try adding something, but not setting as default */
   g_app_info_add_supports_type (info3, "application/x-test", &error);
-  g_assert (error == NULL);
+  g_assert_no_error (error);
 
   /* check that info2 is still default */
   info = g_app_info_get_default_for_type ("application/x-test", FALSE);
-  g_assert (info != NULL);
+  g_assert_nonnull (info);
   g_assert_cmpstr (g_app_info_get_id (info), ==, g_app_info_get_id (info2));
   g_object_unref (info);
 
   /* now remove info1 again */
   g_app_info_remove_supports_type (info1, "application/x-test", &error);
-  g_assert (error == NULL);
+  g_assert_no_error (error);
 
   /* and make sure info2 is still default */
   info = g_app_info_get_default_for_type ("application/x-test", FALSE);
-  g_assert (info != NULL);
+  g_assert_nonnull (info);
   g_assert_cmpstr (g_app_info_get_id (info), ==, g_app_info_get_id (info2));
   g_object_unref (info);
 
   /* now clean it all up */
   g_app_info_reset_type_associations ("application/x-test");
+  g_app_info_reset_type_associations ("x-scheme-handler/glib");
 
   list = g_app_info_get_all_for_type ("application/x-test");
-  g_assert (list == NULL);
+  g_assert_null (list);
+
+  list = g_app_info_get_all_for_type ("x-scheme-handler/glib");
+  g_assert_null (list);
 
   g_app_info_delete (info1);
   g_app_info_delete (info2);
@@ -154,10 +188,172 @@ test_default (void)
   g_object_unref (info3);
 }
 
+typedef struct
+{
+  GAppInfo *expected_info;
+  GMainLoop *loop;
+} DefaultForTypeData;
+
+static void
+ensure_default_type_result (GAppInfo           *info,
+                            DefaultForTypeData *data,
+                            GError             *error)
+{
+  if (data->expected_info)
+    {
+      g_assert_nonnull (info);
+      g_assert_no_error (error);
+      g_assert_true (g_app_info_equal (info, data->expected_info));
+    }
+  else
+    {
+      g_assert_null (info);
+      g_assert_error (error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND);
+    }
+
+  g_main_loop_quit (data->loop);
+  g_clear_object (&info);
+  g_clear_error (&error);
+}
+
+static void
+on_default_for_type_cb (GObject      *object,
+                        GAsyncResult *result,
+                        gpointer      user_data)
+{
+  GAppInfo *info;
+  GError *error = NULL;
+  DefaultForTypeData *data = user_data;
+
+  g_assert_null (object);
+
+  info = g_app_info_get_default_for_type_finish (result, &error);
+
+  ensure_default_type_result (info, data, error);
+}
+
+static void
+on_default_for_uri_cb (GObject      *object,
+                       GAsyncResult *result,
+                       gpointer      user_data)
+{
+  GAppInfo *info;
+  GError *error = NULL;
+  DefaultForTypeData *data = user_data;
+
+  g_assert_null (object);
+
+  info = g_app_info_get_default_for_uri_scheme_finish (result, &error);
+
+  ensure_default_type_result (info, data, error);
+}
+
+static void
+test_default_async (void)
+{
+  DefaultForTypeData data;
+  GAppInfo *info1, *info2, *info3;
+  GList *list;
+  GError *error = NULL;
+
+  data.loop = g_main_loop_new (NULL, TRUE);
+
+  info1 = create_app_info ("Blah1");
+  info2 = create_app_info ("Blah2");
+  info3 = create_app_info ("Blah3");
+
+  g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                         "*assertion*content_type*failed*");
+  g_app_info_get_default_for_type_async (NULL, FALSE, NULL, NULL, NULL);
+  g_test_assert_expected_messages ();
+
+  g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                         "*assertion*content_type*failed*");
+  g_app_info_get_default_for_type_async ("", FALSE, NULL, NULL, NULL);
+  g_test_assert_expected_messages ();
+
+  g_app_info_set_as_default_for_type (info1, "application/x-test", &error);
+  g_assert_no_error (error);
+
+  g_app_info_set_as_default_for_type (info2, "application/x-test", &error);
+  g_assert_no_error (error);
+
+  data.expected_info = info2;
+  g_app_info_get_default_for_type_async ("application/x-test", FALSE,
+                                         NULL, on_default_for_type_cb, &data);
+  g_main_loop_run (data.loop);
+
+  /* now try adding something, but not setting as default */
+  g_app_info_add_supports_type (info3, "application/x-test", &error);
+  g_assert_no_error (error);
+
+  /* check that info2 is still default */
+  data.expected_info = info2;
+  g_app_info_get_default_for_type_async ("application/x-test", FALSE,
+                                         NULL, on_default_for_type_cb, &data);
+  g_main_loop_run (data.loop);
+
+  /* now remove info1 again */
+  g_app_info_remove_supports_type (info1, "application/x-test", &error);
+  g_assert_no_error (error);
+
+  /* and make sure info2 is still default */
+  data.expected_info = info2;
+  g_app_info_get_default_for_type_async ("application/x-test", FALSE,
+                                         NULL, on_default_for_type_cb, &data);
+  g_main_loop_run (data.loop);
+
+  g_app_info_set_as_default_for_type (info3, "x-scheme-handler/glib-async", &error);
+  g_assert_no_error (error);
+
+  g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                         "*assertion*uri_scheme*failed*");
+  g_assert_null (g_app_info_get_default_for_uri_scheme (NULL));
+  g_test_assert_expected_messages ();
+
+  g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                         "*assertion*uri_scheme*failed*");
+  g_assert_null (g_app_info_get_default_for_uri_scheme (""));
+  g_test_assert_expected_messages ();
+
+  data.expected_info = info3;
+  g_app_info_get_default_for_uri_scheme_async ("glib-async", NULL,
+                                               on_default_for_uri_cb, &data);
+  g_main_loop_run (data.loop);
+
+  /* now clean it all up */
+  g_app_info_reset_type_associations ("application/x-test");
+
+  data.expected_info = NULL;
+  g_app_info_get_default_for_type_async ("application/x-test", FALSE,
+                                         NULL, on_default_for_type_cb, &data);
+  g_main_loop_run (data.loop);
+
+  g_app_info_reset_type_associations ("x-scheme-handler/glib-async");
+
+  data.expected_info = NULL;
+  g_app_info_get_default_for_uri_scheme_async ("glib-async", NULL,
+                                               on_default_for_uri_cb, &data);
+  g_main_loop_run (data.loop);
+
+  list = g_app_info_get_all_for_type ("application/x-test");
+  g_assert_null (list);
+
+  g_app_info_delete (info1);
+  g_app_info_delete (info2);
+  g_app_info_delete (info3);
+
+  g_object_unref (info1);
+  g_object_unref (info2);
+  g_object_unref (info3);
+
+  g_main_loop_unref (data.loop);
+}
+
 static void
 test_fallback (void)
 {
-  GAppInfo *info1, *info2, *app;
+  GAppInfo *info1, *info2, *app = NULL;
   GList *apps, *recomm, *fallback, *list, *l, *m;
   GError *error = NULL;
   gint old_length;
@@ -165,17 +361,17 @@ test_fallback (void)
   info1 = create_app_info ("Test1");
   info2 = create_app_info ("Test2");
 
-  g_assert (g_content_type_is_a ("text/x-python", "text/plain"));
+  g_assert_true (g_content_type_is_a ("text/x-python", "text/plain"));
 
   apps = g_app_info_get_all_for_type ("text/x-python");
   old_length = g_list_length (apps);
   g_list_free_full (apps, g_object_unref);
 
   g_app_info_add_supports_type (info1, "text/x-python", &error);
-  g_assert (error == NULL);
+  g_assert_no_error (error);
 
   g_app_info_add_supports_type (info2, "text/plain", &error);
-  g_assert (error == NULL);
+  g_assert_no_error (error);
 
   /* check that both apps are registered */
   apps = g_app_info_get_all_for_type ("text/x-python");
@@ -183,18 +379,19 @@ test_fallback (void)
 
   /* check that Test1 is among the recommended apps */
   recomm = g_app_info_get_recommended_for_type ("text/x-python");
-  g_assert (recomm != NULL);
+  g_assert_nonnull (recomm);
   for (l = recomm; l; l = l->next)
     {
       app = l->data;
       if (g_app_info_equal (info1, app))
         break;
     }
-  g_assert (g_app_info_equal (info1, app));
+  g_assert_nonnull (app);
+  g_assert_true (g_app_info_equal (info1, app));
 
   /* and that Test2 is among the fallback apps */
   fallback = g_app_info_get_fallback_for_type ("text/x-python");
-  g_assert (fallback != NULL);
+  g_assert_nonnull (fallback);
   for (l = fallback; l; l = l->next)
     {
       app = l->data;
@@ -205,11 +402,11 @@ test_fallback (void)
 
   /* check that recomm + fallback = all applications */
   list = g_list_concat (g_list_copy (recomm), g_list_copy (fallback));
-  g_assert (g_list_length (list) == g_list_length (apps));
+  g_assert_cmpuint (g_list_length (list), ==, g_list_length (apps));
 
   for (l = list, m = apps; l != NULL && m != NULL; l = l->next, m = m->next)
     {
-      g_assert (g_app_info_equal (l->data, m->data));
+      g_assert_true (g_app_info_equal (l->data, m->data));
     }
 
   g_list_free (list);
@@ -239,32 +436,32 @@ test_last_used (void)
   info2 = create_app_info ("Test2");
 
   g_app_info_set_as_default_for_type (info1, "application/x-test", &error);
-  g_assert (error == NULL);
+  g_assert_no_error (error);
 
   g_app_info_add_supports_type (info2, "application/x-test", &error);
-  g_assert (error == NULL);
+  g_assert_no_error (error);
 
   applications = g_app_info_get_recommended_for_type ("application/x-test");
-  g_assert (g_list_length (applications) == 2);
+  g_assert_cmpuint (g_list_length (applications), ==, 2);
 
   /* the first should be the default app now */
-  g_assert (g_app_info_equal (g_list_nth_data (applications, 0), info1));
-  g_assert (g_app_info_equal (g_list_nth_data (applications, 1), info2));
+  g_assert_true (g_app_info_equal (g_list_nth_data (applications, 0), info1));
+  g_assert_true (g_app_info_equal (g_list_nth_data (applications, 1), info2));
 
   g_list_free_full (applications, g_object_unref);
 
   g_app_info_set_as_last_used_for_type (info2, "application/x-test", &error);
-  g_assert (error == NULL);
+  g_assert_no_error (error);
 
   applications = g_app_info_get_recommended_for_type ("application/x-test");
-  g_assert (g_list_length (applications) == 2);
+  g_assert_cmpuint (g_list_length (applications), ==, 2);
 
   default_app = g_app_info_get_default_for_type ("application/x-test", FALSE);
-  g_assert (g_app_info_equal (default_app, info1));
+  g_assert_true (g_app_info_equal (default_app, info1));
 
   /* the first should be the other app now */
-  g_assert (g_app_info_equal (g_list_nth_data (applications, 0), info2));
-  g_assert (g_app_info_equal (g_list_nth_data (applications, 1), info1));
+  g_assert_true (g_app_info_equal (g_list_nth_data (applications, 0), info2));
+  g_assert_true (g_app_info_equal (g_list_nth_data (applications, 1), info1));
 
   g_list_free_full (applications, g_object_unref);
 
@@ -276,81 +473,6 @@ test_last_used (void)
   g_object_unref (info1);
   g_object_unref (info2);
   g_object_unref (default_app);
-}
-
-static gboolean
-cleanup_dir_recurse (GFile   *parent,
-                     GFile   *root,
-                     GError **error)
-{
-  gboolean ret = FALSE;
-  GFileEnumerator *enumerator;
-  GError *local_error = NULL;
-
-  g_assert (root != NULL);
-
-  enumerator =
-    g_file_enumerate_children (parent, "*",
-                               G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, NULL,
-                               &local_error);
-  if (!enumerator)
-    {
-      if (g_error_matches (local_error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND))
-        {
-          g_clear_error (&local_error);
-          ret = TRUE;
-        }
-      goto out;
-    }
-
-  while (TRUE)
-    {
-      GFile *child;
-      GFileInfo *finfo;
-      char *relative_path;
-
-      if (!g_file_enumerator_iterate (enumerator, &finfo, &child, NULL, error))
-        goto out;
-      if (!finfo)
-        break;
-        
-      relative_path = g_file_get_relative_path (root, child);
-      g_assert (relative_path != NULL);
-      g_free (relative_path);
-
-      if (g_file_info_get_file_type (finfo) == G_FILE_TYPE_DIRECTORY)
-        {
-          if (!cleanup_dir_recurse (child, root, error))
-            goto out;
-        }
-
-      if (!g_file_delete (child, NULL, error))
-        goto out;
-    }
-
-  ret = TRUE;
- out:
-  g_clear_object (&enumerator);
-
-  return ret;
-}
-
-static void
-cleanup_subdirs (const char *base_dir)
-{
-  GFile *base, *file;
-  GError *error = NULL;
- 
-  base = g_file_new_for_path (base_dir);  
-  file = g_file_get_child (base, "applications");
-  (void) cleanup_dir_recurse (file, file, &error);
-  g_assert_no_error (error);
-  g_object_unref (file);
-  file = g_file_get_child (base, "mime");
-  (void) cleanup_dir_recurse (file, file, &error);
-  g_assert_no_error (error);
-  g_object_unref (file);
-  g_object_unref (base);
 }
 
 static void
@@ -365,11 +487,11 @@ test_extra_getters (void)
   g_setenv ("LANGUAGE", "de_DE.UTF8", TRUE);
   setlocale (LC_ALL, "");
 
-  appinfo = g_desktop_app_info_new_from_filename (g_test_get_filename (G_TEST_DIST, "appinfo-test.desktop", NULL));
-  g_assert (appinfo != NULL);
+  appinfo = g_desktop_app_info_new_from_filename (g_test_get_filename (G_TEST_DIST, "appinfo-test-static.desktop", NULL));
+  g_assert_nonnull (appinfo);
 
-  g_assert (g_desktop_app_info_has_key (appinfo, "Terminal"));
-  g_assert (!g_desktop_app_info_has_key (appinfo, "Bratwurst"));
+  g_assert_true (g_desktop_app_info_has_key (appinfo, "Terminal"));
+  g_assert_false (g_desktop_app_info_has_key (appinfo, "Bratwurst"));
 
   s = g_desktop_app_info_get_string (appinfo, "StartupWMClass");
   g_assert_cmpstr (s, ==, "appinfo-class");
@@ -379,7 +501,7 @@ test_extra_getters (void)
   g_assert_cmpstr (s, ==, "Bratwurst");
   g_free (s);
 
-  g_setenv ("LANGUAGE", "sv_SV.UTF8", TRUE);
+  g_setenv ("LANGUAGE", "sv_SE.UTF8", TRUE);
   setlocale (LC_ALL, "");
 
   s = g_desktop_app_info_get_locale_string (appinfo, "X-JunkFood");
@@ -387,7 +509,7 @@ test_extra_getters (void)
   g_free (s);
 
   b = g_desktop_app_info_get_boolean (appinfo, "Terminal");
-  g_assert (b);
+  g_assert_true (b);
 
   g_object_unref (appinfo);
 
@@ -400,7 +522,7 @@ wait_for_file (const gchar *want_this,
                const gchar *but_not_this,
                const gchar *or_this)
 {
-  gint retries = 600;
+  guint retries = 600;
 
   /* I hate time-based conditions in tests, but this will wait up to one
    * whole minute for "touch file" to finish running.  I think it should
@@ -411,12 +533,12 @@ wait_for_file (const gchar *want_this,
   while (access (want_this, F_OK) != 0)
     {
       g_usleep (100000); /* 100ms */
-      g_assert (retries);
+      g_assert_cmpuint (retries, >, 0);
       retries--;
     }
 
-  g_assert (access (but_not_this, F_OK) != 0);
-  g_assert (access (or_this, F_OK) != 0);
+  g_assert_cmpuint (access (but_not_this, F_OK), !=, 0);
+  g_assert_cmpuint (access (or_this, F_OK), !=, 0);
 
   unlink (want_this);
   unlink (but_not_this);
@@ -426,19 +548,20 @@ wait_for_file (const gchar *want_this,
 static void
 test_actions (void)
 {
+  const char *expected[] = { "frob", "tweak", "twiddle", "broken", NULL };
   const gchar * const *actions;
   GDesktopAppInfo *appinfo;
+  const gchar *tmpdir;
   gchar *name;
+  gchar *frob_path;
+  gchar *tweak_path;
+  gchar *twiddle_path;
 
   appinfo = g_desktop_app_info_new_from_filename (g_test_get_filename (G_TEST_DIST, "appinfo-test-actions.desktop", NULL));
-  g_assert (appinfo != NULL);
+  g_assert_nonnull (appinfo);
 
   actions = g_desktop_app_info_list_actions (appinfo);
-  g_assert_cmpstr (actions[0], ==, "frob");
-  g_assert_cmpstr (actions[1], ==, "tweak");
-  g_assert_cmpstr (actions[2], ==, "twiddle");
-  g_assert_cmpstr (actions[3], ==, "broken");
-  g_assert_cmpstr (actions[4], ==, NULL);
+  g_assert_cmpstrv (actions, expected);
 
   name = g_desktop_app_info_get_action_name (appinfo, "frob");
   g_assert_cmpstr (name, ==, "Frobnicate");
@@ -453,21 +576,32 @@ test_actions (void)
   g_free (name);
 
   name = g_desktop_app_info_get_action_name (appinfo, "broken");
-  g_assert (name != NULL);
-  g_assert (g_utf8_validate (name, -1, NULL));
+  g_assert_nonnull (name);
+  g_assert_true (g_utf8_validate (name, -1, NULL));
   g_free (name);
 
-  unlink ("frob"); unlink ("tweak"); unlink ("twiddle");
+  tmpdir = g_getenv ("G_TEST_TMPDIR");
+  g_assert_nonnull (tmpdir);
+  frob_path = g_build_filename (tmpdir, "frob", NULL);
+  tweak_path = g_build_filename (tmpdir, "tweak", NULL);
+  twiddle_path = g_build_filename (tmpdir, "twiddle", NULL);
+
+  g_assert_false (g_file_test (frob_path, G_FILE_TEST_EXISTS));
+  g_assert_false (g_file_test (tweak_path, G_FILE_TEST_EXISTS));
+  g_assert_false (g_file_test (twiddle_path, G_FILE_TEST_EXISTS));
 
   g_desktop_app_info_launch_action (appinfo, "frob", NULL);
-  wait_for_file ("frob", "tweak", "twiddle");
+  wait_for_file (frob_path, tweak_path, twiddle_path);
 
   g_desktop_app_info_launch_action (appinfo, "tweak", NULL);
-  wait_for_file ("tweak", "frob", "twiddle");
+  wait_for_file (tweak_path, frob_path, twiddle_path);
 
   g_desktop_app_info_launch_action (appinfo, "twiddle", NULL);
-  wait_for_file ("twiddle", "frob", "tweak");
+  wait_for_file (twiddle_path, frob_path, tweak_path);
 
+  g_free (frob_path);
+  g_free (tweak_path);
+  g_free (twiddle_path);
   g_object_unref (appinfo);
 }
 
@@ -485,6 +619,7 @@ run_apps (const gchar *command,
   gchar **argv;
   gint status;
   gchar *out;
+  gchar *argv_str = NULL;
 
   argv = g_new (gchar *, 4);
   argv[0] = g_test_build_filename (G_TEST_BUILT, "apps", NULL);
@@ -527,9 +662,15 @@ run_apps (const gchar *command,
   else
     envp = g_environ_unsetenv (envp, "XDG_CURRENT_DESKTOP");
 
+  envp = g_environ_setenv (envp, "G_MESSAGES_DEBUG", "", TRUE);
+
   success = g_spawn_sync (NULL, argv, envp, 0, NULL, NULL, &out, NULL, &status, NULL);
-  g_assert (success);
-  g_assert (status == 0);
+  g_assert_true (success);
+  g_assert_cmpuint (status, ==, 0);
+
+  argv_str = g_strjoinv (" ", argv);
+  g_test_message ("%s: `%s` returned: %s", G_STRFUNC, argv_str, out);
+  g_free (argv_str);
 
   g_strfreev (envp);
   g_strfreev (argv);
@@ -554,8 +695,7 @@ assert_strings_equivalent (const gchar *expected,
         if (g_str_equal (expected_words[i], result_words[j]))
           goto got_it;
 
-      g_test_message ("Unable to find expected string '%s' in result '%s'", expected_words[i], result);
-      g_test_fail ();
+      g_test_fail_printf ("Unable to find expected string '%s' in result '%s'", expected_words[i], result);
 
 got_it:
       continue;
@@ -640,7 +780,8 @@ assert_implementations (const gchar *interface,
                       "gnome-terminal.desktop nautilus-autorun-software.desktop gcr-viewer.desktop "         \
                       "nautilus-connect-server.desktop kde4-dolphin.desktop gnome-music.desktop "            \
                       "kde4-konqbrowser.desktop gucharmap.desktop kde4-okular.desktop nautilus.desktop "     \
-                      "gedit.desktop evince.desktop file-roller.desktop dconf-editor.desktop glade.desktop"
+                      "gedit.desktop evince.desktop file-roller.desktop dconf-editor.desktop glade.desktop " \
+                      "invalid-desktop.desktop"
 #define HOME_APPS     "epiphany-weather-for-toronto-island-9c6a4e022b17686306243dada811d550d25eb1fb.desktop"
 #define ALL_HOME_APPS HOME_APPS " eog.desktop"
 
@@ -728,7 +869,7 @@ test_search (void)
   assert_search ("konq", "kde4-konqbrowser.desktop\n", TRUE, TRUE, NULL, NULL);
   assert_search ("kate", "kde4-kate.desktop\n", TRUE, TRUE, NULL, NULL);
 
-  /* make sure we can lookup apps by name properly */
+  /* make sure we can look up apps by name properly */
   assert_info ("kde4-kate.desktop",
                "kde4-kate.desktop\n"
                "Kate\n"
@@ -795,6 +936,23 @@ test_show_in (void)
   assert_shown ("gcr-prompter.desktop", TRUE, "GNOME-Classic");
   assert_shown ("gcr-prompter.desktop", TRUE, "GNOME-Classic:KDE");
   assert_shown ("gcr-prompter.desktop", TRUE, "KDE:GNOME-Classic");
+  assert_shown ("invalid-desktop.desktop", TRUE, "GNOME");
+  assert_shown ("invalid-desktop.desktop", FALSE, "../invalid/desktop");
+  assert_shown ("invalid-desktop.desktop", FALSE, "../invalid/desktop:../invalid/desktop");
+}
+
+static void
+on_launch_started (GAppLaunchContext *context, GAppInfo *info, GVariant *platform_data, gpointer data)
+{
+  gboolean *invoked = data;
+
+  g_assert_true (G_IS_APP_LAUNCH_CONTEXT (context));
+  g_assert_true (G_IS_APP_INFO (info));
+  /* Our default context doesn't fill in any platform data */
+  g_assert_null (platform_data);
+
+  g_assert_false (*invoked);
+  *invoked = TRUE;
 }
 
 /* Test g_desktop_app_info_launch_uris_as_manager() and
@@ -807,6 +965,8 @@ test_launch_as_manager (void)
   GError *error = NULL;
   gboolean retval;
   const gchar *path;
+  gboolean invoked = FALSE;
+  GAppLaunchContext *context;
 
   if (g_getenv ("DISPLAY") == NULL || g_getenv ("DISPLAY")[0] == '\0')
     {
@@ -814,50 +974,226 @@ test_launch_as_manager (void)
       return;
     }
 
-  path = g_test_get_filename (G_TEST_DIST, "appinfo-test.desktop", NULL);
+  path = g_test_get_filename (G_TEST_BUILT, "appinfo-test.desktop", NULL);
   appinfo = g_desktop_app_info_new_from_filename (path);
-  g_assert_nonnull (appinfo);
 
-  retval = g_desktop_app_info_launch_uris_as_manager (appinfo, NULL, NULL, 0,
+  if (appinfo == NULL)
+    {
+      g_test_skip ("appinfo-test binary not installed");
+      return;
+    }
+
+  context = g_app_launch_context_new ();
+  g_signal_connect (context, "launch-started",
+                    G_CALLBACK (on_launch_started),
+                    &invoked);
+  retval = g_desktop_app_info_launch_uris_as_manager (appinfo, NULL, context, 0,
                                                       NULL, NULL,
                                                       NULL, NULL,
                                                       &error);
   g_assert_no_error (error);
   g_assert_true (retval);
+  g_assert_true (invoked);
 
+  invoked = FALSE;
   retval = g_desktop_app_info_launch_uris_as_manager_with_fds (appinfo,
-                                                               NULL, NULL, 0,
+                                                               NULL, context, 0,
                                                                NULL, NULL,
                                                                NULL, NULL,
                                                                -1, -1, -1,
                                                                &error);
   g_assert_no_error (error);
   g_assert_true (retval);
+  g_assert_true (invoked);
 
   g_object_unref (appinfo);
+  g_assert_finalize_object (context);
+}
+
+static GAppInfo *
+create_app_info_toucher (const char  *name,
+                         const char  *touched_file_name,
+                         const char  *handled_type,
+                         char       **out_file_path)
+{
+  GError *error = NULL;
+  GAppInfo *info;
+  gchar *command_line;
+  gchar *file_path;
+  gchar *tmpdir;
+
+  g_assert_nonnull (out_file_path);
+
+  tmpdir = g_dir_make_tmp ("desktop-app-info-launch-XXXXXX", &error);
+  g_assert_no_error (error);
+
+  file_path = g_build_filename (tmpdir, touched_file_name, NULL);
+  command_line = g_strdup_printf ("touch %s", file_path);
+
+  info = create_command_line_app_info (name, command_line, handled_type);
+  *out_file_path = g_steal_pointer (&file_path);
+
+  g_free (tmpdir);
+  g_free (command_line);
+
+  return info;
+}
+
+static void
+test_default_uri_handler (void)
+{
+  GError *error = NULL;
+  gchar *file_path = NULL;
+  GAppInfo *info;
+
+  info = create_app_info_toucher ("Touch Handled", "handled",
+                                  "x-scheme-handler/glib-touch",
+                                  &file_path);
+  g_assert_true (G_IS_APP_INFO (info));
+  g_assert_nonnull (file_path);
+
+  g_assert_true (g_app_info_launch_default_for_uri ("glib-touch://touch-me",
+                                                    NULL, &error));
+  g_assert_no_error (error);
+
+  while (!g_file_test (file_path, G_FILE_TEST_IS_REGULAR));
+  g_assert_true (g_file_test (file_path, G_FILE_TEST_IS_REGULAR));
+
+  g_assert_false (g_app_info_launch_default_for_uri ("glib-INVALID-touch://touch-me",
+                                                     NULL, &error));
+  g_assert_error (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED);
+  g_clear_error (&error);
+
+  g_object_unref (info);
+  g_free (file_path);
+}
+
+static void
+on_launch_default_for_uri_success_cb (GObject      *object,
+                                      GAsyncResult *result,
+                                      gpointer      user_data)
+{
+  GError *error = NULL;
+  gboolean *called = user_data;
+
+  g_assert_true (g_app_info_launch_default_for_uri_finish (result, &error));
+  g_assert_no_error (error);
+
+  *called = TRUE;
+}
+
+static void
+on_launch_default_for_uri_not_found_cb (GObject      *object,
+                                        GAsyncResult *result,
+                                        gpointer      user_data)
+{
+  GError *error = NULL;
+  GMainLoop *loop = user_data;
+
+  g_assert_false (g_app_info_launch_default_for_uri_finish (result, &error));
+  g_assert_error (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED);
+  g_clear_error (&error);
+
+  g_main_loop_quit (loop);
+}
+
+static void
+on_launch_default_for_uri_cancelled_cb (GObject      *object,
+                                        GAsyncResult *result,
+                                        gpointer      user_data)
+{
+  GError *error = NULL;
+  GMainLoop *loop = user_data;
+
+  g_assert_false (g_app_info_launch_default_for_uri_finish (result, &error));
+  g_assert_error (error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
+  g_clear_error (&error);
+
+  g_main_loop_quit (loop);
+}
+
+static void
+test_default_uri_handler_async (void)
+{
+  GCancellable *cancellable;
+  gchar *file_path = NULL;
+  GAppInfo *info;
+  GMainLoop *loop;
+  gboolean called = FALSE;
+
+  loop = g_main_loop_new (NULL, FALSE);
+  info = create_app_info_toucher ("Touch Handled", "handled-async",
+                                  "x-scheme-handler/glib-async-touch",
+                                  &file_path);
+  g_assert_true (G_IS_APP_INFO (info));
+  g_assert_nonnull (file_path);
+
+  g_app_info_launch_default_for_uri_async ("glib-async-touch://touch-me", NULL,
+                                           NULL,
+                                           on_launch_default_for_uri_success_cb,
+                                           &called);
+
+  while (!g_file_test (file_path, G_FILE_TEST_IS_REGULAR) || !called)
+    g_main_context_iteration (NULL, FALSE);
+
+  g_assert_true (called);
+  g_assert_true (g_file_test (file_path, G_FILE_TEST_IS_REGULAR));
+
+  g_unlink (file_path);
+  g_assert_false (g_file_test (file_path, G_FILE_TEST_IS_REGULAR));
+
+  g_app_info_launch_default_for_uri_async ("glib-async-INVALID-touch://touch-me",
+                                           NULL, NULL,
+                                           on_launch_default_for_uri_not_found_cb,
+                                           loop);
+  g_main_loop_run (loop);
+
+  cancellable = g_cancellable_new ();
+  g_app_info_launch_default_for_uri_async ("glib-async-touch://touch-me", NULL,
+                                           cancellable,
+                                           on_launch_default_for_uri_cancelled_cb,
+                                           loop);
+  g_cancellable_cancel (cancellable);
+  g_main_loop_run (loop);
+
+  /* Once started our touch app may take some time before having written the
+   * file, so let's wait a bit here before ensuring that the file has been
+   * created as expected.
+   */
+  g_usleep (G_USEC_PER_SEC / 10);
+  g_assert_false (g_file_test (file_path, G_FILE_TEST_IS_REGULAR));
+
+  g_object_unref (info);
+  g_main_loop_unref (loop);
+  g_free (file_path);
+}
+
+/* Test if Desktop-File Id is correctly formed */
+static void
+test_id (void)
+{
+  gchar *result;
+
+  result = run_apps ("default-for-type", "application/vnd.kde.okular-archive",
+                     TRUE, FALSE, NULL, NULL, NULL);
+  g_assert_cmpstr (result, ==, "kde4-okular.desktop\n");
+  g_free (result);
 }
 
 int
 main (int   argc,
       char *argv[])
 {
-  const gchar *build_dir;
-  gint result;
+  /* While we use %G_TEST_OPTION_ISOLATE_DIRS to create temporary directories
+   * for each of the tests, we want to use the system MIME registry, assuming
+   * that it exists and correctly has shared-mime-info installed. */
+  g_content_type_set_mime_dirs (NULL);
 
-  /* With Meson build we need to change into right directory, so that the
-   * appinfo-test binary can be found. */
-  build_dir = g_getenv ("G_TEST_BUILDDIR");
-  if (build_dir)
-    g_chdir (build_dir);
-
-  g_test_init (&argc, &argv, NULL);
-
-  basedir = g_get_current_dir ();
-  g_setenv ("XDG_DATA_HOME", basedir, TRUE);
-  cleanup_subdirs (basedir);
+  g_test_init (&argc, &argv, G_TEST_OPTION_ISOLATE_DIRS, NULL);
 
   g_test_add_func ("/desktop-app-info/delete", test_delete);
   g_test_add_func ("/desktop-app-info/default", test_default);
+  g_test_add_func ("/desktop-app-info/default-async", test_default_async);
   g_test_add_func ("/desktop-app-info/fallback", test_fallback);
   g_test_add_func ("/desktop-app-info/lastused", test_last_used);
   g_test_add_func ("/desktop-app-info/extra-getters", test_extra_getters);
@@ -866,10 +1202,9 @@ main (int   argc,
   g_test_add_func ("/desktop-app-info/implements", test_implements);
   g_test_add_func ("/desktop-app-info/show-in", test_show_in);
   g_test_add_func ("/desktop-app-info/launch-as-manager", test_launch_as_manager);
+  g_test_add_func ("/desktop-app-info/launch-default-uri-handler", test_default_uri_handler);
+  g_test_add_func ("/desktop-app-info/launch-default-uri-handler-async", test_default_uri_handler_async);
+  g_test_add_func ("/desktop-app-info/id", test_id);
 
-  result = g_test_run ();
-
-  cleanup_subdirs (basedir);
-
-  return result;
+  return g_test_run ();
 }

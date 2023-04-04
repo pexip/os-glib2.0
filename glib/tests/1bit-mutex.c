@@ -2,6 +2,8 @@
  * Copyright © 2008 Ryan Lortie
  * Copyright © 2010 Codethink Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -129,7 +131,7 @@ testcase (gconstpointer data)
   #define SUFFIX "-emufutex"
 
   /* ensure that we are using the emulated futex by checking
-   * (at compile-time) for the existance of 'g_futex_address_list'
+   * (at compile-time) for the existence of 'g_futex_address_list'
    */
   g_assert (g_futex_address_list == NULL);
 #else

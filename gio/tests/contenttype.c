@@ -30,7 +30,7 @@ test_guess (void)
   existing_directory = (gchar *) g_getenv ("SYSTEMROOT");
 
   if (existing_directory)
-    existing_directory = g_strdup_printf ("%s/", existing_directory);
+    existing_directory = g_strdup_printf ("%s" G_DIR_SEPARATOR_S, existing_directory);
 #else
   existing_directory = g_strdup ("/etc/");
 #endif
@@ -39,7 +39,7 @@ test_guess (void)
   g_free (existing_directory);
   expected = g_content_type_from_mime_type ("inode/directory");
   g_assert_content_type_equals (expected, res);
-  g_assert (uncertain);
+  g_assert_true (uncertain);
   g_free (res);
   g_free (expected);
 
@@ -52,30 +52,31 @@ test_guess (void)
   res = g_content_type_guess ("foo.txt", data, sizeof (data) - 1, &uncertain);
   expected = g_content_type_from_mime_type ("text/plain");
   g_assert_content_type_equals (expected, res);
-  g_assert (!uncertain);
+  g_assert_false (uncertain);
   g_free (res);
   g_free (expected);
 
-  /* Sadly OSX just doesn't have as large and robust of a mime type database as Linux */
+  /* Sadly win32 & OSX just don't have as large and robust of a mime type database as Linux */
+#ifndef G_OS_WIN32
 #ifndef __APPLE__
   res = g_content_type_guess ("foo", data, sizeof (data) - 1, &uncertain);
   expected = g_content_type_from_mime_type ("text/plain");
   g_assert_content_type_equals (expected, res);
-  g_assert (!uncertain);
+  g_assert_false (uncertain);
   g_free (res);
   g_free (expected);
 
   res = g_content_type_guess ("foo.desktop", data, sizeof (data) - 1, &uncertain);
   expected = g_content_type_from_mime_type ("application/x-desktop");
   g_assert_content_type_equals (expected, res);
-  g_assert (!uncertain);
+  g_assert_false (uncertain);
   g_free (res);
   g_free (expected);
 
   res = g_content_type_guess (NULL, data, sizeof (data) - 1, &uncertain);
   expected = g_content_type_from_mime_type ("application/x-desktop");
   g_assert_content_type_equals (expected, res);
-  g_assert (!uncertain);
+  g_assert_false (uncertain);
   g_free (res);
   g_free (expected);
 
@@ -84,14 +85,14 @@ test_guess (void)
   res = g_content_type_guess ("test.pot", (guchar *)"ABC abc", 7, &uncertain);
   expected = g_content_type_from_mime_type ("text/x-gettext-translation-template");
   g_assert_content_type_equals (expected, res);
-  g_assert (!uncertain);
+  g_assert_false (uncertain);
   g_free (res);
   g_free (expected);
 
   res = g_content_type_guess ("test.pot", (guchar *)"msgid \"", 7, &uncertain);
   expected = g_content_type_from_mime_type ("text/x-gettext-translation-template");
   g_assert_content_type_equals (expected, res);
-  g_assert (!uncertain);
+  g_assert_false (uncertain);
   g_free (res);
   g_free (expected);
 
@@ -107,17 +108,26 @@ test_guess (void)
   res = g_content_type_guess ("test.otf", (guchar *)"OTTO", 4, &uncertain);
   expected = g_content_type_from_mime_type ("application/x-font-otf");
   g_assert_content_type_equals (expected, res);
-  g_assert (!uncertain);
+  g_assert_false (uncertain);
   g_free (res);
   g_free (expected);
-#endif
+#endif /* __APPLE__ */
 
   res = g_content_type_guess (NULL, (guchar *)"%!PS-Adobe-2.0 EPSF-1.2", 23, &uncertain);
   expected = g_content_type_from_mime_type ("image/x-eps");
   g_assert_content_type_equals (expected, res);
-  g_assert (!uncertain);
+  g_assert_false (uncertain);
   g_free (res);
   g_free (expected);
+
+  /* The data below would be detected as a valid content type, but shouldn’t be read at all. */
+  res = g_content_type_guess (NULL, (guchar *)"%!PS-Adobe-2.0 EPSF-1.2", 0, &uncertain);
+  expected = g_content_type_from_mime_type ("application/x-zerosize");
+  g_assert_content_type_equals (expected, res);
+  g_assert_false (uncertain);
+  g_free (res);
+  g_free (expected);
+#endif /* G_OS_WIN32 */
 }
 
 static void
@@ -127,7 +137,7 @@ test_unknown (void)
   gchar *str;
 
   unknown = g_content_type_from_mime_type ("application/octet-stream");
-  g_assert (g_content_type_is_unknown (unknown));
+  g_assert_true (g_content_type_is_unknown (unknown));
   str = g_content_type_get_mime_type (unknown);
   g_assert_cmpstr (str, ==, "application/octet-stream");
   g_free (str);
@@ -143,8 +153,8 @@ test_subtype (void)
   plain = g_content_type_from_mime_type ("text/plain");
   xml = g_content_type_from_mime_type ("application/xml");
 
-  g_assert (g_content_type_is_a (xml, plain));
-  g_assert (g_content_type_is_mime_type (xml, "text/plain"));
+  g_assert_true (g_content_type_is_a (xml, plain));
+  g_assert_true (g_content_type_is_mime_type (xml, "text/plain"));
 
   g_free (plain);
   g_free (xml);
@@ -175,11 +185,11 @@ test_list (void)
 
   types = g_content_types_get_registered ();
 
-  g_assert (g_list_length (types) > 1);
+  g_assert_cmpuint (g_list_length (types), >, 1);
 
   /* just check that some types are in the list */
-  g_assert (g_list_find_custom (types, plain, find_mime) != NULL);
-  g_assert (g_list_find_custom (types, xml, find_mime) != NULL);
+  g_assert_nonnull (g_list_find_custom (types, plain, find_mime));
+  g_assert_nonnull (g_list_find_custom (types, xml, find_mime));
 
   g_list_free_full (types, g_free);
 
@@ -192,16 +202,23 @@ test_executable (void)
 {
   gchar *type;
 
+#ifdef G_OS_WIN32
+  type = g_content_type_from_mime_type ("application/vnd.microsoft.portable-executable");
+  /* FIXME: the MIME is not in the default `MIME\Database\Content Type` registry.
+   * g_assert_true (g_content_type_can_be_executable (type));
+   */
+  g_free (type);
+#else
   type = g_content_type_from_mime_type ("application/x-executable");
-  g_assert (g_content_type_can_be_executable (type));
+  g_assert_true (g_content_type_can_be_executable (type));
   g_free (type);
 
   type = g_content_type_from_mime_type ("text/plain");
-  g_assert (g_content_type_can_be_executable (type));
+  g_assert_true (g_content_type_can_be_executable (type));
   g_free (type);
-
+#endif
   type = g_content_type_from_mime_type ("image/png");
-  g_assert (!g_content_type_can_be_executable (type));
+  g_assert_false (g_content_type_can_be_executable (type));
   g_free (type);
 }
 
@@ -213,7 +230,7 @@ test_description (void)
 
   type = g_content_type_from_mime_type ("text/plain");
   desc = g_content_type_get_description (type);
-  g_assert (desc != NULL);
+  g_assert_nonnull (desc);
 
   g_free (desc);
   g_free (type);
@@ -227,17 +244,19 @@ test_icon (void)
 
   type = g_content_type_from_mime_type ("text/plain");
   icon = g_content_type_get_icon (type);
-  g_assert (G_IS_ICON (icon));
+  g_assert_true (G_IS_ICON (icon));
   if (G_IS_THEMED_ICON (icon))
     {
       const gchar *const *names;
 
       names = g_themed_icon_get_names (G_THEMED_ICON (icon));
 #ifdef __APPLE__
-      g_assert (g_strv_contains (names, "text-*"));
+      g_assert_true (g_strv_contains (names, "text-*"));
+#elif defined(G_OS_WIN32)
+      g_assert_cmpuint (g_strv_length ((GStrv) names), >, 0);
 #else
-      g_assert (g_strv_contains (names, "text-plain"));
-      g_assert (g_strv_contains (names, "text-x-generic"));
+      g_assert_true (g_strv_contains (names, "text-plain"));
+      g_assert_true (g_strv_contains (names, "text-x-generic"));
 #endif
     }
   g_object_unref (icon);
@@ -245,15 +264,19 @@ test_icon (void)
 
   type = g_content_type_from_mime_type ("application/rtf");
   icon = g_content_type_get_icon (type);
-  g_assert (G_IS_ICON (icon));
+  g_assert_true (G_IS_ICON (icon));
   if (G_IS_THEMED_ICON (icon))
     {
       const gchar *const *names;
 
       names = g_themed_icon_get_names (G_THEMED_ICON (icon));
-      g_assert (g_strv_contains (names, "application-rtf"));
+#ifdef G_OS_WIN32
+      g_assert_true (g_strv_contains (names, "text-x-generic"));
+#else
+      g_assert_true (g_strv_contains (names, "application-rtf"));
 #ifndef __APPLE__
-      g_assert (g_strv_contains (names, "x-office-document"));
+      g_assert_true (g_strv_contains (names, "x-office-document"));
+#endif
 #endif
     }
   g_object_unref (icon);
@@ -269,20 +292,20 @@ test_symbolic_icon (void)
 
   type = g_content_type_from_mime_type ("text/plain");
   icon = g_content_type_get_symbolic_icon (type);
-  g_assert (G_IS_ICON (icon));
+  g_assert_true (G_IS_ICON (icon));
   if (G_IS_THEMED_ICON (icon))
     {
       const gchar *const *names;
 
       names = g_themed_icon_get_names (G_THEMED_ICON (icon));
 #ifdef __APPLE__
-      g_assert (g_strv_contains (names, "text-*-symbolic"));
-      g_assert (g_strv_contains (names, "text-*"));
+      g_assert_true (g_strv_contains (names, "text-*-symbolic"));
+      g_assert_true (g_strv_contains (names, "text-*"));
 #else
-      g_assert (g_strv_contains (names, "text-plain-symbolic"));
-      g_assert (g_strv_contains (names, "text-x-generic-symbolic"));
-      g_assert (g_strv_contains (names, "text-plain"));
-      g_assert (g_strv_contains (names, "text-x-generic"));
+      g_assert_true (g_strv_contains (names, "text-plain-symbolic"));
+      g_assert_true (g_strv_contains (names, "text-x-generic-symbolic"));
+      g_assert_true (g_strv_contains (names, "text-plain"));
+      g_assert_true (g_strv_contains (names, "text-x-generic"));
 #endif
     }
   g_object_unref (icon);
@@ -290,17 +313,17 @@ test_symbolic_icon (void)
 
   type = g_content_type_from_mime_type ("application/rtf");
   icon = g_content_type_get_symbolic_icon (type);
-  g_assert (G_IS_ICON (icon));
+  g_assert_true (G_IS_ICON (icon));
   if (G_IS_THEMED_ICON (icon))
     {
       const gchar *const *names;
 
       names = g_themed_icon_get_names (G_THEMED_ICON (icon));
-      g_assert (g_strv_contains (names, "application-rtf-symbolic"));
-      g_assert (g_strv_contains (names, "application-rtf"));
+      g_assert_true (g_strv_contains (names, "application-rtf-symbolic"));
+      g_assert_true (g_strv_contains (names, "application-rtf"));
 #ifndef __APPLE__
-      g_assert (g_strv_contains (names, "x-office-document-symbolic"));
-      g_assert (g_strv_contains (names, "x-office-document"));
+      g_assert_true (g_strv_contains (names, "x-office-document-symbolic"));
+      g_assert_true (g_strv_contains (names, "x-office-document"));
 #endif
     }
   g_object_unref (icon);
@@ -319,10 +342,10 @@ test_tree (void)
   const gchar *path;
   GFile *file;
   gchar **types;
-  gint i;
+  gsize i;
 
-#ifdef __APPLE__
-  g_test_skip ("The OSX backend does not implement g_content_type_guess_for_tree()");
+#if defined(__APPLE__) || defined(G_OS_WIN32)
+  g_test_skip ("The OSX & Windows backends do not implement g_content_type_guess_for_tree()");
   return;
 #endif
 
@@ -342,12 +365,12 @@ test_type_is_a_special_case (void)
 {
   gboolean res;
 
-  g_test_bug ("782311");
+  g_test_bug ("https://bugzilla.gnome.org/show_bug.cgi?id=782311");
 
   /* Everything but the inode type is application/octet-stream */
   res = g_content_type_is_a ("inode/directory", "application/octet-stream");
   g_assert_false (res);
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(G_OS_WIN32)
   res = g_content_type_is_a ("anything", "application/octet-stream");
   g_assert_true (res);
 #endif
@@ -407,8 +430,6 @@ int
 main (int argc, char *argv[])
 {
   g_test_init (&argc, &argv, NULL);
-
-  g_test_bug_base ("http://bugzilla.gnome.org/");
 
   g_test_add_func ("/contenttype/guess", test_guess);
   g_test_add_func ("/contenttype/guess_svg_from_data", test_guess_svg_from_data);

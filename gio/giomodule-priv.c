@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2017 Collabora Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -51,7 +53,8 @@ _g_io_module_extract_name (const char *filename)
 
   if (g_str_has_prefix (bname, "libgio"))
     prefix_len = 6;
-  else if (g_str_has_prefix (bname, "lib"))
+  /* DLLs built with MSVC generally do not have the 'lib' prefix */
+  else if (g_str_has_prefix (bname, "lib") || g_str_has_prefix (bname, "gio"))
     prefix_len = 3;
   else
     prefix_len = 0; /* use whole name (minus suffix) as plugin name */

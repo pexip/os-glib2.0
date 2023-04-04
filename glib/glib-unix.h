@@ -1,6 +1,8 @@
 /* glib-unix.h - Unix specific integration
  * Copyright (C) 2011 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -43,7 +45,7 @@ G_BEGIN_DECLS
  *
  * Error domain for API in the g_unix_ namespace. Note that there is no
  * exported enumeration mapping %errno. Instead, all functions ensure that
- * %errno is relevant. The code for all #G_UNIX_ERROR is always 0, and the
+ * %errno is relevant. The code for all %G_UNIX_ERROR is always 0, and the
  * error message is always generated via g_strerror().
  *
  * It is expected that most code will not look at %errno from these APIs.
@@ -113,6 +115,10 @@ guint    g_unix_fd_add             (gint              fd,
                                     GIOCondition      condition,
                                     GUnixFDSourceFunc function,
                                     gpointer          user_data);
+
+GLIB_AVAILABLE_IN_2_64
+struct passwd *g_unix_get_passwd_entry (const gchar  *user_name,
+                                        GError      **error);
 
 G_END_DECLS
 

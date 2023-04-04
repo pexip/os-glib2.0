@@ -2,6 +2,8 @@
  * Copyright (C) 2007 Sven Herzberg
  * Copyright (C) 2007 Tim Janik
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -43,6 +45,7 @@ static gboolean     gtester_quiet = FALSE;
 static gboolean     gtester_verbose = FALSE;
 static gboolean     gtester_list_tests = FALSE;
 static gboolean     gtester_selftest = FALSE;
+static gboolean     gtester_ignore_deprecation = FALSE;
 static gboolean     subtest_running = FALSE;
 static gint         subtest_exitstatus = 0;
 static gboolean     subtest_io_pending = FALSE;
@@ -69,7 +72,7 @@ static const char*
 sindent (guint n)
 {
   static const char spaces[] = "                                                                                                    ";
-  int l = sizeof (spaces) - 1;
+  gsize l = sizeof (spaces) - 1;
   n = MIN (n, l);
   return spaces + l - n;
 }
@@ -660,10 +663,15 @@ parse_args (gint    *argc_p,
             }
           argv[i] = NULL;
         }
+      else if (strcmp ("--i-know-this-is-deprecated", argv[i]) == 0)
+        {
+          gtester_ignore_deprecation = TRUE;
+          argv[i] = NULL;
+        }
     }
   /* collapse argv */
-  e = 1;
-  for (i = 1; i < argc; i++)
+  e = 0;
+  for (i = 0; i < argc; i++)
     if (argv[i])
       {
         argv[e++] = argv[i];
@@ -677,7 +685,7 @@ int
 main (int    argc,
       char **argv)
 {
-  guint ui;
+  gint ui;
 
   g_set_prgname (argv[0]);
   parse_args (&argc, &argv);
@@ -690,6 +698,10 @@ main (int    argc,
       return 1;
     }
 
+  if (!gtester_ignore_deprecation)
+    g_warning ("Deprecated: Since GLib 2.62, gtester and gtester-report are "
+               "deprecated. Port to TAP.");
+
   if (output_filename)
     {
       int errsv;
@@ -700,6 +712,8 @@ main (int    argc,
     }
 
   test_log_printfe ("<?xml version=\"1.0\"?>\n");
+  test_log_printfe ("<!-- Deprecated: Since GLib 2.62, gtester and "
+                    "gtester-report are deprecated. Port to TAP. -->\n");
   test_log_printfe ("%s<gtester>\n", sindent (log_indent));
   log_indent += 2;
   for (ui = 1; ui < argc; ui++)
@@ -733,6 +747,7 @@ fixture_test (guint        *fix,
   g_test_bug ("123");
   g_test_bug_base ("http://www.example.com/bugtracker?bugnum=%s;cmd=showbug");
   g_test_bug ("456");
+  g_test_bug ("https://example.com/no-base-used");
 }
 static void
 fixture_teardown (guint        *fix,

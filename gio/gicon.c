@@ -2,6 +2,8 @@
  * 
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -138,7 +140,7 @@ g_icon_to_string_tokenized (GIcon *icon, GString *s)
   GPtrArray *tokens;
   gint version;
   GIconIface *icon_iface;
-  int i;
+  guint i;
 
   g_return_val_if_fail (icon != NULL, FALSE);
   g_return_val_if_fail (G_IS_ICON (icon), FALSE);
@@ -558,11 +560,11 @@ g_icon_deserialize_emblemed (GVariant *value)
 
 /**
  * g_icon_deserialize:
- * @value: a #GVariant created with g_icon_serialize()
+ * @value: (transfer none): a #GVariant created with g_icon_serialize()
  *
  * Deserializes a #GIcon previously serialized using g_icon_serialize().
  *
- * Returns: (transfer full): a #GIcon, or %NULL when deserialization fails.
+ * Returns: (nullable) (transfer full): a #GIcon, or %NULL when deserialization fails.
  *
  * Since: 2.38
  */
@@ -653,7 +655,7 @@ g_icon_deserialize (GVariant *value)
  * makes sense to transfer the #GVariant between processes on the same machine,
  * (as opposed to over the network), and within the same file system namespace.
  *
- * Returns: (transfer full): a #GVariant, or %NULL when serialization fails.
+ * Returns: (nullable) (transfer full): a #GVariant, or %NULL when serialization fails. The #GVariant will not be floating.
  *
  * Since: 2.38
  */

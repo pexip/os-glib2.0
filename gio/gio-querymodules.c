@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -25,6 +27,8 @@
 #include <gstdio.h>
 #include <errno.h>
 #include <locale.h>
+
+#include "glib/glib-private.h"
 
 static gboolean
 is_valid_module_name (const gchar *basename)
@@ -79,7 +83,7 @@ query_dir (const char *dirname)
 	continue;
 
       path = g_build_filename (dirname, name, NULL);
-      module = g_module_open (path, G_MODULE_BIND_LAZY | G_MODULE_BIND_LOCAL);
+      module = g_module_open_full (path, G_MODULE_BIND_LAZY | G_MODULE_BIND_LOCAL, &error);
       g_free (path);
 
       if (module)
@@ -117,6 +121,12 @@ query_dir (const char *dirname)
 
 	  g_module_close (module);
 	}
+      else
+        {
+          g_debug ("Failed to open module %s: %s", name, error->message);
+        }
+
+      g_clear_error (&error);
     }
 
   g_dir_close (dir);
@@ -153,14 +163,14 @@ main (gint   argc,
 {
   int i;
 
-  if (argc == 1)
+  if (argc <= 1)
     {
       g_print ("Usage: gio-querymodules <directory1> [<directory2> ...]\n");
       g_print ("Will update giomodule.cache in the listed directories\n");
       return 1;
     }
 
-  setlocale (LC_ALL, "");
+  setlocale (LC_ALL, GLIB_DEFAULT_LOCALE);
 
   /* Be defensive and ensure we're linked to GObject */
   g_type_ensure (G_TYPE_OBJECT);
