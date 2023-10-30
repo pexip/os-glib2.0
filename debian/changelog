@@ -1,3 +1,9 @@
+glib2.0 (2.66.8-1pexip4) pexip; urgency=medium
+
+  * Rebuild against glibc 2.36
+
+ -- John-Mark Bell <jmb@pexip.com>  Mon, 30 Oct 2023 17:26:54 +0000
+
 glib2.0 (2.66.8-1pexip3) pexip-bullseye; urgency=medium
 
   * Bullseye rebuild for ARM64 inclusion
