@@ -1,6 +1,8 @@
 /*
  * Copyright 2012-2019 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -957,7 +959,7 @@ task_weak_notify (gpointer  user_data,
   gboolean *weak_notify_ran = user_data;
 
   g_mutex_lock (&run_in_thread_mutex);
-  *weak_notify_ran = TRUE;
+  g_atomic_int_set (weak_notify_ran, TRUE);
   g_cond_signal (&run_in_thread_cond);
   g_mutex_unlock (&run_in_thread_mutex);
 }
@@ -1007,7 +1009,7 @@ run_in_thread_thread (GTask        *task,
   g_assert (g_thread_self () != main_thread);
 
   g_mutex_lock (&run_in_thread_mutex);
-  *thread_ran = TRUE;
+  g_atomic_int_set (thread_ran, TRUE);
   g_cond_signal (&run_in_thread_cond);
   g_mutex_unlock (&run_in_thread_mutex);
 
@@ -1018,8 +1020,8 @@ static void
 test_run_in_thread (void)
 {
   GTask *task;
-  volatile gboolean thread_ran = FALSE;
-  volatile gboolean weak_notify_ran = FALSE;
+  gboolean thread_ran = FALSE;  /* (atomic) */
+  gboolean weak_notify_ran = FALSE;  /* (atomic) */
   gboolean notification_emitted = FALSE;
   gboolean done = FALSE;
 
@@ -1033,12 +1035,12 @@ test_run_in_thread (void)
   g_task_run_in_thread (task, run_in_thread_thread);
 
   g_mutex_lock (&run_in_thread_mutex);
-  while (!thread_ran)
+  while (!g_atomic_int_get (&thread_ran))
     g_cond_wait (&run_in_thread_cond, &run_in_thread_mutex);
   g_mutex_unlock (&run_in_thread_mutex);
 
   g_assert (done == FALSE);
-  g_assert (weak_notify_ran == FALSE);
+  g_assert_false (g_atomic_int_get (&weak_notify_ran));
 
   g_main_loop_run (loop);
 
@@ -1050,7 +1052,7 @@ test_run_in_thread (void)
   g_object_unref (task);
 
   g_mutex_lock (&run_in_thread_mutex);
-  while (!weak_notify_ran)
+  while (!g_atomic_int_get (&weak_notify_ran))
     g_cond_wait (&run_in_thread_cond, &run_in_thread_mutex);
   g_mutex_unlock (&run_in_thread_mutex);
 }
@@ -1081,7 +1083,7 @@ run_in_thread_sync_thread (GTask        *task,
 
   g_assert (g_thread_self () != main_thread);
 
-  *thread_ran = TRUE;
+  g_atomic_int_set (thread_ran, TRUE);
   g_task_return_int (task, magic);
 }
 
@@ -1102,7 +1104,7 @@ test_run_in_thread_sync (void)
   g_task_set_task_data (task, &thread_ran, NULL);
   g_task_run_in_thread_sync (task, run_in_thread_sync_thread);
 
-  g_assert (thread_ran == TRUE);
+  g_assert_true (g_atomic_int_get (&thread_ran));
   g_assert (task != NULL);
   g_assert (!g_task_had_error (task));
   g_assert_true (g_task_get_completed (task));
@@ -1487,8 +1489,8 @@ test_return_on_cancel (void)
 {
   GTask *task;
   GCancellable *cancellable;
-  volatile ThreadState thread_state;
-  volatile gboolean weak_notify_ran = FALSE;
+  ThreadState thread_state;  /* (atomic) */
+  gboolean weak_notify_ran = FALSE;  /* (atomic) */
   gboolean callback_ran;
   gboolean notification_emitted = FALSE;
 
@@ -1498,7 +1500,7 @@ test_return_on_cancel (void)
    * early.
    */
   callback_ran = FALSE;
-  thread_state = THREAD_STARTING;
+  g_atomic_int_set (&thread_state, THREAD_STARTING);
   task = g_task_new (NULL, cancellable, return_on_cancel_callback, &callback_ran);
   g_signal_connect (task, "notify::completed",
                     (GCallback) completed_cb, &notification_emitted);
@@ -1509,18 +1511,18 @@ test_return_on_cancel (void)
   g_task_run_in_thread (task, return_on_cancel_thread);
   g_object_unref (task);
 
-  while (thread_state == THREAD_STARTING)
+  while (g_atomic_int_get (&thread_state) == THREAD_STARTING)
     g_cond_wait (&roc_init_cond, &roc_init_mutex);
   g_mutex_unlock (&roc_init_mutex);
 
-  g_assert (thread_state == THREAD_RUNNING);
+  g_assert_cmpint (g_atomic_int_get (&thread_state), ==, THREAD_RUNNING);
   g_assert (callback_ran == FALSE);
 
   g_cancellable_cancel (cancellable);
   g_mutex_unlock (&roc_finish_mutex);
   g_main_loop_run (loop);
 
-  g_assert (thread_state == THREAD_COMPLETED);
+  g_assert_cmpint (g_atomic_int_get (&thread_state), ==, THREAD_COMPLETED);
   g_assert (callback_ran == TRUE);
   g_assert_true (notification_emitted);
 
@@ -1529,7 +1531,7 @@ test_return_on_cancel (void)
   /* If return-on-cancel is TRUE, it does return early */
   callback_ran = FALSE;
   notification_emitted = FALSE;
-  thread_state = THREAD_STARTING;
+  g_atomic_int_set (&thread_state, THREAD_STARTING);
   task = g_task_new (NULL, cancellable, return_on_cancel_callback, &callback_ran);
   g_object_weak_ref (G_OBJECT (task), task_weak_notify, (gpointer)&weak_notify_ran);
   g_signal_connect (task, "notify::completed",
@@ -1542,27 +1544,27 @@ test_return_on_cancel (void)
   g_task_run_in_thread (task, return_on_cancel_thread);
   g_object_unref (task);
 
-  while (thread_state == THREAD_STARTING)
+  while (g_atomic_int_get (&thread_state) == THREAD_STARTING)
     g_cond_wait (&roc_init_cond, &roc_init_mutex);
   g_mutex_unlock (&roc_init_mutex);
 
-  g_assert (thread_state == THREAD_RUNNING);
+  g_assert_cmpint (g_atomic_int_get (&thread_state), ==, THREAD_RUNNING);
   g_assert (callback_ran == FALSE);
 
   g_cancellable_cancel (cancellable);
   g_main_loop_run (loop);
-  g_assert (thread_state == THREAD_RUNNING);
+  g_assert_cmpint (g_atomic_int_get (&thread_state), ==, THREAD_RUNNING);
   g_assert (callback_ran == TRUE);
 
-  g_assert (weak_notify_ran == FALSE);
+  g_assert_false (g_atomic_int_get (&weak_notify_ran));
 
-  while (thread_state == THREAD_RUNNING)
+  while (g_atomic_int_get (&thread_state) == THREAD_RUNNING)
     g_cond_wait (&roc_finish_cond, &roc_finish_mutex);
   g_mutex_unlock (&roc_finish_mutex);
 
-  g_assert (thread_state == THREAD_CANCELLED);
+  g_assert_cmpint (g_atomic_int_get (&thread_state), ==, THREAD_CANCELLED);
   g_mutex_lock (&run_in_thread_mutex);
-  while (!weak_notify_ran)
+  while (!g_atomic_int_get (&weak_notify_ran))
     g_cond_wait (&run_in_thread_cond, &run_in_thread_mutex);
   g_mutex_unlock (&run_in_thread_mutex);
 
@@ -1574,7 +1576,7 @@ test_return_on_cancel (void)
    */
   callback_ran = FALSE;
   notification_emitted = FALSE;
-  thread_state = THREAD_STARTING;
+  g_atomic_int_set (&thread_state, THREAD_STARTING);
   task = g_task_new (NULL, cancellable, return_on_cancel_callback, &callback_ran);
   g_signal_connect (task, "notify::completed",
                     (GCallback) completed_cb, &notification_emitted);
@@ -1591,17 +1593,17 @@ test_return_on_cancel (void)
   g_main_loop_run (loop);
   g_assert (callback_ran == TRUE);
 
-  while (thread_state == THREAD_STARTING)
+  while (g_atomic_int_get (&thread_state) == THREAD_STARTING)
     g_cond_wait (&roc_init_cond, &roc_init_mutex);
   g_mutex_unlock (&roc_init_mutex);
 
-  g_assert (thread_state == THREAD_RUNNING);
+  g_assert_cmpint (g_atomic_int_get (&thread_state), ==, THREAD_RUNNING);
 
-  while (thread_state == THREAD_RUNNING)
+  while (g_atomic_int_get (&thread_state) == THREAD_RUNNING)
     g_cond_wait (&roc_finish_cond, &roc_finish_mutex);
   g_mutex_unlock (&roc_finish_mutex);
 
-  g_assert (thread_state == THREAD_CANCELLED);
+  g_assert_cmpint (g_atomic_int_get (&thread_state), ==, THREAD_CANCELLED);
   g_assert_true (notification_emitted);
 
   g_object_unref (cancellable);
@@ -1621,7 +1623,7 @@ test_return_on_cancel_sync (void)
 {
   GTask *task;
   GCancellable *cancellable;
-  volatile ThreadState thread_state;
+  ThreadState thread_state;  /* (atomic) */
   GThread *runner_thread;
   gssize ret;
   GError *error = NULL;
@@ -1630,7 +1632,7 @@ test_return_on_cancel_sync (void)
 
   /* If return-on-cancel is FALSE, the task does not return early.
    */
-  thread_state = THREAD_STARTING;
+  g_atomic_int_set (&thread_state, THREAD_STARTING);
   task = g_task_new (NULL, cancellable, run_in_thread_sync_callback, NULL);
 
   g_task_set_task_data (task, (gpointer)&thread_state, NULL);
@@ -1639,16 +1641,16 @@ test_return_on_cancel_sync (void)
   runner_thread = g_thread_new ("return-on-cancel-sync runner thread",
                                 cancel_sync_runner_thread, task);
 
-  while (thread_state == THREAD_STARTING)
+  while (g_atomic_int_get (&thread_state) == THREAD_STARTING)
     g_cond_wait (&roc_init_cond, &roc_init_mutex);
   g_mutex_unlock (&roc_init_mutex);
 
-  g_assert (thread_state == THREAD_RUNNING);
+  g_assert_cmpint (g_atomic_int_get (&thread_state), ==, THREAD_RUNNING);
 
   g_cancellable_cancel (cancellable);
   g_mutex_unlock (&roc_finish_mutex);
   g_thread_join (runner_thread);
-  g_assert (thread_state == THREAD_COMPLETED);
+  g_assert_cmpint (g_atomic_int_get (&thread_state), ==, THREAD_COMPLETED);
 
   ret = g_task_propagate_int (task, &error);
   g_assert_error (error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
@@ -1660,7 +1662,7 @@ test_return_on_cancel_sync (void)
   g_cancellable_reset (cancellable);
 
   /* If return-on-cancel is TRUE, it does return early */
-  thread_state = THREAD_STARTING;
+  g_atomic_int_set (&thread_state, THREAD_STARTING);
   task = g_task_new (NULL, cancellable, run_in_thread_sync_callback, NULL);
   g_task_set_return_on_cancel (task, TRUE);
 
@@ -1670,15 +1672,15 @@ test_return_on_cancel_sync (void)
   runner_thread = g_thread_new ("return-on-cancel-sync runner thread",
                                 cancel_sync_runner_thread, task);
 
-  while (thread_state == THREAD_STARTING)
+  while (g_atomic_int_get (&thread_state) == THREAD_STARTING)
     g_cond_wait (&roc_init_cond, &roc_init_mutex);
   g_mutex_unlock (&roc_init_mutex);
 
-  g_assert (thread_state == THREAD_RUNNING);
+  g_assert_cmpint (g_atomic_int_get (&thread_state), ==, THREAD_RUNNING);
 
   g_cancellable_cancel (cancellable);
   g_thread_join (runner_thread);
-  g_assert (thread_state == THREAD_RUNNING);
+  g_assert_cmpint (g_atomic_int_get (&thread_state), ==, THREAD_RUNNING);
 
   ret = g_task_propagate_int (task, &error);
   g_assert_error (error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
@@ -1687,18 +1689,18 @@ test_return_on_cancel_sync (void)
 
   g_object_unref (task);
 
-  while (thread_state == THREAD_RUNNING)
+  while (g_atomic_int_get (&thread_state) == THREAD_RUNNING)
     g_cond_wait (&roc_finish_cond, &roc_finish_mutex);
   g_mutex_unlock (&roc_finish_mutex);
 
-  g_assert (thread_state == THREAD_CANCELLED);
+  g_assert_cmpint (g_atomic_int_get (&thread_state), ==, THREAD_CANCELLED);
 
   g_cancellable_reset (cancellable);
 
   /* If the task is already cancelled before it starts, it returns
    * immediately, but the thread func still runs.
    */
-  thread_state = THREAD_STARTING;
+  g_atomic_int_set (&thread_state, THREAD_STARTING);
   task = g_task_new (NULL, cancellable, run_in_thread_sync_callback, NULL);
   g_task_set_return_on_cancel (task, TRUE);
 
@@ -1711,7 +1713,7 @@ test_return_on_cancel_sync (void)
                                 cancel_sync_runner_thread, task);
 
   g_thread_join (runner_thread);
-  g_assert (thread_state == THREAD_STARTING);
+  g_assert_cmpint (g_atomic_int_get (&thread_state), ==, THREAD_STARTING);
 
   ret = g_task_propagate_int (task, &error);
   g_assert_error (error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
@@ -1720,17 +1722,17 @@ test_return_on_cancel_sync (void)
 
   g_object_unref (task);
 
-  while (thread_state == THREAD_STARTING)
+  while (g_atomic_int_get (&thread_state) == THREAD_STARTING)
     g_cond_wait (&roc_init_cond, &roc_init_mutex);
   g_mutex_unlock (&roc_init_mutex);
 
-  g_assert (thread_state == THREAD_RUNNING);
+  g_assert_cmpint (g_atomic_int_get (&thread_state), ==, THREAD_RUNNING);
 
-  while (thread_state == THREAD_RUNNING)
+  while (g_atomic_int_get (&thread_state) == THREAD_RUNNING)
     g_cond_wait (&roc_finish_cond, &roc_finish_mutex);
   g_mutex_unlock (&roc_finish_mutex);
 
-  g_assert (thread_state == THREAD_CANCELLED);
+  g_assert_cmpint (g_atomic_int_get (&thread_state), ==, THREAD_CANCELLED);
 
   g_object_unref (cancellable);
 }
@@ -1776,7 +1778,7 @@ return_on_cancel_atomic_thread (GTask        *task,
                                 gpointer      task_data,
                                 GCancellable *cancellable)
 {
-  gint *state = task_data;
+  gint *state = task_data;  /* (atomic) */
 
   g_assert (source_object == g_task_get_source_object (task));
   g_assert (task_data == g_task_get_task_data (task));
@@ -1784,34 +1786,34 @@ return_on_cancel_atomic_thread (GTask        *task,
   g_assert_false (g_task_get_completed (task));
 
   g_assert (g_thread_self () != main_thread);
-  g_assert_cmpint (*state, ==, 0);
+  g_assert_cmpint (g_atomic_int_get (state), ==, 0);
 
   g_mutex_lock (&roca_mutex_1);
-  *state = 1;
+  g_atomic_int_set (state, 1);
   g_cond_signal (&roca_cond_1);
   g_mutex_unlock (&roca_mutex_1);
 
   g_mutex_lock (&roca_mutex_2);
   if (g_task_set_return_on_cancel (task, FALSE))
-    *state = 2;
+    g_atomic_int_set (state, 2);
   else
-    *state = 3;
+    g_atomic_int_set (state, 3);
   g_cond_signal (&roca_cond_2);
   g_mutex_unlock (&roca_mutex_2);
 
   g_mutex_lock (&roca_mutex_1);
   if (g_task_set_return_on_cancel (task, TRUE))
-    *state = 4;
+    g_atomic_int_set (state, 4);
   else
-    *state = 5;
+    g_atomic_int_set (state, 5);
   g_cond_signal (&roca_cond_1);
   g_mutex_unlock (&roca_mutex_1);
 
   g_mutex_lock (&roca_mutex_2);
   if (g_task_set_return_on_cancel (task, TRUE))
-    *state = 6;
+    g_atomic_int_set (state, 6);
   else
-    *state = 7;
+    g_atomic_int_set (state, 7);
   g_cond_signal (&roca_cond_2);
   g_mutex_unlock (&roca_mutex_2);
 
@@ -1823,7 +1825,7 @@ test_return_on_cancel_atomic (void)
 {
   GTask *task;
   GCancellable *cancellable;
-  volatile gint state;
+  gint state;  /* (atomic) */
   gboolean notification_emitted = FALSE;
   gboolean callback_ran;
 
@@ -1832,7 +1834,7 @@ test_return_on_cancel_atomic (void)
   g_mutex_lock (&roca_mutex_2);
 
   /* If we don't cancel it, each set_return_on_cancel() call will succeed */
-  state = 0;
+  g_atomic_int_set (&state, 0);
   callback_ran = FALSE;
   task = g_task_new (NULL, cancellable, return_on_cancel_atomic_callback, &callback_ran);
   g_task_set_return_on_cancel (task, TRUE);
@@ -1843,23 +1845,23 @@ test_return_on_cancel_atomic (void)
   g_task_run_in_thread (task, return_on_cancel_atomic_thread);
   g_object_unref (task);
 
-  g_assert_cmpint (state, ==, 0);
+  g_assert_cmpint (g_atomic_int_get (&state), ==, 0);
 
-  while (state == 0)
+  while (g_atomic_int_get (&state) == 0)
     g_cond_wait (&roca_cond_1, &roca_mutex_1);
-  g_assert (state == 1);
+  g_assert_cmpint (g_atomic_int_get (&state), ==, 1);
 
-  while (state == 1)
+  while (g_atomic_int_get (&state) == 1)
     g_cond_wait (&roca_cond_2, &roca_mutex_2);
-  g_assert (state == 2);
+  g_assert_cmpint (g_atomic_int_get (&state), ==, 2);
 
-  while (state == 2)
+  while (g_atomic_int_get (&state) == 2)
     g_cond_wait (&roca_cond_1, &roca_mutex_1);
-  g_assert (state == 4);
+  g_assert_cmpint (g_atomic_int_get (&state), ==, 4);
 
-  while (state == 4)
+  while (g_atomic_int_get (&state) == 4)
     g_cond_wait (&roca_cond_2, &roca_mutex_2);
-  g_assert (state == 6);
+  g_assert_cmpint (g_atomic_int_get (&state), ==, 6);
 
   /* callback assumes there'll be a cancelled error */
   g_cancellable_cancel (cancellable);
@@ -1876,7 +1878,7 @@ test_return_on_cancel_atomic (void)
    * task won't complete right away, and further
    * g_task_set_return_on_cancel() calls will return FALSE.
    */
-  state = 0;
+  g_atomic_int_set (&state, 0);
   callback_ran = FALSE;
   notification_emitted = FALSE;
   task = g_task_new (NULL, cancellable, return_on_cancel_atomic_callback, &callback_ran);
@@ -1887,16 +1889,16 @@ test_return_on_cancel_atomic (void)
   g_task_set_task_data (task, (gpointer)&state, NULL);
   g_task_run_in_thread (task, return_on_cancel_atomic_thread);
 
-  g_assert_cmpint (state, ==, 0);
+  g_assert_cmpint (g_atomic_int_get (&state), ==, 0);
 
-  while (state == 0)
+  while (g_atomic_int_get (&state) == 0)
     g_cond_wait (&roca_cond_1, &roca_mutex_1);
-  g_assert (state == 1);
+  g_assert_cmpint (g_atomic_int_get (&state), ==, 1);
   g_assert (g_task_get_return_on_cancel (task));
 
-  while (state == 1)
+  while (g_atomic_int_get (&state) == 1)
     g_cond_wait (&roca_cond_2, &roca_mutex_2);
-  g_assert (state == 2);
+  g_assert_cmpint (g_atomic_int_get (&state), ==, 2);
   g_assert (!g_task_get_return_on_cancel (task));
 
   g_cancellable_cancel (cancellable);
@@ -1904,18 +1906,18 @@ test_return_on_cancel_atomic (void)
   g_main_loop_run (loop);
   g_assert (callback_ran == FALSE);
 
-  while (state == 2)
+  while (g_atomic_int_get (&state) == 2)
     g_cond_wait (&roca_cond_1, &roca_mutex_1);
-  g_assert (state == 5);
+  g_assert_cmpint (g_atomic_int_get (&state), ==, 5);
   g_assert (!g_task_get_return_on_cancel (task));
 
   g_main_loop_run (loop);
   g_assert (callback_ran == TRUE);
   g_assert_true (notification_emitted);
 
-  while (state == 5)
+  while (g_atomic_int_get (&state) == 5)
     g_cond_wait (&roca_cond_2, &roca_mutex_2);
-  g_assert (state == 7);
+  g_assert_cmpint (g_atomic_int_get (&state), ==, 7);
 
   g_object_unref (cancellable);
   g_mutex_unlock (&roca_mutex_1);
@@ -2303,7 +2305,7 @@ test_return_in_idle_error_first (void)
       return;
     }
 
-  g_test_trap_subprocess (NULL, 0, 0);
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
   g_test_trap_assert_stderr ("*CRITICAL*assertion '!task->ever_returned' failed*");
 }
@@ -2319,7 +2321,7 @@ test_return_in_idle_value_first (void)
       return;
     }
 
-  g_test_trap_subprocess (NULL, 0, 0);
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
   g_test_trap_assert_stderr ("*CRITICAL*assertion '!task->ever_returned' failed*");
 }
@@ -2335,7 +2337,7 @@ test_return_error_first (void)
       return;
     }
 
-  g_test_trap_subprocess (NULL, 0, 0);
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
   g_test_trap_assert_stderr ("*CRITICAL*assertion '!task->ever_returned' failed*");
 }
@@ -2351,7 +2353,7 @@ test_return_value_first (void)
       return;
     }
 
-  g_test_trap_subprocess (NULL, 0, 0);
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
   g_test_trap_assert_stderr ("*CRITICAL*assertion '!task->ever_returned' failed*");
 }

@@ -3,6 +3,8 @@
  * Copyright © 2012, 2013 Red Hat, Inc.
  * Copyright © 2012, 2013 Canonical Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -61,7 +63,10 @@
  * As a matter of principle, #GSubprocess has no API that accepts
  * shell-style space-separated strings.  It will, however, match the
  * typical shell behaviour of searching the PATH for executables that do
- * not contain a directory separator in their name.
+ * not contain a directory separator in their name. By default, the `PATH`
+ * of the current process is used.  You can specify
+ * %G_SUBPROCESS_FLAGS_SEARCH_PATH_FROM_ENVP to use the `PATH` of the
+ * launcher environment instead.
  *
  * #GSubprocess attempts to have a very simple API for most uses (ie:
  * spawning a subprocess with arguments and support for most typical
@@ -178,160 +183,6 @@ enum
   PROP_ARGV,
   N_PROPS
 };
-
-#ifdef G_OS_UNIX
-typedef struct
-{
-  gint                 fds[3];
-  GSpawnChildSetupFunc child_setup_func;
-  gpointer             child_setup_data;
-  GArray              *basic_fd_assignments;
-  GArray              *needdup_fd_assignments;
-} ChildData;
-
-static void
-unset_cloexec (int fd)
-{
-  int flags;
-  int result;
-
-  flags = fcntl (fd, F_GETFD, 0);
-
-  if (flags != -1)
-    {
-      int errsv;
-      flags &= (~FD_CLOEXEC);
-      do
-        {
-          result = fcntl (fd, F_SETFD, flags);
-          errsv = errno;
-        }
-      while (result == -1 && errsv == EINTR);
-    }
-}
-
-static int
-dupfd_cloexec (int parent_fd)
-{
-  int fd, errsv;
-#ifdef F_DUPFD_CLOEXEC
-  do
-    {
-      fd = fcntl (parent_fd, F_DUPFD_CLOEXEC, 3);
-      errsv = errno;
-    }
-  while (fd == -1 && errsv == EINTR);
-#else
-  /* OS X Snow Lion and earlier don't have F_DUPFD_CLOEXEC:
-   * https://bugzilla.gnome.org/show_bug.cgi?id=710962
-   */
-  int result, flags;
-  do
-    {
-      fd = fcntl (parent_fd, F_DUPFD, 3);
-      errsv = errno;
-    }
-  while (fd == -1 && errsv == EINTR);
-  flags = fcntl (fd, F_GETFD, 0);
-  if (flags != -1)
-    {
-      flags |= FD_CLOEXEC;
-      do
-        {
-          result = fcntl (fd, F_SETFD, flags);
-          errsv = errno;
-        }
-      while (result == -1 && errsv == EINTR);
-    }
-#endif
-  return fd;
-}
-
-/*
- * Based on code derived from
- * gnome-terminal:src/terminal-screen.c:terminal_screen_child_setup(),
- * used under the LGPLv2+ with permission from author.
- */
-static void
-child_setup (gpointer user_data)
-{
-  ChildData *child_data = user_data;
-  gint i;
-  gint result;
-  int errsv;
-
-  /* We're on the child side now.  "Rename" the file descriptors in
-   * child_data.fds[] to stdin/stdout/stderr.
-   *
-   * We don't close the originals.  It's possible that the originals
-   * should not be closed and if they should be closed then they should
-   * have been created O_CLOEXEC.
-   */
-  for (i = 0; i < 3; i++)
-    if (child_data->fds[i] != -1 && child_data->fds[i] != i)
-      {
-        do
-          {
-            result = dup2 (child_data->fds[i], i);
-            errsv = errno;
-          }
-        while (result == -1 && errsv == EINTR);
-      }
-
-  /* Basic fd assignments we can just unset FD_CLOEXEC */
-  if (child_data->basic_fd_assignments)
-    {
-      for (i = 0; i < child_data->basic_fd_assignments->len; i++)
-        {
-          gint fd = g_array_index (child_data->basic_fd_assignments, int, i);
-
-          unset_cloexec (fd);
-        }
-    }
-
-  /* If we're doing remapping fd assignments, we need to handle
-   * the case where the user has specified e.g.:
-   * 5 -> 4, 4 -> 6
-   *
-   * We do this by duping the source fds temporarily.
-   */ 
-  if (child_data->needdup_fd_assignments)
-    {
-      for (i = 0; i < child_data->needdup_fd_assignments->len; i += 2)
-        {
-          gint parent_fd = g_array_index (child_data->needdup_fd_assignments, int, i);
-          gint new_parent_fd;
-
-          new_parent_fd = dupfd_cloexec (parent_fd);
-
-          g_array_index (child_data->needdup_fd_assignments, int, i) = new_parent_fd;
-        }
-      for (i = 0; i < child_data->needdup_fd_assignments->len; i += 2)
-        {
-          gint parent_fd = g_array_index (child_data->needdup_fd_assignments, int, i);
-          gint child_fd = g_array_index (child_data->needdup_fd_assignments, int, i+1);
-
-          if (parent_fd == child_fd)
-            {
-              unset_cloexec (parent_fd);
-            }
-          else
-            {
-              do
-                {
-                  result = dup2 (parent_fd, child_fd);
-                  errsv = errno;
-                }
-              while (result == -1 && errsv == EINTR);
-              (void) close (parent_fd);
-            }
-        }
-    }
-
-  if (child_data->child_setup_func)
-    child_data->child_setup_func (child_data->child_setup_data);
-}
-#endif
 
 static GInputStream *
 platform_input_stream_from_spawn_fd (gint fd)
@@ -450,12 +301,12 @@ initable_init (GInitable     *initable,
                GError       **error)
 {
   GSubprocess *self = G_SUBPROCESS (initable);
-#ifdef G_OS_UNIX
-  ChildData child_data = { { -1, -1, -1 }, 0 };
-#endif
   gint *pipe_ptrs[3] = { NULL, NULL, NULL };
   gint pipe_fds[3] = { -1, -1, -1 };
   gint close_fds[3] = { -1, -1, -1 };
+#ifdef G_OS_UNIX
+  gint stdin_fd = -1, stdout_fd = -1, stderr_fd = -1;
+#endif
   GSpawnFlags spawn_flags = 0;
   gboolean success = FALSE;
   gint i;
@@ -480,11 +331,11 @@ initable_init (GInitable     *initable,
   else if (self->launcher)
     {
       if (self->launcher->stdin_fd != -1)
-        child_data.fds[0] = self->launcher->stdin_fd;
+        stdin_fd = self->launcher->stdin_fd;
       else if (self->launcher->stdin_path != NULL)
         {
-          child_data.fds[0] = close_fds[0] = unix_open_file (self->launcher->stdin_path, O_RDONLY, error);
-          if (child_data.fds[0] == -1)
+          stdin_fd = close_fds[0] = unix_open_file (self->launcher->stdin_path, O_RDONLY, error);
+          if (stdin_fd == -1)
             goto out;
         }
     }
@@ -499,11 +350,11 @@ initable_init (GInitable     *initable,
   else if (self->launcher)
     {
       if (self->launcher->stdout_fd != -1)
-        child_data.fds[1] = self->launcher->stdout_fd;
+        stdout_fd = self->launcher->stdout_fd;
       else if (self->launcher->stdout_path != NULL)
         {
-          child_data.fds[1] = close_fds[1] = unix_open_file (self->launcher->stdout_path, O_CREAT | O_WRONLY, error);
-          if (child_data.fds[1] == -1)
+          stdout_fd = close_fds[1] = unix_open_file (self->launcher->stdout_path, O_CREAT | O_WRONLY, error);
+          if (stdout_fd == -1)
             goto out;
         }
     }
@@ -516,33 +367,25 @@ initable_init (GInitable     *initable,
     pipe_ptrs[2] = &pipe_fds[2];
 #ifdef G_OS_UNIX
   else if (self->flags & G_SUBPROCESS_FLAGS_STDERR_MERGE)
-    /* This will work because stderr gets setup after stdout. */
-    child_data.fds[2] = 1;
+    /* This will work because stderr gets set up after stdout. */
+    stderr_fd = 1;
   else if (self->launcher)
     {
       if (self->launcher->stderr_fd != -1)
-        child_data.fds[2] = self->launcher->stderr_fd;
+        stderr_fd = self->launcher->stderr_fd;
       else if (self->launcher->stderr_path != NULL)
         {
-          child_data.fds[2] = close_fds[2] = unix_open_file (self->launcher->stderr_path, O_CREAT | O_WRONLY, error);
-          if (child_data.fds[2] == -1)
+          stderr_fd = close_fds[2] = unix_open_file (self->launcher->stderr_path, O_CREAT | O_WRONLY, error);
+          if (stderr_fd == -1)
             goto out;
         }
-    }
-#endif
-
-#ifdef G_OS_UNIX
-  if (self->launcher)
-    {
-      child_data.basic_fd_assignments = self->launcher->basic_fd_assignments;
-      child_data.needdup_fd_assignments = self->launcher->needdup_fd_assignments;
     }
 #endif
 
   /* argv0 has no '/' in it?  We better do a PATH lookup. */
   if (strchr (self->argv[0], G_DIR_SEPARATOR) == NULL)
     {
-      if (self->launcher && self->launcher->path_from_envp)
+      if (self->launcher && self->launcher->flags & G_SUBPROCESS_FLAGS_SEARCH_PATH_FROM_ENVP)
         spawn_flags |= G_SPAWN_SEARCH_PATH_FROM_ENVP;
       else
         spawn_flags |= G_SPAWN_SEARCH_PATH;
@@ -554,23 +397,25 @@ initable_init (GInitable     *initable,
   spawn_flags |= G_SPAWN_DO_NOT_REAP_CHILD;
   spawn_flags |= G_SPAWN_CLOEXEC_PIPES;
 
+  success = g_spawn_async_with_pipes_and_fds (self->launcher ? self->launcher->cwd : NULL,
+                                              (const gchar * const *) self->argv,
+                                              (const gchar * const *) (self->launcher ? self->launcher->envp : NULL),
+                                              spawn_flags,
 #ifdef G_OS_UNIX
-  child_data.child_setup_func = self->launcher ? self->launcher->child_setup_func : NULL;
-  child_data.child_setup_data = self->launcher ? self->launcher->child_setup_user_data : NULL;
-#endif
-
-  success = g_spawn_async_with_pipes (self->launcher ? self->launcher->cwd : NULL,
-                                      self->argv,
-                                      self->launcher ? self->launcher->envp : NULL,
-                                      spawn_flags,
-#ifdef G_OS_UNIX
-                                      child_setup, &child_data,
+                                              self->launcher ? self->launcher->child_setup_func : NULL,
+                                              self->launcher ? self->launcher->child_setup_user_data : NULL,
+                                              stdin_fd, stdout_fd, stderr_fd,
+                                              self->launcher ? (const gint *) self->launcher->source_fds->data : NULL,
+                                              self->launcher ? (const gint *) self->launcher->target_fds->data : NULL,
+                                              self->launcher ? self->launcher->source_fds->len : 0,
 #else
-                                      NULL, NULL,
+                                              NULL, NULL,
+                                              -1, -1, -1,
+                                              NULL, NULL, 0,
 #endif
-                                      &self->pid,
-                                      pipe_ptrs[0], pipe_ptrs[1], pipe_ptrs[2],
-                                      error);
+                                              &self->pid,
+                                              pipe_ptrs[0], pipe_ptrs[1], pipe_ptrs[2],
+                                              error);
   g_assert (success == (self->pid != 0));
 
   {
@@ -584,7 +429,7 @@ initable_init (GInitable     *initable,
 #endif
 
     s = g_snprintf (self->identifier, sizeof self->identifier, "%"G_GUINT64_FORMAT, identifier);
-    g_assert (0 < s && s < sizeof self->identifier);
+    g_assert (0 < s && (gsize) s < sizeof self->identifier);
   }
 
   /* Start attempting to reap the child immediately */
@@ -773,10 +618,10 @@ g_subprocess_get_identifier (GSubprocess *subprocess)
  * Gets the #GOutputStream that you can write to in order to give data
  * to the stdin of @subprocess.
  *
- * The process must have been created with
- * %G_SUBPROCESS_FLAGS_STDIN_PIPE.
+ * The process must have been created with %G_SUBPROCESS_FLAGS_STDIN_PIPE and
+ * not %G_SUBPROCESS_FLAGS_STDIN_INHERIT, otherwise %NULL will be returned.
  *
- * Returns: (transfer none): the stdout pipe
+ * Returns: (nullable) (transfer none): the stdout pipe
  *
  * Since: 2.40
  **/
@@ -784,7 +629,6 @@ GOutputStream *
 g_subprocess_get_stdin_pipe (GSubprocess *subprocess)
 {
   g_return_val_if_fail (G_IS_SUBPROCESS (subprocess), NULL);
-  g_return_val_if_fail (subprocess->stdin_pipe, NULL);
 
   return subprocess->stdin_pipe;
 }
@@ -796,10 +640,10 @@ g_subprocess_get_stdin_pipe (GSubprocess *subprocess)
  * Gets the #GInputStream from which to read the stdout output of
  * @subprocess.
  *
- * The process must have been created with
- * %G_SUBPROCESS_FLAGS_STDOUT_PIPE.
+ * The process must have been created with %G_SUBPROCESS_FLAGS_STDOUT_PIPE,
+ * otherwise %NULL will be returned.
  *
- * Returns: (transfer none): the stdout pipe
+ * Returns: (nullable) (transfer none): the stdout pipe
  *
  * Since: 2.40
  **/
@@ -807,7 +651,6 @@ GInputStream *
 g_subprocess_get_stdout_pipe (GSubprocess *subprocess)
 {
   g_return_val_if_fail (G_IS_SUBPROCESS (subprocess), NULL);
-  g_return_val_if_fail (subprocess->stdout_pipe, NULL);
 
   return subprocess->stdout_pipe;
 }
@@ -819,10 +662,10 @@ g_subprocess_get_stdout_pipe (GSubprocess *subprocess)
  * Gets the #GInputStream from which to read the stderr output of
  * @subprocess.
  *
- * The process must have been created with
- * %G_SUBPROCESS_FLAGS_STDERR_PIPE.
+ * The process must have been created with %G_SUBPROCESS_FLAGS_STDERR_PIPE,
+ * otherwise %NULL will be returned.
  *
- * Returns: (transfer none): the stderr pipe
+ * Returns: (nullable) (transfer none): the stderr pipe
  *
  * Since: 2.40
  **/
@@ -830,7 +673,6 @@ GInputStream *
 g_subprocess_get_stderr_pipe (GSubprocess *subprocess)
 {
   g_return_val_if_fail (G_IS_SUBPROCESS (subprocess), NULL);
-  g_return_val_if_fail (subprocess->stderr_pipe, NULL);
 
   return subprocess->stderr_pipe;
 }
@@ -914,7 +756,9 @@ g_subprocess_wait_async (GSubprocess         *subprocess,
        * see the cancellation in the _finish().
        */
       if (cancellable)
-        g_signal_connect_object (cancellable, "cancelled", G_CALLBACK (g_subprocess_wait_cancelled), task, 0);
+        g_signal_connect_object (cancellable, "cancelled",
+                                 G_CALLBACK (g_subprocess_wait_cancelled),
+                                 task, G_CONNECT_DEFAULT);
 
       subprocess->pending_waits = g_slist_prepend (subprocess->pending_waits, task);
       task = NULL;
@@ -1046,7 +890,7 @@ g_subprocess_wait (GSubprocess   *subprocess,
  * @cancellable: a #GCancellable
  * @error: a #GError
  *
- * Combines g_subprocess_wait() with g_spawn_check_exit_status().
+ * Combines g_subprocess_wait() with g_spawn_check_wait_status().
  *
  * Returns: %TRUE on success, %FALSE if process exited abnormally, or
  * @cancellable was cancelled
@@ -1059,7 +903,7 @@ g_subprocess_wait_check (GSubprocess   *subprocess,
                          GError       **error)
 {
   return g_subprocess_wait (subprocess, cancellable, error) &&
-         g_spawn_check_exit_status (subprocess->status, error);
+         g_spawn_check_wait_status (subprocess->status, error);
 }
 
 /**
@@ -1069,7 +913,7 @@ g_subprocess_wait_check (GSubprocess   *subprocess,
  * @callback: a #GAsyncReadyCallback to call when the operation is complete
  * @user_data: user_data for @callback
  *
- * Combines g_subprocess_wait_async() with g_spawn_check_exit_status().
+ * Combines g_subprocess_wait_async() with g_spawn_check_wait_status().
  *
  * This is the asynchronous version of g_subprocess_wait_check().
  *
@@ -1103,7 +947,7 @@ g_subprocess_wait_check_finish (GSubprocess   *subprocess,
                                 GError       **error)
 {
   return g_subprocess_wait_finish (subprocess, result, error) &&
-         g_spawn_check_exit_status (subprocess->status, error);
+         g_spawn_check_wait_status (subprocess->status, error);
 }
 
 #ifdef G_OS_UNIX
@@ -1216,7 +1060,7 @@ g_subprocess_force_exit (GSubprocess *subprocess)
  *
  * This value has no particular meaning, but it can be used with the
  * macros defined by the system headers such as WIFEXITED.  It can also
- * be used with g_spawn_check_exit_status().
+ * be used with g_spawn_check_wait_status().
  *
  * It is more likely that you want to use g_subprocess_get_if_exited()
  * followed by g_subprocess_get_exit_status().

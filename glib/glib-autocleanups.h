@@ -1,6 +1,8 @@
 /*
  * Copyright © 2015 Canonical Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -78,6 +80,7 @@ G_DEFINE_AUTOPTR_CLEANUP_FUNC(GSequence, g_sequence_free)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GSList, g_slist_free)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GString, g_autoptr_cleanup_gstring_free)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GStringChunk, g_string_chunk_free)
+G_DEFINE_AUTOPTR_CLEANUP_FUNC(GStrvBuilder, g_strv_builder_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GThread, g_thread_unref)
 G_DEFINE_AUTO_CLEANUP_CLEAR_FUNC(GMutex, g_mutex_clear)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GMutexLocker, g_mutex_locker_free)

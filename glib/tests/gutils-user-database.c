@@ -3,6 +3,8 @@
  *
  * Author: Jakub Jelen <jjelen@redhat.com>
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -35,7 +37,6 @@ int
 main (int argc, char *argv[])
 {
   g_test_init (&argc, &argv, NULL);
-  g_test_bug_base ("https://gitlab.gnome.org/GNOME/glib/issues");
 
   g_test_add_func ("/gutils/get_user_database_entry", test_get_user_database_entry);
 

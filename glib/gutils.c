@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1998  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -69,6 +71,7 @@
 #include "garray.h"
 #include "glibintl.h"
 #include "gstdio.h"
+#include "gquark.h"
 
 #ifdef G_PLATFORM_WIN32
 #include "gconvert.h"
@@ -101,47 +104,6 @@
 
 #ifdef HAVE_CODESET
 #include <langinfo.h>
-#endif
-
-#ifdef G_PLATFORM_WIN32
-
-gchar *
-_glib_get_dll_directory (void)
-{
-  gchar *retval;
-  gchar *p;
-  wchar_t wc_fn[MAX_PATH];
-
-#ifdef DLL_EXPORT
-  if (glib_dll == NULL)
-    return NULL;
-#endif
-
-  /* This code is different from that in
-   * g_win32_get_package_installation_directory_of_module() in that
-   * here we return the actual folder where the GLib DLL is. We don't
-   * do the check for it being in a "bin" or "lib" subfolder and then
-   * returning the parent of that.
-   *
-   * In a statically built GLib, glib_dll will be NULL and we will
-   * thus look up the application's .exe file's location.
-   */
-  if (!GetModuleFileNameW (glib_dll, wc_fn, MAX_PATH))
-    return NULL;
-
-  retval = g_utf16_to_utf8 (wc_fn, -1, NULL, NULL, NULL);
-
-  p = strrchr (retval, G_DIR_SEPARATOR);
-  if (p == NULL)
-    {
-      /* Wtf? */
-      return NULL;
-    }
-  *p = '\0';
-
-  return retval;
-}
-
 #endif
 
 /**
@@ -340,7 +302,17 @@ g_find_program_in_path (const gchar *program)
     {
       if (g_file_test (program, G_FILE_TEST_IS_EXECUTABLE) &&
 	  !g_file_test (program, G_FILE_TEST_IS_DIR))
-        return g_strdup (program);
+        {
+          gchar *out = NULL, *cwd = NULL;
+
+          if (g_path_is_absolute (program))
+            return g_strdup (program);
+
+          cwd = g_get_current_dir ();
+          out = g_build_filename (cwd, program, NULL);
+          g_free (cwd);
+          return g_steal_pointer (&out);
+        }
       else
         return NULL;
     }
@@ -445,7 +417,14 @@ g_find_program_in_path (const gchar *program)
 	  !g_file_test (startp, G_FILE_TEST_IS_DIR))
         {
           gchar *ret;
-          ret = g_strdup (startp);
+          if (g_path_is_absolute (startp)) {
+            ret = g_strdup (startp);
+          } else {
+            gchar *cwd = NULL;
+            cwd = g_get_current_dir ();
+            ret = g_build_filename (cwd, startp, NULL);
+            g_free (cwd);
+          }
           g_free (freeme);
 #ifdef G_OS_WIN32
 	  g_free ((gchar *) path_copy);
@@ -538,6 +517,7 @@ static  gchar   *g_user_data_dir = NULL;
 static  gchar  **g_system_data_dirs = NULL;
 static  gchar   *g_user_cache_dir = NULL;
 static  gchar   *g_user_config_dir = NULL;
+static  gchar   *g_user_state_dir = NULL;
 static  gchar   *g_user_runtime_dir = NULL;
 static  gchar  **g_system_config_dirs = NULL;
 static  gchar  **g_user_special_dirs = NULL;
@@ -548,23 +528,20 @@ static  gchar  **g_user_special_dirs = NULL;
 #ifdef G_OS_WIN32
 
 static gchar *
-get_special_folder (int csidl)
+get_special_folder (REFKNOWNFOLDERID known_folder_guid_ptr)
 {
-  wchar_t path[MAX_PATH+1];
+  wchar_t *wcp = NULL;
+  gchar *result = NULL;
   HRESULT hr;
-  LPITEMIDLIST pidl = NULL;
-  BOOL b;
-  gchar *retval = NULL;
 
-  hr = SHGetSpecialFolderLocation (NULL, csidl, &pidl);
-  if (hr == S_OK)
-    {
-      b = SHGetPathFromIDListW (pidl, path);
-      if (b)
-	retval = g_utf16_to_utf8 (path, -1, NULL, NULL, NULL);
-      CoTaskMemFree (pidl);
-    }
-  return retval;
+  hr = SHGetKnownFolderPath (known_folder_guid_ptr, 0, NULL, &wcp);
+
+  if (SUCCEEDED (hr))
+    result = g_utf16_to_utf8 (wcp, -1, NULL, NULL, NULL);
+
+  CoTaskMemFree (wcp);
+
+  return result;
 }
 
 static char *
@@ -685,14 +662,17 @@ g_get_user_database_entry (void)
               {
                 gchar **gecos_fields;
                 gchar **name_parts;
+                gchar *uppercase_pw_name;
 
                 /* split the gecos field and substitute '&' */
                 gecos_fields = g_strsplit (pw->pw_gecos, ",", 0);
                 name_parts = g_strsplit (gecos_fields[0], "&", 0);
-                pw->pw_name[0] = g_ascii_toupper (pw->pw_name[0]);
-                e.real_name = g_strjoinv (pw->pw_name, name_parts);
+                uppercase_pw_name = g_strdup (pw->pw_name);
+                uppercase_pw_name[0] = g_ascii_toupper (uppercase_pw_name[0]);
+                e.real_name = g_strjoinv (uppercase_pw_name, name_parts);
                 g_strfreev (gecos_fields);
                 g_strfreev (name_parts);
+                g_free (uppercase_pw_name);
               }
 #endif
 
@@ -814,7 +794,7 @@ g_build_home_dir (void)
     }
 
   if (home_dir == NULL)
-    home_dir = get_special_folder (CSIDL_PROFILE);
+    home_dir = get_special_folder (&FOLDERID_Profile);
 
   if (home_dir == NULL)
     home_dir = get_windows_directory_root ();
@@ -979,7 +959,7 @@ g_get_host_name (void)
   if (g_once_init_enter (&hostname))
     {
       gboolean failed;
-      gchar *utmp;
+      gchar *utmp = NULL;
 
 #ifndef G_OS_WIN32
       gsize size;
@@ -1040,7 +1020,7 @@ g_get_host_name (void)
 }
 
 G_LOCK_DEFINE_STATIC (g_prgname);
-static gchar *g_prgname = NULL;
+static const gchar *g_prgname = NULL; /* always a quark */
 
 /**
  * g_get_prgname:
@@ -1061,7 +1041,7 @@ static gchar *g_prgname = NULL;
 const gchar*
 g_get_prgname (void)
 {
-  gchar* retval;
+  const gchar* retval;
 
   G_LOCK (g_prgname);
   retval = g_prgname;
@@ -1083,14 +1063,16 @@ g_get_prgname (void)
  * #GtkApplication::startup handler. The program name is found by
  * taking the last component of @argv[0].
  *
- * Note that for thread-safety reasons this function can only be called once.
+ * Since GLib 2.72, this function can be called multiple times
+ * and is fully thread safe. Prior to GLib 2.72, this function
+ * could only be called once per process.
  */
 void
 g_set_prgname (const gchar *prgname)
 {
+  GQuark qprgname = g_quark_from_string (prgname);
   G_LOCK (g_prgname);
-  g_free (g_prgname);
-  g_prgname = g_strdup (prgname);
+  g_prgname = g_quark_to_string (qprgname);
   G_UNLOCK (g_prgname);
 }
 
@@ -1284,18 +1266,58 @@ static gchar *
 get_windows_version (gboolean with_windows)
 {
   GString *version = g_string_new (NULL);
+  gboolean is_win_server = FALSE;
 
   if (g_win32_check_windows_version (10, 0, 0, G_WIN32_OS_ANY))
     {
       gchar *win10_release;
+      gboolean is_win11 = FALSE;
+      OSVERSIONINFOEXW osinfo;
 
-      g_string_append (version, "10");
+      /* Are we on Windows 2016/2019/2022 Server? */
+      is_win_server = g_win32_check_windows_version (10, 0, 0, G_WIN32_OS_SERVER);
 
-      if (!g_win32_check_windows_version (10, 0, 0, G_WIN32_OS_WORKSTATION))
-        g_string_append (version, " Server");
+      /*
+       * This always succeeds if we get here, since the
+       * g_win32_check_windows_version() already did this!
+       * We want the OSVERSIONINFOEXW here for more even
+       * fine-grained versioning items
+       */
+      _g_win32_call_rtl_version (&osinfo);
 
-      /* Windows 10 is identified by its release number, such as
-       * 1511, 1607, 1703, 1709, 1803, 1809 or 1903.
+      if (!is_win_server)
+        {
+          /*
+           * Windows 11 is actually Windows 10.0.22000+,
+           * so look at the build number
+           */
+          is_win11 = (osinfo.dwBuildNumber >= 22000);
+        }
+      else
+        {
+          /*
+           * Windows 2022 Server is actually Windows 10.0.20348+,
+           * Windows 2019 Server is actually Windows 10.0.17763+,
+           * Windows 2016 Server is actually Windows 10.0.14393+,
+           * so look at the build number
+           */
+          g_string_append (version, "Server");
+          if (osinfo.dwBuildNumber >= 20348)
+            g_string_append (version, " 2022");
+          else if (osinfo.dwBuildNumber >= 17763)
+            g_string_append (version, " 2019");
+          else
+            g_string_append (version, " 2016");
+        }
+
+      if (is_win11)
+        g_string_append (version, "11");
+      else if (!is_win_server)
+        g_string_append (version, "10");
+
+      /* Windows 10/Server 2016+ is identified by its ReleaseId or
+       * DisplayVersion (since 20H2), such as
+       * 1511, 1607, 1703, 1709, 1803, 1809 or 1903 etc.
        * The first version of Windows 10 has no release number.
        */
       win10_release = get_registry_str (HKEY_LOCAL_MACHINE,
@@ -1306,7 +1328,26 @@ get_windows_version (gboolean with_windows)
                                         L"ReleaseId");
 
       if (win10_release != NULL)
-        g_string_append_printf (version, " %s", win10_release);
+        {
+          if (g_strcmp0 (win10_release, "2009") != 0)
+            g_string_append_printf (version, " %s", win10_release);
+          else
+            {
+              g_free (win10_release);
+
+              win10_release = get_registry_str (HKEY_LOCAL_MACHINE,
+                                                L"SOFTWARE"
+                                                L"\\Microsoft"
+                                                L"\\Windows NT"
+                                                L"\\CurrentVersion",
+                                                L"DisplayVersion");
+
+              if (win10_release != NULL)
+                g_string_append_printf (version, " %s", win10_release);
+              else
+                g_string_append_printf (version, " 2009");
+            }
+        }
 
       g_free (win10_release);
     }
@@ -1314,10 +1355,10 @@ get_windows_version (gboolean with_windows)
     {
       gchar *win81_update;
 
-      g_string_append (version, "8.1");
-
-      if (!g_win32_check_windows_version (6, 3, 0, G_WIN32_OS_WORKSTATION))
-        g_string_append (version, " Server");
+      if (g_win32_check_windows_version (6, 3, 0, G_WIN32_OS_WORKSTATION))
+        g_string_append (version, "8.1");
+      else
+        g_string_append (version, "Server 2012 R2");
 
       win81_update = get_windows_8_1_update ();
 
@@ -1337,8 +1378,23 @@ get_windows_version (gboolean with_windows)
 
           g_string_append (version, versions[i].version);
 
-          if (!g_win32_check_windows_version (versions[i].major, versions[i].minor, versions[i].sp, G_WIN32_OS_WORKSTATION))
-            g_string_append (version, " Server");
+          if (g_win32_check_windows_version (versions[i].major, versions[i].minor, versions[i].sp, G_WIN32_OS_SERVER))
+            {
+              /*
+               * This condition should now always hold, since Windows
+               * 7+/Server 2008 R2+ is now required
+               */
+              if (versions[i].major == 6)
+                {
+                  g_string_append (version, "Server");
+                  if (versions[i].minor == 2)
+                    g_string_append (version, " 2012");
+                  else if (versions[i].minor == 1)
+                    g_string_append (version, " 2008 R2");
+                  else
+                    g_string_append (version, " 2008");
+                }
+            }
 
           g_string_append (version, versions[i].spversion);
         }
@@ -1358,7 +1414,7 @@ get_windows_version (gboolean with_windows)
 }
 #endif
 
-#ifdef G_OS_UNIX
+#if defined (G_OS_UNIX) && !defined (__APPLE__)
 static gchar *
 get_os_info_from_os_release (const gchar *key_name,
                              const gchar *buffer)
@@ -1487,7 +1543,7 @@ get_os_info_from_uname (const gchar *key_name)
   else
     return NULL;
 }
-#endif
+#endif  /* defined (G_OS_UNIX) && !defined (__APPLE__) */
 
 /**
  * g_get_os_info:
@@ -1601,6 +1657,7 @@ set_str_if_different (gchar       **global_str,
 
       /* We have to leak the old value, as user code could be retaining pointers
        * to it. */
+      g_ignore_leak (*global_str);
       *global_str = g_strdup (new_value);
     }
 }
@@ -1619,6 +1676,7 @@ set_strv_if_different (gchar                ***global_strv,
 
       /* We have to leak the old value, as user code could be retaining pointers
        * to it. */
+      g_ignore_strv_leak (*global_strv);
       *global_strv = g_strdupv ((gchar **) new_value);
     }
 }
@@ -1681,6 +1739,8 @@ g_set_user_dirs (const gchar *first_dir_type,
         set_strv_if_different (&g_system_data_dirs, dir_type, dir_value);
       else if (g_str_equal (dir_type, "XDG_DATA_HOME"))
         set_str_if_different (&g_user_data_dir, dir_type, dir_value);
+      else if (g_str_equal (dir_type, "XDG_STATE_HOME"))
+        set_str_if_different (&g_user_state_dir, dir_type, dir_value);
       else if (g_str_equal (dir_type, "XDG_RUNTIME_DIR"))
         set_str_if_different (&g_user_runtime_dir, dir_type, dir_value);
       else
@@ -1702,7 +1762,7 @@ g_build_user_data_dir (void)
     data_dir = g_strdup (data_dir_env);
 #ifdef G_OS_WIN32
   else
-    data_dir = get_special_folder (CSIDL_LOCAL_APPDATA);
+    data_dir = get_special_folder (&FOLDERID_LocalAppData);
 #endif
   if (!data_dir || !data_dir[0])
     {
@@ -1728,9 +1788,12 @@ g_build_user_data_dir (void)
  * On Windows it follows XDG Base Directory Specification if `XDG_DATA_HOME`
  * is defined. If `XDG_DATA_HOME` is undefined, the folder to use for local (as
  * opposed to roaming) application data is used instead. See the
- * [documentation for `CSIDL_LOCAL_APPDATA`](https://msdn.microsoft.com/en-us/library/windows/desktop/bb762494%28v=vs.85%29.aspx#csidl_local_appdata).
+ * [documentation for `FOLDERID_LocalAppData`](https://docs.microsoft.com/en-us/windows/win32/shell/knownfolderid).
  * Note that in this case on Windows it will be the same
  * as what g_get_user_config_dir() returns.
+ *
+ * The return value is cached and modifying it at runtime is not supported, as
+ * it’s not thread-safe to modify environment variables at runtime.
  *
  * Returns: (type filename) (transfer none): a string owned by GLib that must
  *   not be modified or freed.
@@ -1763,7 +1826,7 @@ g_build_user_config_dir (void)
     config_dir = g_strdup (config_dir_env);
 #ifdef G_OS_WIN32
   else
-    config_dir = get_special_folder (CSIDL_LOCAL_APPDATA);
+    config_dir = get_special_folder (&FOLDERID_LocalAppData);
 #endif
   if (!config_dir || !config_dir[0])
     {
@@ -1789,9 +1852,12 @@ g_build_user_config_dir (void)
  * On Windows it follows XDG Base Directory Specification if `XDG_CONFIG_HOME` is defined.
  * If `XDG_CONFIG_HOME` is undefined, the folder to use for local (as opposed
  * to roaming) application data is used instead. See the
- * [documentation for `CSIDL_LOCAL_APPDATA`](https://msdn.microsoft.com/en-us/library/windows/desktop/bb762494%28v=vs.85%29.aspx#csidl_local_appdata).
+ * [documentation for `FOLDERID_LocalAppData`](https://docs.microsoft.com/en-us/windows/win32/shell/knownfolderid).
  * Note that in this case on Windows it will be  the same
  * as what g_get_user_data_dir() returns.
+ *
+ * The return value is cached and modifying it at runtime is not supported, as
+ * it’s not thread-safe to modify environment variables at runtime.
  *
  * Returns: (type filename) (transfer none): a string owned by GLib that
  *   must not be modified or freed.
@@ -1823,7 +1889,7 @@ g_build_user_cache_dir (void)
     cache_dir = g_strdup (cache_dir_env);
 #ifdef G_OS_WIN32
   else
-    cache_dir = get_special_folder (CSIDL_INTERNET_CACHE);
+    cache_dir = get_special_folder (&FOLDERID_InternetCache);
 #endif
   if (!cache_dir || !cache_dir[0])
     {
@@ -1850,7 +1916,10 @@ g_build_user_cache_dir (void)
  * If `XDG_CACHE_HOME` is undefined, the directory that serves as a common
  * repository for temporary Internet files is used instead. A typical path is
  * `C:\Documents and Settings\username\Local Settings\Temporary Internet Files`.
- * See the [documentation for `CSIDL_INTERNET_CACHE`](https://msdn.microsoft.com/en-us/library/windows/desktop/bb762494%28v=vs.85%29.aspx#csidl_internet_cache).
+ * See the [documentation for `FOLDERID_InternetCache`](https://docs.microsoft.com/en-us/windows/win32/shell/knownfolderid).
+ *
+ * The return value is cached and modifying it at runtime is not supported, as
+ * it’s not thread-safe to modify environment variables at runtime.
  *
  * Returns: (type filename) (transfer none): a string owned by GLib that
  *   must not be modified or freed.
@@ -1873,18 +1942,91 @@ g_get_user_cache_dir (void)
 }
 
 static gchar *
+g_build_user_state_dir (void)
+{
+  gchar *state_dir = NULL;
+  const gchar *state_dir_env = g_getenv ("XDG_STATE_HOME");
+
+  if (state_dir_env && state_dir_env[0])
+    state_dir = g_strdup (state_dir_env);
+#ifdef G_OS_WIN32
+  else
+    state_dir = get_special_folder (&FOLDERID_LocalAppData);
+#endif
+  if (!state_dir || !state_dir[0])
+    {
+      gchar *home_dir = g_build_home_dir ();
+      state_dir = g_build_filename (home_dir, ".local/state", NULL);
+      g_free (home_dir);
+    }
+
+  return g_steal_pointer (&state_dir);
+}
+
+/**
+ * g_get_user_state_dir:
+ *
+ * Returns a base directory in which to store state files specific to
+ * particular user.
+ *
+ * On UNIX platforms this is determined using the mechanisms described
+ * in the
+ * [XDG Base Directory Specification](http://www.freedesktop.org/Standards/basedir-spec).
+ * In this case the directory retrieved will be `XDG_STATE_HOME`.
+ *
+ * On Windows it follows XDG Base Directory Specification if `XDG_STATE_HOME` is defined.
+ * If `XDG_STATE_HOME` is undefined, the folder to use for local (as opposed
+ * to roaming) application data is used instead. See the
+ * [documentation for `FOLDERID_LocalAppData`](https://docs.microsoft.com/en-us/windows/win32/shell/knownfolderid).
+ * Note that in this case on Windows it will be the same
+ * as what g_get_user_data_dir() returns.
+ *
+ * The return value is cached and modifying it at runtime is not supported, as
+ * it’s not thread-safe to modify environment variables at runtime.
+ *
+ * Returns: (type filename) (transfer none): a string owned by GLib that
+ *   must not be modified or freed.
+ *
+ * Since: 2.72
+ **/
+const gchar *
+g_get_user_state_dir (void)
+{
+  const gchar *user_state_dir;
+
+  G_LOCK (g_utils_global);
+
+  if (g_user_state_dir == NULL)
+    g_user_state_dir = g_build_user_state_dir ();
+  user_state_dir = g_user_state_dir;
+
+  G_UNLOCK (g_utils_global);
+
+  return user_state_dir;
+}
+
+static gchar *
 g_build_user_runtime_dir (void)
 {
   gchar *runtime_dir = NULL;
   const gchar *runtime_dir_env = g_getenv ("XDG_RUNTIME_DIR");
 
   if (runtime_dir_env && runtime_dir_env[0])
-    runtime_dir = g_strdup (runtime_dir_env);
+    {
+      runtime_dir = g_strdup (runtime_dir_env);
+
+      /* If the XDG_RUNTIME_DIR environment variable is set, we are being told by
+       * the OS that this directory exists and is appropriately configured
+       * already.
+       */
+    }
   else
     {
       runtime_dir = g_build_user_cache_dir ();
 
-      /* The user should be able to rely on the directory existing
+      /* Fallback case: the directory may not yet exist.
+       *
+       * The user should be able to rely on the directory existing
        * when the function returns.  Probably it already does, but
        * let's make sure.  Just do mkdir() directly since it will be
        * no more expensive than a stat() in the case that the
@@ -1913,6 +2055,9 @@ g_build_user_runtime_dir (void)
  * specified in the `XDG_RUNTIME_DIR` environment variable.
  * In the case that this variable is not set, we return the value of
  * g_get_user_cache_dir(), after verifying that it exists.
+ *
+ * The return value is cached and modifying it at runtime is not supported, as
+ * it’s not thread-safe to modify environment variables at runtime.
  *
  * Returns: (type filename): a string owned by GLib that must not be
  *     modified or freed.
@@ -1951,69 +2096,22 @@ load_user_special_dirs (void)
 static void
 load_user_special_dirs (void)
 {
-  typedef HRESULT (WINAPI *t_SHGetKnownFolderPath) (const GUID *rfid,
-						    DWORD dwFlags,
-						    HANDLE hToken,
-						    PWSTR *ppszPath);
-  t_SHGetKnownFolderPath p_SHGetKnownFolderPath;
+  g_user_special_dirs[G_USER_DIRECTORY_DESKTOP] = get_special_folder (&FOLDERID_Desktop);
+  g_user_special_dirs[G_USER_DIRECTORY_DOCUMENTS] = get_special_folder (&FOLDERID_Documents);
 
-  static const GUID FOLDERID_Downloads =
-    { 0x374de290, 0x123f, 0x4565, { 0x91, 0x64, 0x39, 0xc4, 0x92, 0x5e, 0x46, 0x7b } };
-  static const GUID FOLDERID_Public =
-    { 0xDFDF76A2, 0xC82A, 0x4D63, { 0x90, 0x6A, 0x56, 0x44, 0xAC, 0x45, 0x73, 0x85 } };
+  g_user_special_dirs[G_USER_DIRECTORY_DOWNLOAD] = get_special_folder (&FOLDERID_Downloads);
+  if (g_user_special_dirs[G_USER_DIRECTORY_DOWNLOAD] == NULL)
+    g_user_special_dirs[G_USER_DIRECTORY_DOWNLOAD] = get_special_folder (&FOLDERID_Desktop);
 
-  wchar_t *wcp;
+  g_user_special_dirs[G_USER_DIRECTORY_MUSIC] = get_special_folder (&FOLDERID_Music);
+  g_user_special_dirs[G_USER_DIRECTORY_PICTURES] = get_special_folder (&FOLDERID_Pictures);
 
-  p_SHGetKnownFolderPath = (t_SHGetKnownFolderPath) GetProcAddress (GetModuleHandle ("shell32.dll"),
-								    "SHGetKnownFolderPath");
+  g_user_special_dirs[G_USER_DIRECTORY_PUBLIC_SHARE] = get_special_folder (&FOLDERID_Public);
+  if (g_user_special_dirs[G_USER_DIRECTORY_PUBLIC_SHARE] == NULL)
+    g_user_special_dirs[G_USER_DIRECTORY_PUBLIC_SHARE] = get_special_folder (&FOLDERID_PublicDocuments);
 
-  g_user_special_dirs[G_USER_DIRECTORY_DESKTOP] = get_special_folder (CSIDL_DESKTOPDIRECTORY);
-  g_user_special_dirs[G_USER_DIRECTORY_DOCUMENTS] = get_special_folder (CSIDL_PERSONAL);
-
-  if (p_SHGetKnownFolderPath == NULL)
-    {
-      g_user_special_dirs[G_USER_DIRECTORY_DOWNLOAD] = get_special_folder (CSIDL_DESKTOPDIRECTORY);
-    }
-  else
-    {
-      wcp = NULL;
-      (*p_SHGetKnownFolderPath) (&FOLDERID_Downloads, 0, NULL, &wcp);
-      if (wcp)
-        {
-          g_user_special_dirs[G_USER_DIRECTORY_DOWNLOAD] = g_utf16_to_utf8 (wcp, -1, NULL, NULL, NULL);
-          if (g_user_special_dirs[G_USER_DIRECTORY_DOWNLOAD] == NULL)
-              g_user_special_dirs[G_USER_DIRECTORY_DOWNLOAD] = get_special_folder (CSIDL_DESKTOPDIRECTORY);
-          CoTaskMemFree (wcp);
-        }
-      else
-          g_user_special_dirs[G_USER_DIRECTORY_DOWNLOAD] = get_special_folder (CSIDL_DESKTOPDIRECTORY);
-    }
-
-  g_user_special_dirs[G_USER_DIRECTORY_MUSIC] = get_special_folder (CSIDL_MYMUSIC);
-  g_user_special_dirs[G_USER_DIRECTORY_PICTURES] = get_special_folder (CSIDL_MYPICTURES);
-
-  if (p_SHGetKnownFolderPath == NULL)
-    {
-      /* XXX */
-      g_user_special_dirs[G_USER_DIRECTORY_PUBLIC_SHARE] = get_special_folder (CSIDL_COMMON_DOCUMENTS);
-    }
-  else
-    {
-      wcp = NULL;
-      (*p_SHGetKnownFolderPath) (&FOLDERID_Public, 0, NULL, &wcp);
-      if (wcp)
-        {
-          g_user_special_dirs[G_USER_DIRECTORY_PUBLIC_SHARE] = g_utf16_to_utf8 (wcp, -1, NULL, NULL, NULL);
-          if (g_user_special_dirs[G_USER_DIRECTORY_PUBLIC_SHARE] == NULL)
-              g_user_special_dirs[G_USER_DIRECTORY_PUBLIC_SHARE] = get_special_folder (CSIDL_COMMON_DOCUMENTS);
-          CoTaskMemFree (wcp);
-        }
-      else
-          g_user_special_dirs[G_USER_DIRECTORY_PUBLIC_SHARE] = get_special_folder (CSIDL_COMMON_DOCUMENTS);
-    }
-  
-  g_user_special_dirs[G_USER_DIRECTORY_TEMPLATES] = get_special_folder (CSIDL_TEMPLATES);
-  g_user_special_dirs[G_USER_DIRECTORY_VIDEOS] = get_special_folder (CSIDL_MYVIDEO);
+  g_user_special_dirs[G_USER_DIRECTORY_TEMPLATES] = get_special_folder (&FOLDERID_Templates);
+  g_user_special_dirs[G_USER_DIRECTORY_VIDEOS] = get_special_folder (&FOLDERID_Videos);
 }
 
 #else /* default is unix */
@@ -2249,9 +2347,9 @@ g_reload_user_special_dirs_cache (void)
  * of the special directory without requiring the session to restart; GLib
  * will not reflect any change once the special directories are loaded.
  *
- * Returns: (type filename): the path to the specified special directory, or
- *   %NULL if the logical id was not found. The returned string is owned by
- *   GLib and should not be modified or freed.
+ * Returns: (type filename) (nullable): the path to the specified special
+ *   directory, or %NULL if the logical id was not found. The returned string is
+ *   owned by GLib and should not be modified or freed.
  *
  * Since: 2.14
  */
@@ -2295,26 +2393,14 @@ get_module_for_address (gconstpointer address)
 {
   /* Holds the g_utils_global lock */
 
-  static gboolean beenhere = FALSE;
-  typedef BOOL (WINAPI *t_GetModuleHandleExA) (DWORD, LPCTSTR, HMODULE *);
-  static t_GetModuleHandleExA p_GetModuleHandleExA = NULL;
   HMODULE hmodule = NULL;
 
   if (!address)
     return NULL;
 
-  if (!beenhere)
-    {
-      p_GetModuleHandleExA =
-	(t_GetModuleHandleExA) GetProcAddress (GetModuleHandle ("kernel32.dll"),
-					       "GetModuleHandleExA");
-      beenhere = TRUE;
-    }
-
-  if (p_GetModuleHandleExA == NULL ||
-      !(*p_GetModuleHandleExA) (GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT |
-				GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-				address, &hmodule))
+  if (!GetModuleHandleExW (GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT |
+			   GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+			   address, &hmodule))
     {
       MEMORY_BASIC_INFORMATION mbi;
       VirtualQuery (address, &mbi, sizeof (mbi));
@@ -2377,12 +2463,12 @@ g_win32_get_system_data_dirs_for_module_real (void (*address_of_function)(void))
   data_dirs = g_array_new (TRUE, TRUE, sizeof (char *));
 
   /* Documents and Settings\All Users\Application Data */
-  p = get_special_folder (CSIDL_COMMON_APPDATA);
+  p = get_special_folder (&FOLDERID_ProgramData);
   if (p)
     g_array_append_val (data_dirs, p);
   
   /* Documents and Settings\All Users\Documents */
-  p = get_special_folder (CSIDL_COMMON_DOCUMENTS);
+  p = get_special_folder (&FOLDERID_PublicDocuments);
   if (p)
     g_array_append_val (data_dirs, p);
 	
@@ -2529,8 +2615,8 @@ g_build_system_data_dirs (void)
  * the first elements in the list are the Application Data
  * and Documents folders for All Users. (These can be determined only
  * on Windows 2000 or later and are not present in the list on other
- * Windows versions.) See documentation for CSIDL_COMMON_APPDATA and
- * CSIDL_COMMON_DOCUMENTS.
+ * Windows versions.) See documentation for FOLDERID_ProgramData and
+ * FOLDERID_PublicDocuments.
  *
  * Then follows the "share" subfolder in the installation folder for
  * the package containing the DLL that calls this function, if it can
@@ -2547,6 +2633,9 @@ g_build_system_data_dirs (void)
  *
  * Note that on Windows the returned list can vary depending on where
  * this function is called.
+ *
+ * The return value is cached and modifying it at runtime is not supported, as
+ * it’s not thread-safe to modify environment variables at runtime.
  *
  * Returns: (array zero-terminated=1) (element-type filename) (transfer none):
  *     a %NULL-terminated array of strings owned by GLib that must not be
@@ -2582,7 +2671,7 @@ g_build_system_config_dirs (void)
     }
   else
     {
-      gchar *special_conf_dirs = get_special_folder (CSIDL_COMMON_APPDATA);
+      gchar *special_conf_dirs = get_special_folder (&FOLDERID_ProgramData);
 
       if (special_conf_dirs)
         conf_dir_vector = g_strsplit (special_conf_dirs, G_SEARCHPATH_SEPARATOR_S, 0);
@@ -2620,8 +2709,11 @@ g_build_system_config_dirs (void)
  * This folder is used for application data
  * that is not user specific. For example, an application can store
  * a spell-check dictionary, a database of clip art, or a log file in the
- * CSIDL_COMMON_APPDATA folder. This information will not roam and is available
+ * FOLDERID_ProgramData folder. This information will not roam and is available
  * to anyone using the computer.
+ *
+ * The return value is cached and modifying it at runtime is not supported, as
+ * it’s not thread-safe to modify environment variables at runtime.
  *
  * Returns: (array zero-terminated=1) (element-type filename) (transfer none):
  *     a %NULL-terminated array of strings owned by GLib that must not be
@@ -2713,6 +2805,12 @@ g_format_size (guint64 size)
  *     Network and storage sizes should be reported in the normal SI units.
  * @G_FORMAT_SIZE_BITS: set the size as a quantity in bits, rather than
  *     bytes, and return units in bits. For example, ‘Mb’ rather than ‘MB’.
+ * @G_FORMAT_SIZE_ONLY_VALUE: return only value, without unit; this should
+ *     not be used together with @G_FORMAT_SIZE_LONG_FORMAT
+ *     nor @G_FORMAT_SIZE_ONLY_UNIT. Since: 2.74
+ * @G_FORMAT_SIZE_ONLY_UNIT: return only unit, without value; this should
+ *     not be used together with @G_FORMAT_SIZE_LONG_FORMAT
+ *     nor @G_FORMAT_SIZE_ONLY_VALUE. Since: 2.74
  *
  * Flags to modify the format of the string returned by g_format_size_full().
  */
@@ -2755,69 +2853,73 @@ g_format_size_full (guint64          size,
 
   const struct Format formats[4][6] = {
     {
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { KILOBYTE_FACTOR, N_("%.1f kB") },
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { MEGABYTE_FACTOR, N_("%.1f MB") },
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { GIGABYTE_FACTOR, N_("%.1f GB") },
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { TERABYTE_FACTOR, N_("%.1f TB") },
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { PETABYTE_FACTOR, N_("%.1f PB") },
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { EXABYTE_FACTOR,  N_("%.1f EB") }
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 kB" */
+      { KILOBYTE_FACTOR, N_("kB") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 MB" */
+      { MEGABYTE_FACTOR, N_("MB") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 GB" */
+      { GIGABYTE_FACTOR, N_("GB") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 TB" */
+      { TERABYTE_FACTOR, N_("TB") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 PB" */
+      { PETABYTE_FACTOR, N_("PB") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 EB" */
+      { EXABYTE_FACTOR,  N_("EB") }
     },
     {
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { KIBIBYTE_FACTOR, N_("%.1f KiB") },
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { MEBIBYTE_FACTOR, N_("%.1f MiB") },
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { GIBIBYTE_FACTOR, N_("%.1f GiB") },
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { TEBIBYTE_FACTOR, N_("%.1f TiB") },
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { PEBIBYTE_FACTOR, N_("%.1f PiB") },
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { EXBIBYTE_FACTOR, N_("%.1f EiB") }
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 KiB" */
+      { KIBIBYTE_FACTOR, N_("KiB") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 MiB" */
+      { MEBIBYTE_FACTOR, N_("MiB") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 GiB" */
+      { GIBIBYTE_FACTOR, N_("GiB") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 TiB" */
+      { TEBIBYTE_FACTOR, N_("TiB") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 PiB" */
+      { PEBIBYTE_FACTOR, N_("PiB") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 EiB" */
+      { EXBIBYTE_FACTOR, N_("EiB") }
     },
     {
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { KILOBYTE_FACTOR, N_("%.1f kb") },
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { MEGABYTE_FACTOR, N_("%.1f Mb") },
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { GIGABYTE_FACTOR, N_("%.1f Gb") },
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { TERABYTE_FACTOR, N_("%.1f Tb") },
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { PETABYTE_FACTOR, N_("%.1f Pb") },
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { EXABYTE_FACTOR,  N_("%.1f Eb") }
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 kb" */
+      { KILOBYTE_FACTOR, N_("kb") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Mb" */
+      { MEGABYTE_FACTOR, N_("Mb") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Gb" */
+      { GIGABYTE_FACTOR, N_("Gb") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Tb" */
+      { TERABYTE_FACTOR, N_("Tb") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Pb" */
+      { PETABYTE_FACTOR, N_("Pb") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Eb" */
+      { EXABYTE_FACTOR,  N_("Eb") }
     },
     {
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { KIBIBYTE_FACTOR, N_("%.1f Kib") },
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { MEBIBYTE_FACTOR, N_("%.1f Mib") },
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { GIBIBYTE_FACTOR, N_("%.1f Gib") },
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { TEBIBYTE_FACTOR, N_("%.1f Tib") },
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { PEBIBYTE_FACTOR, N_("%.1f Pib") },
-      /* Translators: Keep the no-break space between %.1f and the unit symbol */
-      { EXBIBYTE_FACTOR, N_("%.1f Eib") }
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Kib" */
+      { KIBIBYTE_FACTOR, N_("Kib") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Mib" */
+      { MEBIBYTE_FACTOR, N_("Mib") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Gib" */
+      { GIBIBYTE_FACTOR, N_("Gib") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Tib" */
+      { TEBIBYTE_FACTOR, N_("Tib") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Pib" */
+      { PEBIBYTE_FACTOR, N_("Pib") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Eib" */
+      { EXBIBYTE_FACTOR, N_("Eib") }
     }
   };
 
   GString *string;
   FormatIndex index;
 
+  g_return_val_if_fail ((flags & (G_FORMAT_SIZE_LONG_FORMAT | G_FORMAT_SIZE_ONLY_VALUE)) != (G_FORMAT_SIZE_LONG_FORMAT | G_FORMAT_SIZE_ONLY_VALUE), NULL);
+  g_return_val_if_fail ((flags & (G_FORMAT_SIZE_LONG_FORMAT | G_FORMAT_SIZE_ONLY_UNIT)) != (G_FORMAT_SIZE_LONG_FORMAT | G_FORMAT_SIZE_ONLY_UNIT), NULL);
+  g_return_val_if_fail ((flags & (G_FORMAT_SIZE_ONLY_VALUE | G_FORMAT_SIZE_ONLY_UNIT)) != (G_FORMAT_SIZE_ONLY_VALUE | G_FORMAT_SIZE_ONLY_UNIT), NULL);
+
   string = g_string_new (NULL);
 
-  switch (flags & ~G_FORMAT_SIZE_LONG_FORMAT)
+  switch (flags & ~(G_FORMAT_SIZE_LONG_FORMAT | G_FORMAT_SIZE_ONLY_VALUE | G_FORMAT_SIZE_ONLY_UNIT))
     {
     case G_FORMAT_SIZE_DEFAULT:
       index = FORMAT_BYTES;
@@ -2838,24 +2940,37 @@ g_format_size_full (guint64          size,
 
   if (size < formats[index][0].factor)
     {
-      const char * format;
+      const char * units;
 
       if (index == FORMAT_BYTES || index == FORMAT_BYTES_IEC)
         {
-          format = g_dngettext (GETTEXT_PACKAGE, "%u byte", "%u bytes", (guint) size);
+          units = g_dngettext (GETTEXT_PACKAGE, "byte", "bytes", (guint) size);
         }
       else
         {
-          format = g_dngettext (GETTEXT_PACKAGE, "%u bit", "%u bits", (guint) size);
+          units = g_dngettext (GETTEXT_PACKAGE, "bit", "bits", (guint) size);
         }
 
-      g_string_printf (string, format, (guint) size);
+      if ((flags & G_FORMAT_SIZE_ONLY_UNIT) != 0)
+        g_string_append (string, units);
+      else if ((flags & G_FORMAT_SIZE_ONLY_VALUE) != 0)
+        /* Translators: The "%u" is replaced with the size value, like "13"; it could
+         * be part of "13 bytes", but only the number is requested this time. */
+        g_string_printf (string, C_("format-size", "%u"), (guint) size);
+      else
+        {
+          /* Translators: The first "%u" is replaced with the value, the "%s" with a unit of the value.
+           * The order can be changed with "%$2s %$1u". An example: "13 bytes" */
+          g_string_printf (string, C_("format-size", "%u %s"), (guint) size, units);
+        }
 
       flags &= ~G_FORMAT_SIZE_LONG_FORMAT;
     }
   else
     {
       const gsize n = G_N_ELEMENTS (formats[index]);
+      const gchar * units;
+      gdouble value;
       gsize i;
 
       /*
@@ -2874,7 +2989,22 @@ g_format_size_full (guint64          size,
             }
         }
 
-      g_string_printf (string, _(f->string), (gdouble) size / (gdouble) f->factor);
+      units = _(f->string);
+      value = (gdouble) size / (gdouble) f->factor;
+
+      if ((flags & G_FORMAT_SIZE_ONLY_UNIT) != 0)
+        g_string_append (string, units);
+      else if ((flags & G_FORMAT_SIZE_ONLY_VALUE) != 0)
+        /* Translators: The "%.1f" is replaced with the size value, like "13.0"; it could
+         * be part of "13.0 MB", but only the number is requested this time. */
+        g_string_printf (string, C_("format-size", "%.1f"), value);
+      else
+        {
+          /* Translators: The first "%.1f" is replaced with the value, the "%s" with a unit of the value.
+           * The order can be changed with "%$2s %$1.1f". Keep the no-break space between the value and
+           * the unit symbol. An example: "13.0 MB" */
+          g_string_printf (string, C_("format-size", "%.1f %s"), value, units);
+        }
     }
 
   if (flags & G_FORMAT_SIZE_LONG_FORMAT)
@@ -3103,8 +3233,13 @@ g_check_setuid (void)
 void
 g_abort (void)
 {
-  /* One call to break the debugger */
-  DebugBreak ();
+  /* One call to break the debugger
+   * We check if a debugger is actually attached to
+   * avoid a windows error reporting popup window
+   * when run in a test harness / on CI
+   */
+  if (IsDebuggerPresent ())
+    DebugBreak ();
   /* One call in case CRT changes its abort() behaviour */
   abort ();
   /* And one call to bind them all and terminate the program for sure */

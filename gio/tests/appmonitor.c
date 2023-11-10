@@ -11,7 +11,7 @@ setup (Fixture       *fixture,
        gconstpointer  user_data)
 {
   fixture->applications_dir = g_build_filename (g_get_user_data_dir (), "applications", NULL);
-  g_assert_cmpint (g_mkdir_with_parents (fixture->applications_dir, 0755), ==, 0);
+  g_assert_no_errno (g_mkdir_with_parents (fixture->applications_dir, 0755));
 
   g_test_message ("Using data directory: %s", g_get_user_data_dir ());
 }
@@ -20,7 +20,7 @@ static void
 teardown (Fixture       *fixture,
           gconstpointer  user_data)
 {
-  g_assert_cmpint (g_rmdir (fixture->applications_dir), ==, 0);
+  g_assert_no_errno (g_rmdir (fixture->applications_dir));
   g_clear_pointer (&fixture->applications_dir, g_free);
 }
 
@@ -77,6 +77,11 @@ test_app_monitor (Fixture       *fixture,
   gchar *app_path;
   GAppInfoMonitor *monitor;
   GMainLoop *loop;
+
+#ifdef G_OS_WIN32
+  g_test_skip (".desktop monitor on win32");
+  return;
+#endif
 
   app_path = g_build_filename (fixture->applications_dir, "app.desktop", NULL);
 

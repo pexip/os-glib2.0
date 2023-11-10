@@ -2,6 +2,8 @@
  *
  * Copyright 2011 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -467,7 +469,7 @@ queue_network_changed (GNetworkMonitorBase *monitor)
        */
       g_source_set_priority (source, G_PRIORITY_HIGH_IDLE);
       g_source_set_callback (source, emit_network_changed, monitor, NULL);
-      g_source_set_name (source, "[gio] emit_network_changed");
+      g_source_set_static_name (source, "[gio] emit_network_changed");
       g_source_attach (source, monitor->priv->context);
       monitor->priv->network_changed_source = source;
     }

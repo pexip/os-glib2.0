@@ -2,6 +2,8 @@
  *
  * Copyright 2017 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -110,6 +112,8 @@ g_openuri_portal_open_uri (const char  *uri,
         {
           g_set_error (error, G_IO_ERROR, g_io_error_from_errno (errsv),
                        "Failed to open '%s'", path);
+          g_free (path);
+          g_variant_builder_clear (&opt_builder);
           return FALSE;
         }
 

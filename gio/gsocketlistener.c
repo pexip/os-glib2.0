@@ -4,6 +4,8 @@
  * Copyright © 2009 codethink
  * Copyright © 2009 Red Hat, Inc
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -606,7 +608,7 @@ add_sources (GSocketListener   *listener,
   GSocket *socket;
   GSource *source;
   GList *sources;
-  int i;
+  guint i;
 
   sources = NULL;
   for (i = 0; i < listener->priv->sockets->len; i++)
@@ -913,7 +915,7 @@ g_socket_listener_accept_socket_finish (GSocketListener  *listener,
  * This is the asynchronous version of g_socket_listener_accept().
  *
  * When the operation is finished @callback will be
- * called. You can then call g_socket_listener_accept_socket()
+ * called. You can then call g_socket_listener_accept_finish()
  * to get the result of the operation.
  *
  * Since: 2.22
@@ -983,7 +985,7 @@ g_socket_listener_set_backlog (GSocketListener *listener,
 			       int              listen_backlog)
 {
   GSocket *socket;
-  int i;
+  guint i;
 
   if (listener->priv->closed)
     return;
@@ -1009,7 +1011,7 @@ void
 g_socket_listener_close (GSocketListener *listener)
 {
   GSocket *socket;
-  int i;
+  guint i;
 
   g_return_if_fail (G_IS_SOCKET_LISTENER (listener));
 

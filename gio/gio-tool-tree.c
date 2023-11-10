@@ -1,6 +1,8 @@
 /*
  * Copyright 2015 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -31,7 +33,7 @@ static gboolean follow_symlinks = FALSE;
 static const GOptionEntry entries[] = {
   { "hidden", 'h', 0, G_OPTION_ARG_NONE, &show_hidden, N_("Show hidden files"), NULL },
   { "follow-symlinks", 'l', 0, G_OPTION_ARG_NONE, &follow_symlinks, N_("Follow symbolic links, mounts and shortcuts"), NULL },
-  { NULL }
+  G_OPTION_ENTRY_NULL
 };
 
 static gint
@@ -52,7 +54,7 @@ sort_info_by_name (GFileInfo *a, GFileInfo *b)
 }
 
 static void
-do_tree (GFile *f, int level, guint64 pattern)
+do_tree (GFile *f, unsigned int level, guint64 pattern)
 {
   GFileEnumerator *enumerator;
   GError *error = NULL;

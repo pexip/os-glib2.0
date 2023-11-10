@@ -2,6 +2,8 @@
  * Copyright (C) 2007 Sven Herzberg
  * Copyright (C) 2007 Tim Janik
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -668,8 +670,8 @@ parse_args (gint    *argc_p,
         }
     }
   /* collapse argv */
-  e = 1;
-  for (i = 1; i < argc; i++)
+  e = 0;
+  for (i = 0; i < argc; i++)
     if (argv[i])
       {
         argv[e++] = argv[i];
@@ -745,6 +747,7 @@ fixture_test (guint        *fix,
   g_test_bug ("123");
   g_test_bug_base ("http://www.example.com/bugtracker?bugnum=%s;cmd=showbug");
   g_test_bug ("456");
+  g_test_bug ("https://example.com/no-base-used");
 }
 static void
 fixture_teardown (guint        *fix,

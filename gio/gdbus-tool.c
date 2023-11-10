@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -26,6 +28,10 @@
 #include <locale.h>
 
 #include <gio/gio.h>
+
+#ifdef G_OS_UNIX
+#include <gio/gunixfdlist.h>
+#endif
 
 #include <gi18n.h>
 
@@ -103,7 +109,7 @@ usage (gint *argc, gchar **argv[], gboolean use_stdout)
   g_option_context_set_help_enabled (o, FALSE);
   /* Ignore parsing result */
   g_option_context_parse (o, argc, argv, NULL);
-  program_name = g_path_get_basename ((*argv)[0]);
+  program_name = (*argc > 0) ? g_path_get_basename ((*argv)[0]) : g_strdup ("gdbus-tool");
   s = g_strdup_printf (_("Commands:\n"
                          "  help         Shows this information\n"
                          "  introspect   Introspect a remote object\n"
@@ -137,11 +143,12 @@ modify_argv0_for_command (gint *argc, gchar **argv[], const gchar *command)
    *  2. save old argv[0] and restore later
    */
 
+  g_assert (*argc > 1);
   g_assert (g_strcmp0 ((*argv)[1], command) == 0);
   remove_arg (1, argc, argv);
 
   program_name = g_path_get_basename ((*argv)[0]);
-  s = g_strdup_printf ("%s %s", (*argv)[0], command);
+  s = g_strdup_printf ("%s %s", program_name, command);
   (*argv)[0] = s;
   g_free (program_name);
 }
@@ -244,6 +251,11 @@ print_paths (GDBusConnection *c,
   if (!g_dbus_is_name (name))
     {
       g_printerr (_("Error: %s is not a valid name\n"), name);
+      goto out;
+    }
+  if (!g_variant_is_object_path (path))
+    {
+      g_printerr (_("Error: %s is not a valid object path\n"), path);
       goto out;
     }
 
@@ -394,7 +406,7 @@ static const GOptionEntry connection_entries[] =
   { "system", 'y', 0, G_OPTION_ARG_NONE, &opt_connection_system, N_("Connect to the system bus"), NULL},
   { "session", 'e', 0, G_OPTION_ARG_NONE, &opt_connection_session, N_("Connect to the session bus"), NULL},
   { "address", 'a', 0, G_OPTION_ARG_STRING, &opt_connection_address, N_("Connect to given D-Bus address"), NULL},
-  { NULL }
+  G_OPTION_ENTRY_NULL
 };
 
 static GOptionGroup *
@@ -584,7 +596,7 @@ static const GOptionEntry emit_entries[] =
   { "dest", 'd', 0, G_OPTION_ARG_STRING, &opt_emit_dest, N_("Optional destination for signal (unique name)"), NULL},
   { "object-path", 'o', 0, G_OPTION_ARG_STRING, &opt_emit_object_path, N_("Object path to emit signal on"), NULL},
   { "signal", 's', 0, G_OPTION_ARG_STRING, &opt_emit_signal, N_("Signal and interface name"), NULL},
-  { NULL }
+  G_OPTION_ENTRY_NULL
 };
 
 static gboolean
@@ -672,8 +684,8 @@ handle_emit (gint        *argc,
       else
         {
           g_printerr (_("Error connecting: %s\n"), error->message);
-          g_error_free (error);
         }
+      g_error_free (error);
       goto out;
     }
 
@@ -878,6 +890,7 @@ static gchar *opt_call_dest = NULL;
 static gchar *opt_call_object_path = NULL;
 static gchar *opt_call_method = NULL;
 static gint opt_call_timeout = -1;
+static gboolean opt_call_interactive = FALSE;
 
 static const GOptionEntry call_entries[] =
 {
@@ -885,7 +898,8 @@ static const GOptionEntry call_entries[] =
   { "object-path", 'o', 0, G_OPTION_ARG_STRING, &opt_call_object_path, N_("Object path to invoke method on"), NULL},
   { "method", 'm', 0, G_OPTION_ARG_STRING, &opt_call_method, N_("Method and interface name"), NULL},
   { "timeout", 't', 0, G_OPTION_ARG_INT, &opt_call_timeout, N_("Timeout in seconds"), NULL},
-  { NULL }
+  { "interactive", 'i', 0, G_OPTION_ARG_NONE, &opt_call_interactive, N_("Allow interactive authorization"), NULL},
+  G_OPTION_ENTRY_NULL
 };
 
 static gboolean
@@ -905,6 +919,10 @@ handle_call (gint        *argc,
   gchar *method_name;
   GVariant *result;
   GPtrArray *in_signature_types;
+#ifdef G_OS_UNIX
+  GUnixFDList *fd_list;
+  gint fd_id;
+#endif
   gboolean complete_names;
   gboolean complete_paths;
   gboolean complete_methods;
@@ -912,6 +930,7 @@ handle_call (gint        *argc,
   gboolean skip_dashes;
   guint parm;
   guint n;
+  GDBusCallFlags flags;
 
   ret = FALSE;
   c = NULL;
@@ -920,6 +939,9 @@ handle_call (gint        *argc,
   method_name = NULL;
   result = NULL;
   in_signature_types = NULL;
+#ifdef G_OS_UNIX
+  fd_list = NULL;
+#endif
 
   modify_argv0_for_command (argc, argv, "call");
 
@@ -979,8 +1001,8 @@ handle_call (gint        *argc,
       else
         {
           g_printerr (_("Error connecting: %s\n"), error->message);
-          g_error_free (error);
         }
+      g_error_free (error);
       goto out;
     }
 
@@ -1164,6 +1186,23 @@ handle_call (gint        *argc,
             }
           g_free (context);
         }
+#ifdef G_OS_UNIX
+      if (g_variant_is_of_type (value, G_VARIANT_TYPE_HANDLE))
+        {
+          if (!fd_list)
+            fd_list = g_unix_fd_list_new ();
+          if ((fd_id = g_unix_fd_list_append (fd_list, g_variant_get_handle (value), &error)) == -1)
+            {
+              g_printerr (_("Error adding handle %d: %s\n"),
+                          g_variant_get_handle (value), error->message);
+              g_variant_builder_clear (&builder);
+              g_error_free (error);
+              goto out;
+            } 
+	  g_variant_unref (value);
+          value = g_variant_new_handle (fd_id);
+      	}
+#endif
       g_variant_builder_add_value (&builder, value);
       ++parm;
     }
@@ -1171,17 +1210,38 @@ handle_call (gint        *argc,
 
   if (parameters != NULL)
     parameters = g_variant_ref_sink (parameters);
+
+  flags = G_DBUS_CALL_FLAGS_NONE;
+  if (opt_call_interactive)
+    flags |= G_DBUS_CALL_FLAGS_ALLOW_INTERACTIVE_AUTHORIZATION;
+
+#ifdef G_OS_UNIX
+  result = g_dbus_connection_call_with_unix_fd_list_sync (c,
+                                                          opt_call_dest,
+                                                          opt_call_object_path,
+                                                          interface_name,
+                                                          method_name,
+                                                          parameters,
+                                                          NULL,
+                                                          flags,
+                                                          opt_call_timeout > 0 ? opt_call_timeout * 1000 : opt_call_timeout,
+                                                          fd_list,
+                                                          NULL,
+                                                          NULL,
+                                                          &error);
+#else
   result = g_dbus_connection_call_sync (c,
-                                        opt_call_dest,
-                                        opt_call_object_path,
-                                        interface_name,
-                                        method_name,
-                                        parameters,
-                                        NULL,
-                                        G_DBUS_CALL_FLAGS_NONE,
-                                        opt_call_timeout > 0 ? opt_call_timeout * 1000 : opt_call_timeout,
-                                        NULL,
-                                        &error);
+		  			opt_call_dest,
+					opt_call_object_path,
+					interface_name,
+					method_name,
+					parameters,
+					NULL,
+					flags,
+					opt_call_timeout > 0 ? opt_call_timeout * 1000 : opt_call_timeout,
+					NULL,
+					&error);
+#endif
   if (result == NULL)
     {
       g_printerr (_("Error: %s\n"), error->message);
@@ -1190,19 +1250,19 @@ handle_call (gint        *argc,
         {
           if (in_signature_types->len > 0)
             {
-              GString *s;
-              s = g_string_new (NULL);
+              GString *str;
+              str = g_string_new (NULL);
 
               for (n = 0; n < in_signature_types->len; n++)
                 {
                   GVariantType *type = in_signature_types->pdata[n];
-                  g_string_append_len (s,
+                  g_string_append_len (str,
                                        g_variant_type_peek_string (type),
                                        g_variant_type_get_string_length (type));
                 }
 
-              g_printerr ("(According to introspection data, you need to pass '%s')\n", s->str);
-              g_string_free (s, TRUE);
+              g_printerr ("(According to introspection data, you need to pass '%s')\n", str->str);
+              g_string_free (str, TRUE);
             }
           else
             g_printerr ("(According to introspection data, you need to pass no arguments)\n");
@@ -1230,6 +1290,9 @@ handle_call (gint        *argc,
   g_free (interface_name);
   g_free (method_name);
   g_option_context_free (o);
+#ifdef G_OS_UNIX
+  g_clear_object (&fd_list);
+#endif
   return ret;
 }
 
@@ -1471,7 +1534,6 @@ dump_interface (GDBusConnection          *c,
         }
       else
         {
-          guint n;
           for (n = 0; o->properties != NULL && o->properties[n] != NULL; n++)
             {
               result = g_dbus_connection_call_sync (c,
@@ -1636,7 +1698,7 @@ static const GOptionEntry introspect_entries[] =
   { "xml", 'x', 0, G_OPTION_ARG_NONE, &opt_introspect_xml, N_("Print XML"), NULL},
   { "recurse", 'r', 0, G_OPTION_ARG_NONE, &opt_introspect_recurse, N_("Introspect children"), NULL},
   { "only-properties", 'p', 0, G_OPTION_ARG_NONE, &opt_introspect_only_properties, N_("Only print properties"), NULL},
-  { NULL }
+  G_OPTION_ENTRY_NULL
 };
 
 static gboolean
@@ -1773,8 +1835,8 @@ handle_introspect (gint        *argc,
       else
         {
           g_printerr (_("Error connecting: %s\n"), error->message);
-          g_error_free (error);
         }
+      g_error_free (error);
       goto out;
     }
 
@@ -1932,7 +1994,7 @@ static const GOptionEntry monitor_entries[] =
 {
   { "dest", 'd', 0, G_OPTION_ARG_STRING, &opt_monitor_dest, N_("Destination name to monitor"), NULL},
   { "object-path", 'o', 0, G_OPTION_ARG_STRING, &opt_monitor_object_path, N_("Object path to monitor"), NULL},
-  { NULL }
+  G_OPTION_ENTRY_NULL
 };
 
 static gboolean
@@ -2005,8 +2067,8 @@ handle_monitor (gint        *argc,
       else
         {
           g_printerr (_("Error connecting: %s\n"), error->message);
-          g_error_free (error);
         }
+      g_error_free (error);
       goto out;
     }
 
@@ -2143,7 +2205,7 @@ static const GOptionEntry wait_entries[] =
   { "timeout", 't', 0, G_OPTION_ARG_INT64, &opt_wait_timeout_secs,
     N_("Timeout to wait for before exiting with an error (seconds); 0 for "
        "no timeout (default)"), "SECS" },
-  { NULL }
+  G_OPTION_ENTRY_NULL
 };
 
 static void
@@ -2225,8 +2287,8 @@ handle_wait (gint        *argc,
       else
         {
           g_printerr (_("Error connecting: %s\n"), error->message);
-          g_error_free (error);
         }
+      g_error_free (error);
       goto out;
     }
 

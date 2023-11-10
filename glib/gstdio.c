@@ -2,6 +2,8 @@
  *
  * Copyright 2004 Tor Lillqvist
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -317,6 +319,8 @@ _g_win32_fill_privatestat (const struct __stat64            *statbuf,
                            DWORD                             reparse_tag,
                            GWin32PrivateStat                *buf)
 {
+  gint32 nsec;
+
   buf->st_dev = statbuf->st_dev;
   buf->st_ino = statbuf->st_ino;
   buf->st_mode = statbuf->st_mode;
@@ -329,9 +333,12 @@ _g_win32_fill_privatestat (const struct __stat64            *statbuf,
 
   buf->reparse_tag = reparse_tag;
 
-  buf->st_ctim.tv_sec = _g_win32_filetime_to_unix_time (&handle_info->ftCreationTime, &buf->st_ctim.tv_nsec);
-  buf->st_mtim.tv_sec = _g_win32_filetime_to_unix_time (&handle_info->ftLastWriteTime, &buf->st_mtim.tv_nsec);
-  buf->st_atim.tv_sec = _g_win32_filetime_to_unix_time (&handle_info->ftLastAccessTime, &buf->st_atim.tv_nsec);
+  buf->st_ctim.tv_sec = _g_win32_filetime_to_unix_time (&handle_info->ftCreationTime, &nsec);
+  buf->st_ctim.tv_nsec = nsec;
+  buf->st_mtim.tv_sec = _g_win32_filetime_to_unix_time (&handle_info->ftLastWriteTime, &nsec);
+  buf->st_mtim.tv_nsec = nsec;
+  buf->st_atim.tv_sec = _g_win32_filetime_to_unix_time (&handle_info->ftLastAccessTime, &nsec);
+  buf->st_atim.tv_nsec = nsec;
 }
 
 /* Read the link data from a symlink/mountpoint represented
@@ -372,7 +379,7 @@ _g_win32_readlink_handle_raw (HANDLE      h,
 {
   DWORD error_code;
   DWORD returned_bytes = 0;
-  BYTE *data;
+  BYTE *data = NULL;
   gsize to_copy;
   /* This is 16k. It's impossible to make DeviceIoControl() tell us
    * the required size. NtFsControlFile() does have such a feature,
@@ -760,7 +767,7 @@ _g_win32_stat_utf8 (const gchar       *filename,
     len--;
 
   if (len <= 0 ||
-      (g_path_is_absolute (filename) && len <= g_path_skip_root (filename) - filename))
+      (g_path_is_absolute (filename) && len <= (gsize) (g_path_skip_root (filename) - filename)))
     len = strlen (filename);
 
   wfilename = g_utf8_to_utf16 (filename, len, NULL, NULL, NULL);
@@ -893,7 +900,7 @@ g_win32_readlink_utf8 (const gchar  *filename,
       return tmp_len;
     }
 
-  if (tmp_len > buf_size)
+  if ((gsize) tmp_len > buf_size)
     tmp_len = buf_size;
 
   memcpy (buf, tmp, tmp_len);
@@ -1742,8 +1749,9 @@ g_utime (const gchar    *filename,
  * @fd: A file descriptor
  * @error: a #GError
  *
- * This wraps the close() call; in case of error, %errno will be
+ * This wraps the close() call. In case of error, %errno will be
  * preserved, but the error will also be stored as a #GError in @error.
+ * In case of success, %errno is undefined.
  *
  * Besides using #GError, there is another major reason to prefer this
  * function over the call provided by the system; on Unix, it will
@@ -1759,24 +1767,38 @@ g_close (gint       fd,
          GError   **error)
 {
   int res;
-  res = close (fd);
-  /* Just ignore EINTR for now; a retry loop is the wrong thing to do
-   * on Linux at least.  Anyone who wants to add a conditional check
-   * for e.g. HP-UX is welcome to do so later...
-   *
-   * http://lkml.indiana.edu/hypermail/linux/kernel/0509.1/0877.html
-   * https://bugzilla.gnome.org/show_bug.cgi?id=682819
-   * http://utcc.utoronto.ca/~cks/space/blog/unix/CloseEINTR
-   * https://sites.google.com/site/michaelsafyan/software-engineering/checkforeintrwheninvokingclosethinkagain
+
+  /* Important: if @error is NULL, we must not do anything that is
+   * not async-signal-safe.
    */
-  if (G_UNLIKELY (res == -1 && errno == EINTR))
-    return TRUE;
-  else if (res == -1)
+  res = close (fd);
+
+  if (res == -1)
     {
       int errsv = errno;
-      g_set_error_literal (error, G_FILE_ERROR,
-                           g_file_error_from_errno (errsv),
-                           g_strerror (errsv));
+
+      if (errsv == EINTR)
+        {
+          /* Just ignore EINTR for now; a retry loop is the wrong thing to do
+           * on Linux at least.  Anyone who wants to add a conditional check
+           * for e.g. HP-UX is welcome to do so later...
+           *
+           * https://lwn.net/Articles/576478/
+           * http://lkml.indiana.edu/hypermail/linux/kernel/0509.1/0877.html
+           * https://bugzilla.gnome.org/show_bug.cgi?id=682819
+           * http://utcc.utoronto.ca/~cks/space/blog/unix/CloseEINTR
+           * https://sites.google.com/site/michaelsafyan/software-engineering/checkforeintrwheninvokingclosethinkagain
+           */
+          return TRUE;
+        }
+
+      if (error)
+        {
+          g_set_error_literal (error, G_FILE_ERROR,
+                               g_file_error_from_errno (errsv),
+                               g_strerror (errsv));
+        }
+
       errno = errsv;
       return FALSE;
     }

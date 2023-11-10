@@ -25,12 +25,12 @@ if g_module_impl == 'G_MODULE_IMPL_DL'
   if cc.get_id() == 'msvc' or cc.get_id() == 'clang-cl'
     message('Building for MSVC: assuming that symbols are prefixed with underscore')
     g_module_need_uscore = 1
-  elif meson.has_exe_wrapper()
+  elif meson.can_run_host_binaries()
     # FIXME: communicate result via stdout instead of return value, so non-0 return is not printed in bold red
     rres = cc.run(dlopen_dlsym_test_code,
                   dependencies : libdl_dep,
                   name : 'dlsym() preceding underscores')
-    if host_system == 'windows' or rres.returncode() == 0
+    if host_system == 'windows' or (rres.compiled() and rres.returncode() == 0)
       g_module_need_uscore = 1
     endif
   else
@@ -59,9 +59,14 @@ gmoduleconf_h = configure_file(input : 'gmoduleconf.h.in',
                                output : 'gmoduleconf.h',
                                configuration : gmoduleconf_conf)
 
-install_headers(['gmodule.h'], subdir : 'glib-2.0')
+# Expose as variable to be used by gobject-introspection
+# when it includes GLib as a subproject
+gmodule_h = files('gmodule.h')
+gmodule_c = files('gmodule.c')
 
-gmodule_sources = ['gmodule.c']
+install_headers([gmodule_h], subdir : 'glib-2.0')
+
+gmodule_sources = [gmodule_c]
 if host_system == 'windows'
   gmodule_win_rc = configure_file(
     input: 'gmodule.rc.in',
@@ -121,8 +126,10 @@ libgmodule_dep = declare_dependency(link_with : libgmodule,
   include_directories : [gmoduleinc],
   dependencies : [libglib_dep])
 
-if meson.version().version_compare('>=0.54.0')
-  meson.override_dependency('gmodule-no-export-2.0', libgmodule_dep)
-  meson.override_dependency('gmodule-export-2.0', libgmodule_dep)
-  meson.override_dependency('gmodule-2.0', libgmodule_dep)
+meson.override_dependency('gmodule-no-export-2.0', libgmodule_dep)
+meson.override_dependency('gmodule-export-2.0', libgmodule_dep)
+meson.override_dependency('gmodule-2.0', libgmodule_dep)
+
+if build_tests
+  subdir('tests')
 endif

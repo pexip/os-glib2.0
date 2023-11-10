@@ -2,6 +2,8 @@
  * 
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -166,7 +168,7 @@ g_local_file_class_init (GLocalFileClass *klass)
 				  0);
 #endif
   
-#ifdef HAVE_UTIMES
+#if defined(HAVE_UTIMES) || defined(HAVE_UTIMENSAT)
   g_file_attribute_info_list_add (list,
 				  G_FILE_ATTRIBUTE_TIME_MODIFIED,
 				  G_FILE_ATTRIBUTE_TYPE_UINT64,
@@ -186,6 +188,18 @@ g_local_file_class_init (GLocalFileClass *klass)
 				  G_FILE_ATTRIBUTE_INFO_COPY_WHEN_MOVED);
   g_file_attribute_info_list_add (list,
 				  G_FILE_ATTRIBUTE_TIME_ACCESS_USEC,
+				  G_FILE_ATTRIBUTE_TYPE_UINT32,
+				  G_FILE_ATTRIBUTE_INFO_COPY_WHEN_MOVED);
+#endif  /* HAVE_UTIMES || HAVE_UTIMENSAT */
+
+#ifdef HAVE_UTIMENSAT
+  g_file_attribute_info_list_add (list,
+				  G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC,
+				  G_FILE_ATTRIBUTE_TYPE_UINT32,
+				  G_FILE_ATTRIBUTE_INFO_COPY_WITH_FILE |
+				  G_FILE_ATTRIBUTE_INFO_COPY_WHEN_MOVED);
+  g_file_attribute_info_list_add (list,
+				  G_FILE_ATTRIBUTE_TIME_ACCESS_NSEC,
 				  G_FILE_ATTRIBUTE_TYPE_UINT32,
 				  G_FILE_ATTRIBUTE_INFO_COPY_WHEN_MOVED);
 #endif
@@ -609,6 +623,8 @@ get_fs_type (long f_type)
       return "efivarfs";
     case 0x00414A53:
       return "efs";
+    case 0x2011BAB0UL:
+      return "exfat";
     case 0x137D:
       return "ext";
     case 0xEF51:
@@ -1824,6 +1840,7 @@ _g_local_file_has_trash_dir (const char *dirname, dev_t dir_dev)
 {
   static gsize home_dev_set = 0;
   static dev_t home_dev;
+  static gboolean home_dev_valid = FALSE;
   char *topdir, *globaldir, *trashdir, *tmpname;
   uid_t uid;
   char uid_str[32];
@@ -1834,13 +1851,23 @@ _g_local_file_has_trash_dir (const char *dirname, dev_t dir_dev)
     {
       GStatBuf home_stat;
 
-      g_stat (g_get_home_dir (), &home_stat);
-      home_dev = home_stat.st_dev;
+      if (g_stat (g_get_home_dir (), &home_stat) == 0)
+        {
+          home_dev = home_stat.st_dev;
+          home_dev_valid = TRUE;
+        }
+      else
+        {
+          home_dev_valid = FALSE;
+        }
+
       g_once_init_leave (&home_dev_set, 1);
     }
 
   /* Assume we can trash to the home */
-  if (dir_dev == home_dev)
+  if (!home_dev_valid)
+    return FALSE;
+  else if (dir_dev == home_dev)
     return TRUE;
 
   topdir = find_mountpoint_for (dirname, dir_dev, TRUE);
@@ -1972,7 +1999,15 @@ g_local_file_trash (GFile         *file,
     }
     
   homedir = g_get_home_dir ();
-  g_stat (homedir, &home_stat);
+  if (g_stat (homedir, &home_stat) != 0)
+    {
+      errsv = errno;
+
+      g_set_io_error (error,
+                      _("Error trashing file %s: %s"),
+                      file, errsv);
+      return FALSE;
+    }
 
   is_homedir_trash = FALSE;
   trashdir = NULL;
@@ -1990,7 +2025,16 @@ g_local_file_trash (GFile         *file,
        * trying to rename across a filesystem boundary, which doesn't work. So
        * we use g_stat here instead of g_lstat, to know where the symlink
        * points to. */
-      g_stat (path, &file_stat);
+      if (g_stat (path, &file_stat))
+	{
+	  errsv = errno;
+	  g_free (path);
+
+	  g_set_io_error (error,
+			  _("Error trashing file %s: %s"),
+			  file, errsv);
+	  return FALSE;
+	}
       g_free (path);
     }
 
@@ -2007,7 +2051,7 @@ g_local_file_trash (GFile         *file,
           display_name = g_filename_display_name (trashdir);
           g_set_error (error, G_IO_ERROR,
                        g_io_error_from_errno (errsv),
-                       _("Unable to create trash dir %s: %s"),
+                       _("Unable to create trash directory %s: %s"),
                        display_name, g_strerror (errsv));
           g_free (display_name);
           g_free (trashdir);
@@ -2019,6 +2063,7 @@ g_local_file_trash (GFile         *file,
     {
       uid_t uid;
       char uid_str[32];
+      gboolean success = FALSE;
 
       uid = geteuid ();
       g_snprintf (uid_str, sizeof (uid_str), "%lu", (unsigned long)uid);
@@ -2048,6 +2093,7 @@ g_local_file_trash (GFile         *file,
 	  (global_stat.st_mode & S_ISVTX) != 0)
 	{
 	  trashdir = g_build_filename (globaldir, uid_str, NULL);
+	  success = TRUE;
 
 	  if (g_lstat (trashdir, &trash_stat) == 0)
 	    {
@@ -2057,12 +2103,14 @@ g_local_file_trash (GFile         *file,
 		  /* Not a directory or not owned by user, ignore */
 		  g_free (trashdir);
 		  trashdir = NULL;
+		  success = FALSE;
 		}
 	    }
 	  else if (g_mkdir (trashdir, 0700) == -1)
 	    {
 	      g_free (trashdir);
 	      trashdir = NULL;
+	      success = FALSE;
 	    }
 	}
       g_free (globaldir);
@@ -2074,6 +2122,7 @@ g_local_file_trash (GFile         *file,
 	  /* No global trash dir, or it failed the tests, fall back to $topdir/.Trash-$uid */
 	  dirname = g_strdup_printf (".Trash-%s", uid_str);
 	  trashdir = g_build_filename (topdir, dirname, NULL);
+          success = TRUE;
 	  g_free (dirname);
 
 	  tried_create = FALSE;
@@ -2089,8 +2138,7 @@ g_local_file_trash (GFile         *file,
 		    g_remove (trashdir);
 		  
 		  /* Not a directory or not owned by user, ignore */
-		  g_free (trashdir);
-		  trashdir = NULL;
+		  success = FALSE;
 		}
 	    }
 	  else
@@ -2105,18 +2153,28 @@ g_local_file_trash (GFile         *file,
 		}
 	      else
 		{
-		  g_free (trashdir);
-		  trashdir = NULL;
+		  success = FALSE;
 		}
 	    }
 	}
 
-      if (trashdir == NULL)
+      if (!success)
 	{
-	  g_free (topdir);
-          g_set_io_error (error,
-                          _("Unable to find or create trash directory for %s"),
-                          file, G_IO_ERROR_NOT_SUPPORTED);
+          gchar *trashdir_display_name = NULL, *file_display_name = NULL;
+
+          trashdir_display_name = g_filename_display_name (trashdir);
+          file_display_name = g_filename_display_name (local->filename);
+          g_set_error (error, G_IO_ERROR,
+                       G_IO_ERROR_NOT_SUPPORTED,
+                       _("Unable to find or create trash directory %s to trash %s"),
+                       trashdir_display_name, file_display_name);
+
+          g_free (trashdir_display_name);
+          g_free (file_display_name);
+
+          g_free (topdir);
+          g_free (trashdir);
+
 	  return FALSE;
 	}
     }
@@ -2125,20 +2183,32 @@ g_local_file_trash (GFile         *file,
 
   infodir = g_build_filename (trashdir, "info", NULL);
   filesdir = g_build_filename (trashdir, "files", NULL);
-  g_free (trashdir);
 
   /* Make sure we have the subdirectories */
   if ((g_mkdir (infodir, 0700) == -1 && errno != EEXIST) ||
       (g_mkdir (filesdir, 0700) == -1 && errno != EEXIST))
     {
+      gchar *trashdir_display_name = NULL, *file_display_name = NULL;
+
+      trashdir_display_name = g_filename_display_name (trashdir);
+      file_display_name = g_filename_display_name (local->filename);
+      g_set_error (error, G_IO_ERROR,
+                   G_IO_ERROR_NOT_SUPPORTED,
+                   _("Unable to find or create trash directory %s to trash %s"),
+                   trashdir_display_name, file_display_name);
+
+      g_free (trashdir_display_name);
+      g_free (file_display_name);
+
       g_free (topdir);
+      g_free (trashdir);
       g_free (infodir);
       g_free (filesdir);
-      g_set_io_error (error,
-                      _("Unable to find or create trash directory for %s"),
-                      file, G_IO_ERROR_NOT_SUPPORTED);
+
       return FALSE;
     }
+
+  g_free (trashdir);
 
   basename = g_path_get_basename (local->filename);
   i = 1;
@@ -2823,22 +2893,24 @@ g_local_file_measure_size_of_contents (gint           fd,
   gboolean success = TRUE;
   const gchar *name;
   GDir *dir;
+  gint saved_errno;
 
 #ifdef AT_FDCWD
   {
-    /* If this fails, we want to preserve the errno from fopendir() */
+    /* If this fails, we want to preserve the errno from fdopendir() */
     DIR *dirp;
     dirp = fdopendir (fd);
+    saved_errno = errno;
     dir = dirp ? GLIB_PRIVATE_CALL(g_dir_new_from_dirp) (dirp) : NULL;
+    g_assert ((dirp == NULL) == (dir == NULL));
   }
 #else
   dir = GLIB_PRIVATE_CALL(g_dir_open_with_errno) (dir_name->data, 0);
+  saved_errno = errno;
 #endif
 
   if (dir == NULL)
     {
-      gint saved_errno = errno;
-
 #ifdef AT_FDCWD
       close (fd);
 #endif

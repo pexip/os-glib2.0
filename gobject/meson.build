@@ -2,6 +2,7 @@ gobject_install_headers = files(
   'gobject-autocleanups.h',
   'glib-types.h',
   'gbinding.h',
+  'gbindinggroup.h',
   'gboxed.h',
   'gclosure.h',
   'genums.h',
@@ -10,6 +11,7 @@ gobject_install_headers = files(
   'gparam.h',
   'gparamspecs.h',
   'gsignal.h',
+  'gsignalgroup.h',
   'gsourceclosure.h',
   'gtype.h',
   'gtypemodule.h',
@@ -25,6 +27,7 @@ install_headers(gobject_install_headers, subdir : 'glib-2.0/gobject')
 gobject_sources = files(
   'gatomicarray.c',
   'gbinding.c',
+  'gbindinggroup.c',
   'gboxed.c',
   'gclosure.c',
   'genums.c',
@@ -33,6 +36,7 @@ gobject_sources = files(
   'gparam.c',
   'gparamspecs.c',
   'gsignal.c',
+  'gsignalgroup.c',
   'gsourceclosure.c',
   'gtype.c',
   'gtypemodule.c',
@@ -43,7 +47,7 @@ gobject_sources = files(
   'gvaluetypes.c',
 )
 
-if host_system == 'windows'
+if host_system == 'windows' and get_option('default_library') == 'shared'
   gobject_win_rc = configure_file(
     input: 'gobject.rc.in',
     output: 'gobject.rc',
@@ -76,6 +80,7 @@ foreach tool: python_tools
     output : tool,
     configuration : python_tools_conf,
     install_dir : glib_bindir,
+    install_tag : 'bin-devel',
   )
 
   # Set variables for later use
@@ -117,6 +122,10 @@ glib_enumtypes_c = custom_target('glib_enumtypes_c',
 
 glib_enumtypes_dep = declare_dependency(sources : [glib_enumtypes_h])
 
+# Expose as variable to be used by gobject-introspection
+# when it includes GLib as a subproject
+glib_types_h = files('glib-types.h')
+
 libgobject = library('gobject-2.0',
   gobject_dtrace_obj, gobject_dtrace_hdr, glib_enumtypes_h, glib_enumtypes_c,
   sources : gobject_sources,
@@ -142,16 +151,17 @@ pkg.generate(libgobject,
 libgobject_dep = declare_dependency(link_with : libgobject,
   include_directories : [gobjectinc],
   dependencies : [libglib_dep, glib_enumtypes_dep])
-
-if meson.version().version_compare('>=0.54.0')
-  meson.override_dependency('gobject-2.0', libgobject_dep)
-endif
+meson.override_dependency('gobject-2.0', libgobject_dep)
 
 executable('gobject-query', 'gobject-query.c',
   install : true,
+  install_tag : 'bin-devel',
   dependencies : [libglib_dep, libgobject_dep])
 
-install_data('gobject_gdb.py', install_dir : join_paths(glib_pkgdatadir, 'gdb'))
+install_data('gobject_gdb.py',
+  install_dir : glib_pkgdatadir / 'gdb',
+  install_tag : 'devel',
+)
 gdb_conf = configuration_data()
 gdb_conf.set('datadir', glib_datadir)
 configure_file(
@@ -159,13 +169,21 @@ configure_file(
   output: 'libgobject-2.0.so.@0@-gdb.py'.format(library_version),
   configuration: gdb_conf,
   install_dir: gdb_install_dir,
+  install_tag: 'devel',
+  install: gdb_install,
 )
+
+# This is needed to make gdb find gobject_gdb.py
+env = environment()
+env.prepend('PYTHONPATH', meson.current_source_dir())
+meson.add_devenv(env)
 
 if enable_systemtap
   gobject_stp = configure_file(input : 'gobject.stp.in',
     output : '@0@.stp'.format(libgobject.full_path().split('/').get(-1)),
     configuration : stp_cdata,
     install_dir : tapset_install_dir,
+    install_tag : 'systemtap',
   )
 endif
 

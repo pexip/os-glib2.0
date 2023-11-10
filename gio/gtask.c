@@ -2,6 +2,8 @@
  *
  * Copyright 2011-2018 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -24,6 +26,7 @@
 #include "gasyncresult.h"
 #include "gcancellable.h"
 #include "glib-private.h"
+#include "gtrace-private.h"
 
 #include "glibintl.h"
 
@@ -56,6 +59,10 @@
  * the operation's finish function (as a #GAsyncResult), and you can
  * use g_task_propagate_pointer() or the like to extract the
  * return value.
+ *
+ * Using #GTask requires the thread-default #GMainContext from when the
+ * #GTask was constructed to be running at least until the task has completed
+ * and its data has been freed.
  *
  * Here is an example for using GTask as a GAsyncResult:
  * |[<!-- language="C" -->
@@ -618,6 +625,9 @@ static GSource *task_pool_manager;
 static guint64 task_wait_time;
 static gint tasks_running;
 
+static guint task_pool_max_counter;
+static guint tasks_running_counter;
+
 /* When the task pool fills up and blocks, and the program keeps
  * queueing more tasks, we will slowly add more threads to the pool
  * (in case the existing tasks are trying to queue subtasks of their
@@ -973,12 +983,18 @@ g_task_set_return_on_cancel (GTask    *task,
  * @task: the #GTask
  * @source_tag: an opaque pointer indicating the source of this task
  *
- * Sets @task's source tag. You can use this to tag a task return
+ * Sets @task's source tag.
+ *
+ * You can use this to tag a task return
  * value with a particular pointer (usually a pointer to the function
  * doing the tagging) and then later check it using
  * g_task_get_source_tag() (or g_async_result_is_tagged()) in the
  * task's "finish" function, to figure out if the response came from a
  * particular place.
+ *
+ * A macro wrapper around this function will automatically set the
+ * task’s name to the string form of @source_tag if it’s not already
+ * set, for convenience.
  *
  * Since: 2.36
  */
@@ -1006,7 +1022,8 @@ void
  * name of the #GSource used for idle completion of the task.
  *
  * This function may only be called before the @task is first used in a thread
- * other than the one it was constructed in.
+ * other than the one it was constructed in. It is called automatically by
+ * g_task_set_source_tag() if not called already.
  *
  * Since: 2.60
  */
@@ -1119,7 +1136,7 @@ g_task_get_context (GTask *task)
  *
  * Gets @task's #GCancellable
  *
- * Returns: (transfer none): @task's #GCancellable
+ * Returns: (nullable) (transfer none): @task's #GCancellable
  *
  * Since: 2.36
  */
@@ -1242,7 +1259,6 @@ g_task_return (GTask           *task,
                GTaskReturnType  type)
 {
   GSource *source;
-  gchar *source_name = NULL;
 
   if (type != G_TASK_RETURN_FROM_THREAD)
     task->ever_returned = TRUE;
@@ -1291,10 +1307,22 @@ g_task_return (GTask           *task,
 
   /* Otherwise, complete in the next iteration */
   source = g_idle_source_new ();
-  source_name = g_strdup_printf ("[gio] %s complete_in_idle_cb",
-                                 (task->name != NULL) ? task->name : "(unnamed)");
-  g_source_set_name (source, source_name);
-  g_free (source_name);
+
+  /* Note: in case the task name is NULL we set it as a const string instead
+   * of going through the concat path which is more expensive and may show in the
+   * profiler if g_task_return is called very often
+   */
+  if (task->name == NULL)
+    g_source_set_static_name (source, "[gio] (unnamed) complete_in_idle_cb");
+  else
+    {
+      gchar *source_name;
+
+      source_name = g_strconcat ("[gio] ", task->name, " complete_in_idle_cb", NULL);
+      g_source_set_name (source, source_name);
+      g_free (source_name);
+    }
+
   g_task_attach_source (task, source, complete_in_idle_cb);
   g_source_unref (source);
 }
@@ -1361,6 +1389,7 @@ task_pool_manager_timeout (gpointer user_data)
 {
   g_mutex_lock (&task_pool_mutex);
   g_thread_pool_set_max_threads (task_pool, tasks_running + 1, NULL);
+  g_trace_set_int64_counter (task_pool_max_counter, tasks_running + 1);
   g_source_set_ready_time (task_pool_manager, -1);
   g_mutex_unlock (&task_pool_mutex);
 
@@ -1373,6 +1402,8 @@ g_task_thread_setup (void)
   g_private_set (&task_private, GUINT_TO_POINTER (TRUE));
   g_mutex_lock (&task_pool_mutex);
   tasks_running++;
+
+  g_trace_set_int64_counter (tasks_running_counter, tasks_running);
 
   if (tasks_running == G_TASK_POOL_SIZE)
     task_wait_time = G_TASK_WAIT_TIME_BASE;
@@ -1394,7 +1425,10 @@ g_task_thread_cleanup (void)
   tasks_pending = g_thread_pool_unprocessed (task_pool);
 
   if (tasks_running > G_TASK_POOL_SIZE)
-    g_thread_pool_set_max_threads (task_pool, tasks_running - 1, NULL);
+    {
+      g_thread_pool_set_max_threads (task_pool, tasks_running - 1, NULL);
+      g_trace_set_int64_counter (task_pool_max_counter, tasks_running - 1);
+    }
   else if (tasks_running + tasks_pending < G_TASK_POOL_SIZE)
     g_source_set_ready_time (task_pool_manager, -1);
 
@@ -1402,6 +1436,9 @@ g_task_thread_cleanup (void)
     task_wait_time /= G_TASK_WAIT_TIME_MULTIPLIER;
 
   tasks_running--;
+
+  g_trace_set_int64_counter (tasks_running_counter, tasks_running);
+
   g_mutex_unlock (&task_pool_mutex);
   g_private_set (&task_private, GUINT_TO_POINTER (FALSE));
 }
@@ -1493,7 +1530,8 @@ g_task_start_task_thread (GTask           *task,
       g_signal_connect_data (task->cancellable, "cancelled",
                              G_CALLBACK (task_thread_cancelled),
                              g_object_ref (task),
-                             task_thread_cancelled_disconnect_notify, 0);
+                             task_thread_cancelled_disconnect_notify,
+                             G_CONNECT_DEFAULT);
     }
 
   if (g_private_get (&task_private))
@@ -1515,9 +1553,9 @@ g_task_start_task_thread (GTask           *task,
  *
  * Although GLib currently rate-limits the tasks queued via
  * g_task_run_in_thread(), you should not assume that it will always
- * do this. If you have a very large number of tasks to run, but don't
- * want them to all run at once, you should only queue a limited
- * number of them at a time.
+ * do this. If you have a very large number of tasks to run (several tens of
+ * tasks), but don't want them to all run at once, you should only queue a
+ * limited number of them (around ten) at a time.
  *
  * Since: 2.36
  */
@@ -1981,7 +2019,7 @@ value_free (gpointer value)
  *
  * Sets @task's result to @result (by copying it) and completes the task.
  *
- * If @result is %NULL then a #GValue of type #G_TYPE_POINTER
+ * If @result is %NULL then a #GValue of type %G_TYPE_POINTER
  * with a value of %NULL will be used for the result.
  *
  * This is a very generic low-level method intended primarily for use
@@ -2149,7 +2187,9 @@ GSourceFuncs trivial_source_funcs = {
   NULL, /* prepare */
   NULL, /* check */
   trivial_source_dispatch,
-  NULL
+  NULL, /* finalize */
+  NULL, /* closure */
+  NULL  /* marshal */
 };
 
 static void
@@ -2162,7 +2202,7 @@ g_task_thread_pool_init (void)
   g_thread_pool_set_sort_function (task_pool, g_task_compare_priority, NULL);
 
   task_pool_manager = g_source_new (&trivial_source_funcs, sizeof (GSource));
-  g_source_set_name (task_pool_manager, "GTask thread pool manager");
+  g_source_set_static_name (task_pool_manager, "GTask thread pool manager");
   g_source_set_callback (task_pool_manager, task_pool_manager_timeout, NULL, NULL);
   g_source_set_ready_time (task_pool_manager, -1);
   g_source_attach (task_pool_manager,
@@ -2214,6 +2254,16 @@ g_task_class_init (GTaskClass *klass)
                           P_("Task completed"),
                           P_("Whether the task has completed yet"),
                           FALSE, G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
+
+  if (G_UNLIKELY (task_pool_max_counter == 0))
+    {
+      /* We use two counters to track characteristics of the GTask thread pool.
+       * task pool max size - the value of g_thread_pool_set_max_threads()
+       * tasks running - the number of running threads
+       */
+      task_pool_max_counter = g_trace_define_int64_counter ("GIO", "task pool max size", "Maximum number of threads allowed in the GTask thread pool; see g_thread_pool_set_max_threads()");
+      tasks_running_counter = g_trace_define_int64_counter ("GIO", "tasks running", "Number of currently running tasks in the GTask thread pool");
+    }
 }
 
 static gpointer

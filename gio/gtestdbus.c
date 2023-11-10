@@ -3,6 +3,8 @@
  * Copyright (C) 2008-2010 Red Hat, Inc.
  * Copyright (C) 2012 Collabora Ltd. <http://www.collabora.co.uk/>
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -32,6 +34,8 @@
 #endif
 #ifdef G_OS_WIN32
 #include <io.h>
+#include <fcntl.h>
+#include <windows.h>
 #endif
 
 #include <glib.h>
@@ -44,8 +48,8 @@
 
 #include "glibintl.h"
 
-#ifdef G_OS_WIN32
-#include <windows.h>
+#ifdef G_OS_UNIX
+#include "glib-unix.h"
 #endif
 
 /* -------------------------------------------------------------------------- */
@@ -90,7 +94,7 @@ _g_object_unref_and_wait_weak_notify (gpointer object)
   g_idle_add (unref_on_idle, object);
 
   /* Make sure we don't block forever */
-  timeout_id = g_timeout_add (30 * 1000, on_weak_notify_timeout, &data);
+  timeout_id = g_timeout_add_seconds (30, on_weak_notify_timeout, &data);
 
   g_main_loop_run (data.loop);
 
@@ -251,6 +255,16 @@ watcher_init (void)
           g_assert_not_reached ();
         }
 
+      /* flush streams to avoid buffers being duplicated in the child and
+       * flushed by both the child and parent later
+       *
+       * FIXME: This is a workaround for the fact that watch_parent() uses
+       * non-async-signal-safe API. See
+       * https://gitlab.gnome.org/GNOME/glib/-/issues/2322#note_1034330
+       */
+      fflush (stdout);
+      fflush (stderr);
+
       switch (fork ())
         {
         case -1:
@@ -282,10 +296,13 @@ watcher_send_command (const gchar *command)
 {
   GIOChannel *channel;
   GError *error = NULL;
+  GIOStatus status;
 
   channel = watcher_init ();
 
-  g_io_channel_write_chars (channel, command, -1, NULL, &error);
+  do
+   status = g_io_channel_write_chars (channel, command, -1, NULL, &error);
+  while (status == G_IO_STATUS_AGAIN);
   g_assert_no_error (error);
 
   g_io_channel_flush (channel, &error);
@@ -367,7 +384,7 @@ _g_test_watcher_remove_pid (GPid pid)
  *
  * An example of a test fixture for D-Bus services can be found
  * here:
- * [gdbus-test-fixture.c](https://git.gnome.org/browse/glib/tree/gio/tests/gdbus-test-fixture.c)
+ * [gdbus-test-fixture.c](https://gitlab.gnome.org/GNOME/glib/-/blob/HEAD/gio/tests/gdbus-test-fixture.c)
  *
  * Note that these examples only deal with isolating the D-Bus aspect of your
  * service. To successfully run isolated unit tests on your service you may need
@@ -423,7 +440,6 @@ struct _GTestDBusPrivate
   GTestDBusFlags flags;
   GPtrArray *service_dirs;
   GPid bus_pid;
-  gint bus_stdout_fd;
   gchar *bus_address;
   gboolean up;
 };
@@ -583,19 +599,51 @@ write_config_file (GTestDBus *self)
   return path;
 }
 
+static gboolean
+make_pipe (gint     pipe_fds[2],
+           GError **error)
+{
+#if defined(G_OS_UNIX)
+  return g_unix_open_pipe (pipe_fds, FD_CLOEXEC, error);
+#elif defined(G_OS_WIN32)
+  if (_pipe (pipe_fds, 4096, _O_BINARY) < 0)
+    {
+      int errsv = errno;
+
+      g_set_error (error, G_SPAWN_ERROR, G_SPAWN_ERROR_FAILED,
+                   _("Failed to create pipe for communicating with child process (%s)"),
+                   g_strerror (errsv));
+      return FALSE;
+    }
+  return TRUE;
+#else
+  g_set_error (error, G_SPAWN_ERROR, G_SPAWN_ERROR_FAILED,
+               _("Pipes are not supported in this platform"));
+  return FALSE;
+#endif
+}
+
 static void
 start_daemon (GTestDBus *self)
 {
   const gchar *argv[] = {"dbus-daemon", "--print-address", "--config-file=foo", NULL};
+  gint pipe_fds[2] = {-1, -1};
   gchar *config_path;
   gchar *config_arg;
+  gchar *print_address;
   GIOChannel *channel;
-  gint stdout_fd2;
   gsize termpos;
   GError *error = NULL;
 
   if (g_getenv ("G_TEST_DBUS_DAEMON") != NULL)
     argv[0] = (gchar *)g_getenv ("G_TEST_DBUS_DAEMON");
+
+  make_pipe (pipe_fds, &error);
+  g_assert_no_error (error);
+
+  print_address = g_strdup_printf ("--print-address=%d", pipe_fds[1]);
+  argv[1] = print_address;
+  g_assert_no_error (error);
 
   /* Write config file and set its path in argv */
   config_path = write_config_file (self);
@@ -603,38 +651,35 @@ start_daemon (GTestDBus *self)
   argv[2] = config_arg;
 
   /* Spawn dbus-daemon */
-  g_spawn_async_with_pipes (NULL,
-                            (gchar **) argv,
-                            NULL,
-                            /* We Need this to get the pid returned on win32 */
-                            G_SPAWN_DO_NOT_REAP_CHILD |
-                            G_SPAWN_SEARCH_PATH |
-                            /* dbus-daemon will not abuse our descriptors, and
-                             * passing this means we can use posix_spawn() for speed */
-                            G_SPAWN_LEAVE_DESCRIPTORS_OPEN,
-                            NULL,
-                            NULL,
-                            &self->priv->bus_pid,
-                            NULL,
-                            &self->priv->bus_stdout_fd,
-                            NULL,
-                            &error);
+  g_spawn_async_with_pipes_and_fds (NULL,
+                                    argv,
+                                    NULL,
+                                    /* We Need this to get the pid returned on win32 */
+                                    G_SPAWN_DO_NOT_REAP_CHILD |
+                                    G_SPAWN_SEARCH_PATH |
+                                    /* dbus-daemon will not abuse our descriptors, and
+                                     * passing this means we can use posix_spawn() for speed */
+                                    G_SPAWN_LEAVE_DESCRIPTORS_OPEN,
+                                    NULL, NULL,
+                                    -1, -1, -1,
+                                    &pipe_fds[1], &pipe_fds[1], 1,
+                                    &self->priv->bus_pid,
+                                    NULL, NULL, NULL,
+                                    &error);
   g_assert_no_error (error);
 
   _g_test_watcher_add_pid (self->priv->bus_pid);
 
-  /* Read bus address from daemon' stdout. We have to be careful to avoid
-   * closing the FD, as it is passed to any D-Bus service activated processes,
-   * and if we close it, they will get a SIGPIPE and die when they try to write
-   * to their stdout. */
-  stdout_fd2 = dup (self->priv->bus_stdout_fd);
-  g_assert_cmpint (stdout_fd2, >=, 0);
-  channel = g_io_channel_unix_new (stdout_fd2);
-
+  /* Read bus address from pipe */
+  channel = g_io_channel_unix_new (pipe_fds[0]);
+  pipe_fds[0] = -1;
+  g_io_channel_set_close_on_unref (channel, TRUE);
   g_io_channel_read_line (channel, &self->priv->bus_address, NULL,
       &termpos, &error);
   g_assert_no_error (error);
   self->priv->bus_address[termpos] = '\0';
+  close (pipe_fds[1]);
+  pipe_fds[1] = -1;
 
   /* start dbus-monitor */
   if (g_getenv ("G_DBUS_MONITOR") != NULL)
@@ -658,6 +703,7 @@ start_daemon (GTestDBus *self)
   if (g_unlink (config_path) != 0)
     g_assert_not_reached ();
 
+  g_free (print_address);
   g_free (config_path);
   g_free (config_arg);
 }
@@ -674,8 +720,6 @@ stop_daemon (GTestDBus *self)
   _g_test_watcher_remove_pid (self->priv->bus_pid);
   g_spawn_close_pid (self->priv->bus_pid);
   self->priv->bus_pid = 0;
-  close (self->priv->bus_stdout_fd);
-  self->priv->bus_stdout_fd = -1;
 
   g_free (self->priv->bus_address);
   self->priv->bus_address = NULL;

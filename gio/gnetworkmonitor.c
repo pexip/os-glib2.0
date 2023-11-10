@@ -2,6 +2,8 @@
  *
  * Copyright 2011 Red Hat, Inc
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -77,22 +79,33 @@ enum {
 };
 
 static guint signals[LAST_SIGNAL] = { 0 };
+static GNetworkMonitor *network_monitor_default_singleton = NULL;  /* (owned) (atomic) */
 
 /**
  * g_network_monitor_get_default:
  *
  * Gets the default #GNetworkMonitor for the system.
  *
- * Returns: (transfer none): a #GNetworkMonitor
+ * Returns: (not nullable) (transfer none): a #GNetworkMonitor, which will be
+ *     a dummy object if no network monitor is available
  *
  * Since: 2.32
  */
 GNetworkMonitor *
 g_network_monitor_get_default (void)
 {
-  return _g_io_module_get_default (G_NETWORK_MONITOR_EXTENSION_POINT_NAME,
-                                   "GIO_USE_NETWORK_MONITOR",
-                                   NULL);
+  if (g_once_init_enter (&network_monitor_default_singleton))
+    {
+      GNetworkMonitor *singleton;
+
+      singleton = _g_io_module_get_default (G_NETWORK_MONITOR_EXTENSION_POINT_NAME,
+                                            "GIO_USE_NETWORK_MONITOR",
+                                            NULL);
+
+      g_once_init_leave (&network_monitor_default_singleton, singleton);
+    }
+
+  return network_monitor_default_singleton;
 }
 
 /**

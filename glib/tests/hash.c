@@ -2,6 +2,8 @@
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  * Copyright (C) 1999 The Free Software Foundation
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -34,9 +36,7 @@
 
 #include <glib.h>
 
-
-
-int array[10000];
+static int global_array[10000];
 
 static void
 fill_hash_table_and_array (GHashTable *hash_table)
@@ -45,8 +45,8 @@ fill_hash_table_and_array (GHashTable *hash_table)
 
   for (i = 0; i < 10000; i++)
     {
-      array[i] = i;
-      g_hash_table_insert (hash_table, &array[i], &array[i]);
+      global_array[i] = i;
+      g_hash_table_insert (hash_table, &global_array[i], &global_array[i]);
     }
 }
 
@@ -591,7 +591,7 @@ test_hash_misc (void)
   gint value = 120;
   gint *pvalue;
   GList *keys, *values;
-  gint keys_len, values_len;
+  gsize keys_len, values_len;
   GHashTableIter iter;
   gpointer ikey, ivalue;
   int result_array[10000];
@@ -641,7 +641,7 @@ test_hash_misc (void)
   verify_result_array (result_array);
 
   for (i = 0; i < 10000; i++)
-    g_hash_table_remove (hash_table, &array[i]);
+    g_hash_table_remove (hash_table, &global_array[i]);
 
   fill_hash_table_and_array (hash_table);
 
@@ -759,7 +759,7 @@ test_lookup_null_key (void)
   gpointer key;
   gpointer value;
 
-  g_test_bug ("642944");
+  g_test_bug ("https://bugzilla.gnome.org/show_bug.cgi?id=642944");
 
   h = g_hash_table_new (null_safe_str_hash, null_safe_str_equal);
   g_hash_table_insert (h, "abc", "ABC");
@@ -875,7 +875,8 @@ test_recursive_remove_all_subprocess (void)
 static void
 test_recursive_remove_all (void)
 {
-  g_test_trap_subprocess ("/hash/recursive-remove-all/subprocess", 1000000, 0);
+  g_test_trap_subprocess ("/hash/recursive-remove-all/subprocess", 1000000,
+                          G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
 }
 
@@ -971,14 +972,14 @@ set_ref_hash_test (void)
   key_unref (key2);
 }
 
-GHashTable *h;
+static GHashTable *global_hashtable;
 
 typedef struct {
     gchar *string;
     gboolean freed;
 } FakeFreeData;
 
-GPtrArray *fake_free_data;
+static GPtrArray *fake_free_data;
 
 static void
 fake_free (gpointer dead)
@@ -1003,7 +1004,7 @@ fake_free (gpointer dead)
 static void
 value_destroy_insert (gpointer value)
 {
-  g_hash_table_remove_all (h);
+  g_hash_table_remove_all (global_hashtable);
 }
 
 static void
@@ -1012,48 +1013,48 @@ test_destroy_modify (void)
   FakeFreeData *ffd;
   guint i;
 
-  g_test_bug ("650459");
+  g_test_bug ("https://bugzilla.gnome.org/show_bug.cgi?id=650459");
 
   fake_free_data = g_ptr_array_new ();
 
-  h = g_hash_table_new_full (g_str_hash, g_str_equal, fake_free, value_destroy_insert);
+  global_hashtable = g_hash_table_new_full (g_str_hash, g_str_equal, fake_free, value_destroy_insert);
 
   ffd = g_new0 (FakeFreeData, 1);
   ffd->string = g_strdup ("a");
   g_ptr_array_add (fake_free_data, ffd);
-  g_hash_table_insert (h, ffd->string, "b");
+  g_hash_table_insert (global_hashtable, ffd->string, "b");
 
   ffd = g_new0 (FakeFreeData, 1);
   ffd->string = g_strdup ("c");
   g_ptr_array_add (fake_free_data, ffd);
-  g_hash_table_insert (h, ffd->string, "d");
+  g_hash_table_insert (global_hashtable, ffd->string, "d");
 
   ffd = g_new0 (FakeFreeData, 1);
   ffd->string = g_strdup ("e");
   g_ptr_array_add (fake_free_data, ffd);
-  g_hash_table_insert (h, ffd->string, "f");
+  g_hash_table_insert (global_hashtable, ffd->string, "f");
 
   ffd = g_new0 (FakeFreeData, 1);
   ffd->string = g_strdup ("g");
   g_ptr_array_add (fake_free_data, ffd);
-  g_hash_table_insert (h, ffd->string, "h");
+  g_hash_table_insert (global_hashtable, ffd->string, "h");
 
   ffd = g_new0 (FakeFreeData, 1);
   ffd->string = g_strdup ("h");
   g_ptr_array_add (fake_free_data, ffd);
-  g_hash_table_insert (h, ffd->string, "k");
+  g_hash_table_insert (global_hashtable, ffd->string, "k");
 
   ffd = g_new0 (FakeFreeData, 1);
   ffd->string = g_strdup ("a");
   g_ptr_array_add (fake_free_data, ffd);
-  g_hash_table_insert (h, ffd->string, "c");
+  g_hash_table_insert (global_hashtable, ffd->string, "c");
 
-  g_hash_table_remove (h, "c");
+  g_hash_table_remove (global_hashtable, "c");
 
   /* that removed everything... */
   for (i = 0; i < fake_free_data->len; i++)
     {
-      FakeFreeData *ffd = g_ptr_array_index (fake_free_data, i);
+      ffd = g_ptr_array_index (fake_free_data, i);
 
       g_assert (ffd->freed);
       g_free (ffd->string);
@@ -1063,9 +1064,9 @@ test_destroy_modify (void)
   g_ptr_array_unref (fake_free_data);
 
   /* ... so this is a no-op */
-  g_hash_table_remove (h, "e");
+  g_hash_table_remove (global_hashtable, "e");
 
-  g_hash_table_unref (h);
+  g_hash_table_unref (global_hashtable);
 }
 
 static gboolean
@@ -1345,6 +1346,49 @@ test_lookup_extended (void)
   g_hash_table_unref (hash);
 }
 
+static void
+inc_state (gpointer user_data)
+{
+  int *state = user_data;
+  g_assert_cmpint (*state, ==, 0);
+  *state = 1;
+}
+
+static void
+test_new_similar (void)
+{
+  GHashTable *hash1;
+  GHashTable *hash2;
+  int state1;
+  int state2;
+
+  hash1 = g_hash_table_new_full (g_str_hash, g_str_equal,
+                                 g_free, inc_state);
+  state1 = 0;
+  g_hash_table_insert (hash1,
+                       g_strdup ("test"),
+                       &state1);
+  g_assert_true (g_hash_table_lookup (hash1, "test") == &state1);
+
+  hash2 = g_hash_table_new_similar (hash1);
+
+  g_assert_true (g_hash_table_lookup (hash1, "test") == &state1);
+  g_assert_null (g_hash_table_lookup (hash2, "test"));
+
+  state2 = 0;
+  g_hash_table_insert (hash2, g_strdup ("test"), &state2);
+  g_assert_true (g_hash_table_lookup (hash2, "test") == &state2);
+  g_hash_table_remove (hash2, "test");
+  g_assert_cmpint (state2, ==, 1);
+
+  g_assert_cmpint (state1, ==, 0);
+  g_hash_table_remove (hash1, "test");
+  g_assert_cmpint (state1, ==, 1);
+
+  g_hash_table_unref (hash1);
+  g_hash_table_unref (hash2);
+}
+
 struct _GHashTable
 {
   gsize            size;
@@ -1362,7 +1406,7 @@ struct _GHashTable
 
   GHashFunc        hash_func;
   GEqualFunc       key_equal_func;
-  volatile gint    ref_count;
+  gint             ref_count;  /* (atomic) */
 
 #ifndef G_DISABLE_ASSERT
   int              version;
@@ -1518,7 +1562,7 @@ test_iter_replace (void)
   gpointer k, v;
   gchar *s;
 
-  g_test_bug ("662544");
+  g_test_bug ("https://bugzilla.gnome.org/show_bug.cgi?id=662544");
 
   h = g_hash_table_new_full (g_str_hash, g_str_equal, my_key_free, my_value_free);
 
@@ -1555,7 +1599,7 @@ test_set_insert_corruption (void)
   gchar b[] = "foo";
   gpointer key, value;
 
-  g_test_bug ("692815");
+  g_test_bug ("https://bugzilla.gnome.org/show_bug.cgi?id=692815");
 
   g_hash_table_insert (hash_table, a, a);
   g_assert (g_hash_table_contains (hash_table, "foo"));
@@ -1664,8 +1708,6 @@ main (int argc, char *argv[])
 {
   g_test_init (&argc, &argv, NULL);
 
-  g_test_bug_base ("http://bugzilla.gnome.org/");
-
   g_test_add_func ("/hash/misc", test_hash_misc);
   g_test_add_data_func ("/hash/one", GINT_TO_POINTER (TRUE), second_hash_test);
   g_test_add_data_func ("/hash/honeyman", GINT_TO_POINTER (FALSE), second_hash_test);
@@ -1687,6 +1729,7 @@ main (int argc, char *argv[])
   g_test_add_func ("/hash/steal-extended", test_steal_extended);
   g_test_add_func ("/hash/steal-extended/optional", test_steal_extended_optional);
   g_test_add_func ("/hash/lookup-extended", test_lookup_extended);
+  g_test_add_func ("/hash/new-similar", test_new_similar);
 
   /* tests for individual bugs */
   g_test_add_func ("/hash/lookup-null-key", test_lookup_null_key);

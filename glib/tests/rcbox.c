@@ -2,6 +2,8 @@
  *
  * Copyright 2018  Emmanuele Bassi
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -241,7 +243,7 @@ test_rcbox_alignment (void)
     sizeof (gint32) * 3,
   };
 
-  int i;
+  gsize i;
 
   for (i = 0; i < G_N_ELEMENTS (block_sizes); i++)
     {
@@ -265,7 +267,7 @@ test_atomic_rcbox_alignment (void)
     sizeof (gint32) * 3,
   };
 
-  int i;
+  gsize i;
 
   for (i = 0; i < G_N_ELEMENTS (block_sizes); i++)
     {

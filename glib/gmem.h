@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -30,6 +32,7 @@
 #endif
 
 #include <glib/gutils.h>
+#include <glib/glib-typeof.h>
 
 G_BEGIN_DECLS
 
@@ -110,16 +113,29 @@ gpointer g_try_realloc_n  (gpointer	 mem,
 			   gsize	 n_blocks,
 			   gsize	 n_block_bytes) G_GNUC_WARN_UNUSED_RESULT;
 
-#if defined(g_has_typeof) && GLIB_VERSION_MAX_ALLOWED >= GLIB_VERSION_2_58
-#define g_clear_pointer(pp, destroy)                                           \
-  G_STMT_START {                                                               \
-    G_STATIC_ASSERT (sizeof *(pp) == sizeof (gpointer));                       \
-    __typeof__((pp)) _pp = (pp);                                               \
-    __typeof__(*(pp)) _ptr = *_pp;                                             \
-    *_pp = NULL;                                                               \
-    if (_ptr)                                                                  \
-      (destroy) (_ptr);                                                        \
-  } G_STMT_END                                                                 \
+GLIB_AVAILABLE_IN_2_72
+gpointer g_aligned_alloc  (gsize         n_blocks,
+                           gsize         n_block_bytes,
+                           gsize         alignment) G_GNUC_WARN_UNUSED_RESULT G_GNUC_ALLOC_SIZE2(1,2);
+GLIB_AVAILABLE_IN_2_72
+gpointer g_aligned_alloc0 (gsize         n_blocks,
+                           gsize         n_block_bytes,
+                           gsize         alignment) G_GNUC_WARN_UNUSED_RESULT G_GNUC_ALLOC_SIZE2(1,2);
+GLIB_AVAILABLE_IN_2_72
+void     g_aligned_free   (gpointer      mem);
+
+#if defined(glib_typeof) && GLIB_VERSION_MAX_ALLOWED >= GLIB_VERSION_2_58
+#define g_clear_pointer(pp, destroy)                     \
+  G_STMT_START                                           \
+  {                                                      \
+    G_STATIC_ASSERT (sizeof *(pp) == sizeof (gpointer)); \
+    glib_typeof ((pp)) _pp = (pp);                       \
+    glib_typeof (*(pp)) _ptr = *_pp;                     \
+    *_pp = NULL;                                         \
+    if (_ptr)                                            \
+      (destroy) (_ptr);                                  \
+  }                                                      \
+  G_STMT_END                                             \
   GLIB_AVAILABLE_MACRO_IN_2_34
 #else /* __GNUC__ */
 #define g_clear_pointer(pp, destroy) \
@@ -211,8 +227,8 @@ g_steal_pointer (gpointer pp)
 }
 
 /* type safety */
-#if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8)) && !defined(__cplusplus) && GLIB_VERSION_MAX_ALLOWED >= GLIB_VERSION_2_58
-#define g_steal_pointer(pp) ((__typeof__(*pp)) (g_steal_pointer) (pp))
+#if defined(glib_typeof) && GLIB_VERSION_MAX_ALLOWED >= GLIB_VERSION_2_58
+#define g_steal_pointer(pp) ((glib_typeof (*pp)) (g_steal_pointer) (pp))
 #else  /* __GNUC__ */
 /* This version does not depend on gcc extensions, but gcc does not warn
  * about incompatible-pointer-types: */

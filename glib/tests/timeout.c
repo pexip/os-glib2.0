@@ -5,12 +5,10 @@
 
 static GMainLoop *loop;
 
-static gboolean
+static void
 stop_waiting (gpointer data)
 {
   g_main_loop_quit (loop);
-
-  return G_SOURCE_REMOVE;
 }
 
 static gboolean
@@ -44,7 +42,7 @@ test_seconds (void)
   g_test_bug ("https://bugzilla.gnome.org/show_bug.cgi?id=642052");
   loop = g_main_loop_new (NULL, FALSE);
 
-  g_timeout_add (2100, stop_waiting, NULL);
+  g_timeout_add_once (2100, stop_waiting, NULL);
   id = g_timeout_add_seconds (21475, unreachable_callback, NULL);
 
   g_main_loop_run (loop);
@@ -81,7 +79,7 @@ test_weeks_overflow (void)
   g_test_bug ("https://gitlab.gnome.org/GNOME/glib/issues/1600");
   loop = g_main_loop_new (NULL, FALSE);
 
-  g_timeout_add (2100, stop_waiting, NULL);
+  g_timeout_add_once (2100, stop_waiting, NULL);
   interval_seconds = 1 + G_MAXUINT / 1000;
   id = g_timeout_add_seconds (interval_seconds, unreachable_callback, NULL);
 
@@ -126,6 +124,8 @@ test_far_future_ready_time (void)
   n_fds = 0;
   n_fds = g_main_context_query (context, priority, &timeout_, NULL, n_fds);
 
+  g_assert_cmpint (n_fds, >=, 0);
+
   /* The true timeout in milliseconds doesn't fit into a gint. We definitely
    * don't want poll() to block forever:
    */
@@ -150,11 +150,13 @@ test_func (gpointer data)
 
   /* We accept 2 on the first iteration because _add_seconds() can
    * have an initial latency of 1 second, see its documentation.
+   *
+   * Allow up to 500ms leeway for rounding and scheduling.
    */
   if (count == 0)
-    g_assert (current_time / 1000000 - last_time / 1000000 <= 2);
+    g_assert_cmpint (current_time / 1000 - last_time / 1000, <=, 2500);
   else
-    g_assert (current_time / 1000000 - last_time / 1000000 == 1);
+    g_assert_cmpint (current_time / 1000 - last_time / 1000, <=, 1500);
 
   last_time = current_time;
   count++;

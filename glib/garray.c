@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -42,6 +44,7 @@
 #include "gmessages.h"
 #include "gqsort.h"
 #include "grefcount.h"
+#include "gutilsprivate.h"
 
 /**
  * SECTION:arrays
@@ -107,7 +110,7 @@ struct _GRealArray
 {
   guint8 *data;
   guint   len;
-  guint   alloc;
+  guint   elt_capacity;
   guint   elt_size;
   guint   zero_terminated : 1;
   guint   clear : 1;
@@ -150,7 +153,7 @@ struct _GRealArray
  * Returns: the element of the #GArray at the index given by @i
  */
 
-#define g_array_elt_len(array,i) ((array)->elt_size * (i))
+#define g_array_elt_len(array,i) ((gsize)(array)->elt_size * (i))
 #define g_array_elt_pos(array,i) ((array)->data + g_array_elt_len((array),(i)))
 #define g_array_elt_zero(array, pos, len)                               \
   (memset (g_array_elt_pos ((array), pos), 0,  g_array_elt_len ((array), len)))
@@ -159,7 +162,6 @@ struct _GRealArray
     g_array_elt_zero ((array), (array)->len, 1);                        \
 }G_STMT_END
 
-static guint g_nearest_pow        (guint       num) G_GNUC_CONST;
 static void  g_array_maybe_expand (GRealArray *array,
                                    guint       len);
 
@@ -181,6 +183,9 @@ g_array_new (gboolean zero_terminated,
              guint    elt_size)
 {
   g_return_val_if_fail (elt_size > 0, NULL);
+#if (UINT_WIDTH / 8) >= GLIB_SIZEOF_SIZE_T
+  g_return_val_if_fail (elt_size <= G_MAXSIZE / 2 - 1, NULL);
+#endif
 
   return g_array_sized_new (zero_terminated, clear, elt_size, 0);
 }
@@ -188,7 +193,7 @@ g_array_new (gboolean zero_terminated,
 /**
  * g_array_steal:
  * @array: a #GArray.
- * @len: (optional) (out caller-allocates): pointer to retrieve the number of
+ * @len: (optional) (out): pointer to retrieve the number of
  *    elements of the original array
  *
  * Frees the data in the array and resets the size to zero, while
@@ -232,7 +237,7 @@ g_array_steal (GArray *array,
 
   rarray->data  = NULL;
   rarray->len   = 0;
-  rarray->alloc = 0;
+  rarray->elt_capacity = 0;
   return segment;
 }
 
@@ -261,12 +266,15 @@ g_array_sized_new (gboolean zero_terminated,
   GRealArray *array;
   
   g_return_val_if_fail (elt_size > 0, NULL);
+#if (UINT_WIDTH / 8) >= GLIB_SIZEOF_SIZE_T
+  g_return_val_if_fail (elt_size <= G_MAXSIZE / 2 - 1, NULL);
+#endif
 
   array = g_slice_new (GRealArray);
 
   array->data            = NULL;
   array->len             = 0;
-  array->alloc           = 0;
+  array->elt_capacity = 0;
   array->zero_terminated = (zero_terminated ? 1 : 0);
   array->clear           = (clear ? 1 : 0);
   array->elt_size        = elt_size;
@@ -298,6 +306,27 @@ g_array_sized_new (gboolean zero_terminated,
  * Note that in contrast with other uses of #GDestroyNotify
  * functions, @clear_func is expected to clear the contents of
  * the array element it is given, but not free the element itself.
+ *
+ * |[<!-- language="C" -->
+ * typedef struct
+ * {
+ *   gchar *str;
+ *   GObject *obj;
+ * } ArrayElement;
+ *
+ * static void
+ * array_element_clear (ArrayElement *element)
+ * {
+ *   g_clear_pointer (&element->str, g_free);
+ *   g_clear_object (&element->obj);
+ * }
+ *
+ * // main code
+ * GArray *garray = g_array_new (FALSE, FALSE, sizeof (ArrayElement));
+ * g_array_set_clear_func (garray, (GDestroyNotify) array_element_clear);
+ * // assign data to the structure
+ * g_array_free (garray, TRUE);
+ * ]|
  *
  * Since: 2.32
  */
@@ -450,7 +479,7 @@ array_free (GRealArray     *array,
     {
       array->data            = NULL;
       array->len             = 0;
-      array->alloc           = 0;
+      array->elt_capacity = 0;
     }
   else
     {
@@ -867,7 +896,7 @@ g_array_sort_with_data (GArray           *farray,
  * @array: a #GArray.
  * @target: a pointer to the item to look up.
  * @compare_func: A #GCompareFunc used to locate @target.
- * @out_match_index: (optional) (out caller-allocates): return location
+ * @out_match_index: (optional) (out): return location
  *    for the index of the element, if found.
  *
  * Checks whether @target exists in @array by performing a binary
@@ -909,7 +938,7 @@ g_array_binary_search (GArray        *array,
 {
   gboolean result = FALSE;
   GRealArray *_array = (GRealArray *) array;
-  guint left, middle, right;
+  guint left, middle = 0, right;
   gint val;
 
   g_return_val_if_fail (_array != NULL, FALSE);
@@ -945,52 +974,36 @@ g_array_binary_search (GArray        *array,
   return result;
 }
 
-/* Returns the smallest power of 2 greater than n, or n if
- * such power does not fit in a guint
- */
-static guint
-g_nearest_pow (guint num)
-{
-  guint n = num - 1;
-
-  g_assert (num > 0);
-
-  n |= n >> 1;
-  n |= n >> 2;
-  n |= n >> 4;
-  n |= n >> 8;
-  n |= n >> 16;
-#if SIZEOF_INT == 8
-  n |= n >> 32;
-#endif
-
-  return n + 1;
-}
-
 static void
 g_array_maybe_expand (GRealArray *array,
                       guint       len)
 {
-  guint want_alloc;
+  guint max_len, want_len;
+ 
+  /* The maximum array length is derived from following constraints:
+   * - The number of bytes must fit into a gsize / 2.
+   * - The number of elements must fit into guint.
+   * - zero terminated arrays must leave space for the terminating element
+   */
+  max_len = MIN (G_MAXSIZE / 2 / array->elt_size, G_MAXUINT) - array->zero_terminated;
 
   /* Detect potential overflow */
-  if G_UNLIKELY ((G_MAXUINT - array->len) < len)
+  if G_UNLIKELY ((max_len - array->len) < len)
     g_error ("adding %u to array would overflow", len);
 
-  want_alloc = g_array_elt_len (array, array->len + len +
-                                array->zero_terminated);
-
-  if (want_alloc > array->alloc)
+  want_len = array->len + len + array->zero_terminated;
+  if (want_len > array->elt_capacity)
     {
-      want_alloc = g_nearest_pow (want_alloc);
+      gsize want_alloc = g_nearest_pow (g_array_elt_len (array, want_len));
       want_alloc = MAX (want_alloc, MIN_ARRAY_SIZE);
 
       array->data = g_realloc (array->data, want_alloc);
 
       if (G_UNLIKELY (g_mem_gc_friendly))
-        memset (array->data + array->alloc, 0, want_alloc - array->alloc);
+        memset (g_array_elt_pos (array, array->elt_capacity), 0,
+                g_array_elt_len (array, want_len - array->elt_capacity));
 
-      array->alloc = want_alloc;
+      array->elt_capacity = MIN (want_alloc / array->elt_size, G_MAXUINT);
     }
 }
 
@@ -1058,6 +1071,7 @@ struct _GRealPtrArray
   guint           len;
   guint           alloc;
   gatomicrefcount ref_count;
+  guint8          null_terminated; /* always either 0 or 1, so it can be added to array lengths */
   GDestroyNotify  element_free_func;
 };
 
@@ -1077,9 +1091,17 @@ struct _GRealPtrArray
 static void g_ptr_array_maybe_expand (GRealPtrArray *array,
                                       guint          len);
 
+static void
+ptr_array_maybe_null_terminate (GRealPtrArray *rarray)
+{
+  if (G_UNLIKELY (rarray->null_terminated))
+    rarray->pdata[rarray->len] = NULL;
+}
+
 static GPtrArray *
 ptr_array_new (guint reserved_size,
-               GDestroyNotify element_free_func)
+               GDestroyNotify element_free_func,
+               gboolean null_terminated)
 {
   GRealPtrArray *array;
 
@@ -1088,12 +1110,25 @@ ptr_array_new (guint reserved_size,
   array->pdata = NULL;
   array->len = 0;
   array->alloc = 0;
+  array->null_terminated = null_terminated ? 1 : 0;
   array->element_free_func = element_free_func;
 
   g_atomic_ref_count_init (&array->ref_count);
 
   if (reserved_size != 0)
-    g_ptr_array_maybe_expand (array, reserved_size);
+    {
+      if (G_LIKELY (reserved_size < G_MAXUINT) &&
+          null_terminated)
+        reserved_size++;
+      g_ptr_array_maybe_expand (array, reserved_size);
+      if (null_terminated)
+        {
+          /* don't use ptr_array_maybe_null_terminate(). It helps the compiler
+           * to see when @null_terminated is false and thereby inline
+           * ptr_array_new() and possibly remove the code entirely. */
+          array->pdata[0] = NULL;
+        }
+    }
 
   return (GPtrArray *) array;
 }
@@ -1108,18 +1143,22 @@ ptr_array_new (guint reserved_size,
 GPtrArray*
 g_ptr_array_new (void)
 {
-  return ptr_array_new (0, NULL);
+  return ptr_array_new (0, NULL, FALSE);
 }
 
 /**
  * g_ptr_array_steal:
  * @array: a #GPtrArray.
- * @len: (optional) (out caller-allocates): pointer to retrieve the number of
+ * @len: (optional) (out): pointer to retrieve the number of
  *    elements of the original array
  *
  * Frees the data in the array and resets the size to zero, while
  * the underlying array is preserved for use elsewhere and returned
  * to the caller.
+ *
+ * Note that if the array is %NULL terminated this may still return
+ * %NULL if the length of the array was zero and pdata was not yet
+ * allocated.
  *
  * Even if set, the #GDestroyNotify function will never be called
  * on the current contents of the array and the caller is
@@ -1158,8 +1197,9 @@ g_ptr_array_new (void)
  * g_assert (chunk_buffer->len == 0);
  * ]|
  *
- * Returns: (transfer full): the element data, which should be
- *     freed using g_free().
+ * Returns: (transfer full) (nullable): the element data, which should be
+ *     freed using g_free(). This may be %NULL if the array doesn’t have any
+ *     elements (i.e. if `*len` is zero).
  *
  * Since: 2.64
  */
@@ -1202,7 +1242,8 @@ g_ptr_array_steal (GPtrArray *array,
  * pointing to) are copied to the new #GPtrArray.
  *
  * The copy of @array will have the same #GDestroyNotify for its elements as
- * @array.
+ * @array. The copy will also be %NULL terminated if (and only if) the source
+ * array is.
  *
  * Returns: (transfer full): a deep copy of the initial #GPtrArray.
  *
@@ -1213,27 +1254,39 @@ g_ptr_array_copy (GPtrArray *array,
                   GCopyFunc  func,
                   gpointer   user_data)
 {
+  GRealPtrArray *rarray = (GRealPtrArray *) array;
   GPtrArray *new_array;
 
   g_return_val_if_fail (array != NULL, NULL);
 
-  new_array = ptr_array_new (array->len,
-                             ((GRealPtrArray *) array)->element_free_func);
+  new_array = ptr_array_new (0,
+                             rarray->element_free_func,
+                             rarray->null_terminated);
 
-  if (func != NULL)
+  if (rarray->alloc > 0)
     {
-      guint i;
+      g_ptr_array_maybe_expand ((GRealPtrArray *) new_array, array->len + rarray->null_terminated);
 
-      for (i = 0; i < array->len; i++)
-        new_array->pdata[i] = func (array->pdata[i], user_data);
-    }
-  else if (array->len > 0)
-    {
-      memcpy (new_array->pdata, array->pdata,
-              array->len * sizeof (*array->pdata));
-    }
+      if (array->len > 0)
+        {
+          if (func != NULL)
+            {
+              guint i;
 
-  new_array->len = array->len;
+              for (i = 0; i < array->len; i++)
+                new_array->pdata[i] = func (array->pdata[i], user_data);
+            }
+          else
+            {
+              memcpy (new_array->pdata, array->pdata,
+                      array->len * sizeof (*array->pdata));
+            }
+
+          new_array->len = array->len;
+        }
+
+      ptr_array_maybe_null_terminate ((GRealPtrArray *) new_array);
+    }
 
   return new_array;
 }
@@ -1252,7 +1305,7 @@ g_ptr_array_copy (GPtrArray *array,
 GPtrArray*
 g_ptr_array_sized_new (guint reserved_size)
 {
-  return ptr_array_new (reserved_size, NULL);
+  return ptr_array_new (reserved_size, NULL, FALSE);
 }
 
 /**
@@ -1276,7 +1329,7 @@ g_array_copy (GArray *array)
 
   new_rarray =
     (GRealArray *) g_array_sized_new (rarray->zero_terminated, rarray->clear,
-                                      rarray->elt_size, rarray->alloc / rarray->elt_size);
+                                      rarray->elt_size, rarray->elt_capacity);
   new_rarray->len = rarray->len;
   if (rarray->len > 0)
     memcpy (new_rarray->data, rarray->data, rarray->len * rarray->elt_size);
@@ -1296,14 +1349,14 @@ g_array_copy (GArray *array)
  * either via g_ptr_array_unref(), when g_ptr_array_free() is called with
  * @free_segment set to %TRUE or when removing elements.
  *
- * Returns: A new #GPtrArray
+ * Returns: (transfer full): A new #GPtrArray
  *
  * Since: 2.22
  */
 GPtrArray*
 g_ptr_array_new_with_free_func (GDestroyNotify element_free_func)
 {
-  return ptr_array_new (0, element_free_func);
+  return ptr_array_new (0, element_free_func, FALSE);
 }
 
 /**
@@ -1320,7 +1373,7 @@ g_ptr_array_new_with_free_func (GDestroyNotify element_free_func)
  * g_ptr_array_unref(), when g_ptr_array_free() is called with
  * @free_segment set to %TRUE or when removing elements.
  *
- * Returns: A new #GPtrArray
+ * Returns: (transfer full): A new #GPtrArray
  *
  * Since: 2.30
  */
@@ -1328,7 +1381,45 @@ GPtrArray*
 g_ptr_array_new_full (guint          reserved_size,
                       GDestroyNotify element_free_func)
 {
-  return ptr_array_new (reserved_size, element_free_func);
+  return ptr_array_new (reserved_size, element_free_func, FALSE);
+}
+
+/**
+ * g_ptr_array_new_null_terminated:
+ * @reserved_size: number of pointers preallocated.
+ *     If @null_terminated is %TRUE, the actually allocated
+ *     buffer size is @reserved_size plus 1, unless @reserved_size
+ *     is zero, in which case no initial buffer gets allocated.
+ * @element_free_func: (nullable): A function to free elements with
+ *     destroy @array or %NULL
+ * @null_terminated: whether to make the array as %NULL terminated.
+ *
+ * Like g_ptr_array_new_full() but also allows to set the array to
+ * be %NULL terminated. A %NULL terminated pointer array has an
+ * additional %NULL pointer after the last element, beyond the
+ * current length.
+ *
+ * #GPtrArray created by other constructors are not automatically %NULL
+ * terminated.
+ *
+ * Note that if the @array's length is zero and currently no
+ * data array is allocated, then pdata will still be %NULL.
+ * %GPtrArray will only %NULL terminate pdata, if an actual
+ * array is allocated. It does not guarantee that an array
+ * is always allocated. In other words, if the length is zero,
+ * then pdata may either point to a %NULL terminated array of length
+ * zero or be %NULL.
+ *
+ * Returns: (transfer full): A new #GPtrArray
+ *
+ * Since: 2.74
+ */
+GPtrArray *
+g_ptr_array_new_null_terminated (guint          reserved_size,
+                                 GDestroyNotify element_free_func,
+                                 gboolean       null_terminated)
+{
+  return ptr_array_new (reserved_size, element_free_func, null_terminated);
 }
 
 /**
@@ -1352,6 +1443,29 @@ g_ptr_array_set_free_func (GPtrArray      *array,
   g_return_if_fail (array);
 
   rarray->element_free_func = element_free_func;
+}
+
+/**
+ * g_ptr_array_is_null_terminated:
+ * @array: the #GPtrArray
+ *
+ * Gets whether the @array was constructed as %NULL-terminated.
+ *
+ * This will only return %TRUE for arrays constructed by passing %TRUE to the
+ * `null_terminated` argument of g_ptr_array_new_null_terminated(). It will not
+ * return %TRUE for normal arrays which have had a %NULL element appended to
+ * them.
+ *
+ * Returns: %TRUE if the array is made to be %NULL terminated.
+ *
+ * Since: 2.74
+ */
+gboolean
+g_ptr_array_is_null_terminated (GPtrArray *array)
+{
+  g_return_val_if_fail (array, FALSE);
+
+  return ((GRealPtrArray *) array)->null_terminated;
 }
 
 /**
@@ -1417,12 +1531,16 @@ g_ptr_array_unref (GPtrArray *array)
  * be freed separately if @free_seg is %TRUE and no #GDestroyNotify
  * function has been set for @array.
  *
+ * Note that if the array is %NULL terminated and @free_seg is %FALSE
+ * then this will always return an allocated %NULL terminated buffer.
+ * If pdata is previously %NULL, a new buffer will be allocated.
+ *
  * This function is not thread-safe. If using a #GPtrArray from multiple
  * threads, use only the atomic g_ptr_array_ref() and g_ptr_array_unref()
  * functions.
  *
- * Returns: the pointer array if @free_seg is %FALSE, otherwise %NULL.
- *     The pointer array should be freed using g_free().
+ * Returns: (transfer full) (nullable): the pointer array if @free_seg is
+ *     %FALSE, otherwise %NULL. The pointer array should be freed using g_free().
  */
 gpointer*
 g_ptr_array_free (GPtrArray *array,
@@ -1437,9 +1555,14 @@ g_ptr_array_free (GPtrArray *array,
 
   /* if others are holding a reference, preserve the wrapper but
    * do free/return the data
+   *
+   * Coverity doesn’t understand this and assumes it’s a leak, so comment this
+   * out.
    */
+#ifndef __COVERITY__
   if (!g_atomic_ref_count_dec (&rarray->ref_count))
     flags |= PRESERVE_WRAPPER;
+#endif
 
   return ptr_array_free (array, flags);
 }
@@ -1472,7 +1595,11 @@ ptr_array_free (GPtrArray      *array,
       segment = NULL;
     }
   else
-    segment = rarray->pdata;
+    {
+      segment = rarray->pdata;
+      if (!segment && rarray->null_terminated)
+        segment = (gpointer *) g_new0 (char *, 1);
+    }
 
   if (flags & PRESERVE_WRAPPER)
     {
@@ -1492,16 +1619,25 @@ static void
 g_ptr_array_maybe_expand (GRealPtrArray *array,
                           guint          len)
 {
+  guint max_len;
+
+  /* The maximum array length is derived from following constraints:
+   * - The number of bytes must fit into a gsize / 2.
+   * - The number of elements must fit into guint.
+   */
+  max_len = MIN (G_MAXSIZE / 2 / sizeof (gpointer), G_MAXUINT);
+
   /* Detect potential overflow */
-  if G_UNLIKELY ((G_MAXUINT - array->len) < len)
+  if G_UNLIKELY ((max_len - array->len) < len)
     g_error ("adding %u to array would overflow", len);
 
   if ((array->len + len) > array->alloc)
     {
       guint old_alloc = array->alloc;
-      array->alloc = g_nearest_pow (array->len + len);
-      array->alloc = MAX (array->alloc, MIN_ARRAY_SIZE);
-      array->pdata = g_realloc (array->pdata, sizeof (gpointer) * array->alloc);
+      gsize want_alloc = g_nearest_pow (sizeof (gpointer) * (array->len + len));
+      want_alloc = MAX (want_alloc, MIN_ARRAY_SIZE);
+      array->alloc = MIN (want_alloc / sizeof (gpointer), G_MAXUINT);
+      array->pdata = g_realloc (array->pdata, want_alloc);
       if (G_UNLIKELY (g_mem_gc_friendly))
         for ( ; old_alloc < array->alloc; old_alloc++)
           array->pdata [old_alloc] = NULL;
@@ -1534,8 +1670,14 @@ g_ptr_array_set_size  (GPtrArray *array,
   if (length_unsigned > rarray->len)
     {
       guint i;
-      g_ptr_array_maybe_expand (rarray, (length_unsigned - rarray->len));
-      /* This is not 
+
+      if (G_UNLIKELY (rarray->null_terminated) &&
+          length_unsigned - rarray->len > G_MAXUINT - 1)
+        g_error ("array would overflow");
+
+      g_ptr_array_maybe_expand (rarray, (length_unsigned - rarray->len) + rarray->null_terminated);
+
+      /* This is not
        *     memset (array->pdata + array->len, 0,
        *            sizeof (gpointer) * (length_unsigned - array->len));
        * to make it really portable. Remember (void*)NULL needn't be
@@ -1543,11 +1685,13 @@ g_ptr_array_set_size  (GPtrArray *array,
        */
       for (i = rarray->len; i < length_unsigned; i++)
         rarray->pdata[i] = NULL;
+
+      rarray->len = length_unsigned;
+
+      ptr_array_maybe_null_terminate (rarray);
     }
   else if (length_unsigned < rarray->len)
     g_ptr_array_remove_range (array, length_unsigned, rarray->len - length_unsigned);
-
-  rarray->len = length_unsigned;
 }
 
 static gpointer
@@ -1577,7 +1721,7 @@ ptr_array_remove_index (GPtrArray *array,
 
   rarray->len -= 1;
 
-  if (G_UNLIKELY (g_mem_gc_friendly))
+  if (rarray->null_terminated || G_UNLIKELY (g_mem_gc_friendly))
     rarray->pdata[rarray->len] = NULL;
 
   return result;
@@ -1693,7 +1837,10 @@ g_ptr_array_remove_range (GPtrArray *array,
   g_return_val_if_fail (rarray != NULL, NULL);
   g_return_val_if_fail (rarray->len == 0 || (rarray->len != 0 && rarray->pdata != NULL), NULL);
   g_return_val_if_fail (index_ <= rarray->len, NULL);
-  g_return_val_if_fail (index_ + length <= rarray->len, NULL);
+  g_return_val_if_fail (length == 0 || index_ + length <= rarray->len, NULL);
+
+  if (length == 0)
+    return array;
 
   if (rarray->element_free_func != NULL)
     {
@@ -1714,6 +1861,8 @@ g_ptr_array_remove_range (GPtrArray *array,
       for (i = 0; i < length; i++)
         rarray->pdata[rarray->len + i] = NULL;
     }
+  else
+    ptr_array_maybe_null_terminate (rarray);
 
   return array;
 }
@@ -1810,9 +1959,11 @@ g_ptr_array_add (GPtrArray *array,
   g_return_if_fail (rarray);
   g_return_if_fail (rarray->len == 0 || (rarray->len != 0 && rarray->pdata != NULL));
 
-  g_ptr_array_maybe_expand (rarray, 1);
+  g_ptr_array_maybe_expand (rarray, 1u + rarray->null_terminated);
 
   rarray->pdata[rarray->len++] = data;
+
+  ptr_array_maybe_null_terminate (rarray);
 }
 
 /**
@@ -1835,6 +1986,8 @@ g_ptr_array_add (GPtrArray *array,
  * If @func is %NULL, then only the pointers (and not what they are
  * pointing to) are copied to the new #GPtrArray.
  *
+ * Whether @array_to_extend is %NULL terminated stays unchanged by this function.
+ *
  * Since: 2.62
  **/
 void
@@ -1848,7 +2001,14 @@ g_ptr_array_extend (GPtrArray  *array_to_extend,
   g_return_if_fail (array_to_extend != NULL);
   g_return_if_fail (array != NULL);
 
-  g_ptr_array_maybe_expand (rarray_to_extend, array->len);
+  if (array->len == 0u)
+    return;
+
+  if (G_UNLIKELY (array->len == G_MAXUINT) &&
+      rarray_to_extend->null_terminated)
+    g_error ("adding %u to array would overflow", array->len);
+
+  g_ptr_array_maybe_expand (rarray_to_extend, array->len + rarray_to_extend->null_terminated);
 
   if (func != NULL)
     {
@@ -1865,6 +2025,8 @@ g_ptr_array_extend (GPtrArray  *array_to_extend,
     }
 
   rarray_to_extend->len += array->len;
+
+  ptr_array_maybe_null_terminate (rarray_to_extend);
 }
 
 /**
@@ -1922,7 +2084,7 @@ g_ptr_array_insert (GPtrArray *array,
   g_return_if_fail (index_ >= -1);
   g_return_if_fail (index_ <= (gint)rarray->len);
 
-  g_ptr_array_maybe_expand (rarray, 1);
+  g_ptr_array_maybe_expand (rarray, 1u + rarray->null_terminated);
 
   if (index_ < 0)
     index_ = rarray->len;
@@ -1934,6 +2096,8 @@ g_ptr_array_insert (GPtrArray *array,
 
   rarray->len++;
   rarray->pdata[index_] = data;
+
+  ptr_array_maybe_null_terminate (rarray);
 }
 
 /* Please keep this doc-comment in sync with pointer_array_sort_example()
@@ -2099,7 +2263,7 @@ g_ptr_array_foreach (GPtrArray *array,
  * g_ptr_array_find: (skip)
  * @haystack: pointer array to be searched
  * @needle: pointer to look for
- * @index_: (optional) (out caller-allocates): return location for the index of
+ * @index_: (optional) (out): return location for the index of
  *    the element, if found
  *
  * Checks whether @needle exists in @haystack. If the element is found, %TRUE is
@@ -2128,7 +2292,7 @@ g_ptr_array_find (GPtrArray     *haystack,
  * @equal_func: (nullable): the function to call for each element, which should
  *    return %TRUE when the desired element is found; or %NULL to use pointer
  *    equality
- * @index_: (optional) (out caller-allocates): return location for the index of
+ * @index_: (optional) (out): return location for the index of
  *    the element, if found
  *
  * Checks whether @needle exists in @haystack, using the given @equal_func.
@@ -2234,7 +2398,7 @@ g_byte_array_new (void)
 /**
  * g_byte_array_steal:
  * @array: a #GByteArray.
- * @len: (optional) (out caller-allocates): pointer to retrieve the number of
+ * @len: (optional) (out): pointer to retrieve the number of
  *    elements of the original array
  *
  * Frees the data in the array and resets the size to zero, while
@@ -2277,7 +2441,6 @@ g_byte_array_new_take (guint8 *data,
   GRealArray *real;
 
   g_return_val_if_fail (len <= G_MAXUINT, NULL);
-
   array = g_byte_array_new ();
   real = (GRealArray *)array;
   g_assert (real->data == NULL);
@@ -2285,7 +2448,7 @@ g_byte_array_new_take (guint8 *data,
 
   real->data = data;
   real->len = len;
-  real->alloc = len;
+  real->elt_capacity = len;
 
   return array;
 }

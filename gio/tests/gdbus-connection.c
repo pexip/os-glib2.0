@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -61,11 +63,11 @@ _log (const gchar *format, ...)
 static gboolean
 test_connection_quit_mainloop (gpointer user_data)
 {
-  volatile gboolean *quit_mainloop_fired = user_data;
+  gboolean *quit_mainloop_fired = user_data;  /* (atomic) */
   _log ("quit_mainloop_fired");
-  *quit_mainloop_fired = TRUE;
+  g_atomic_int_set (quit_mainloop_fired, TRUE);
   g_main_loop_quit (loop);
-  return TRUE;
+  return G_SOURCE_CONTINUE;
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -86,7 +88,8 @@ static const GDBusInterfaceVTable boo_vtable =
 {
   NULL, /* _method_call */
   NULL, /* _get_property */
-  NULL  /* _set_property */
+  NULL,  /* _set_property */
+  { 0 }
 };
 
 /* Runs in a worker thread. */
@@ -113,8 +116,8 @@ on_name_owner_changed (GDBusConnection *connection,
 static void
 a_gdestroynotify_that_sets_a_gboolean_to_true_and_quits_loop (gpointer user_data)
 {
-  volatile gboolean *val = user_data;
-  *val = TRUE;
+  gboolean *val = user_data;  /* (atomic) */
+  g_atomic_int_set (val, TRUE);
   _log ("destroynotify fired for %p", val);
   g_main_loop_quit (loop);
 }
@@ -143,10 +146,10 @@ test_connection_life_cycle (void)
   GDBusConnection *c;
   GDBusConnection *c2;
   GError *error;
-  volatile gboolean on_signal_registration_freed_called;
-  volatile gboolean on_filter_freed_called;
-  volatile gboolean on_register_object_freed_called;
-  volatile gboolean quit_mainloop_fired;
+  gboolean on_signal_registration_freed_called;  /* (atomic) */
+  gboolean on_filter_freed_called;  /* (atomic) */
+  gboolean on_register_object_freed_called;  /* (atomic) */
+  gboolean quit_mainloop_fired;  /* (atomic) */
   guint quit_mainloop_id;
   guint registration_id;
 
@@ -208,7 +211,7 @@ test_connection_life_cycle (void)
   g_assert_no_error (error);
   g_assert_nonnull (c2);
   /* signal registration */
-  on_signal_registration_freed_called = FALSE;
+  g_atomic_int_set (&on_signal_registration_freed_called, FALSE);
   g_dbus_connection_signal_subscribe (c2,
                                       "org.freedesktop.DBus", /* bus name */
                                       "org.freedesktop.DBus", /* interface */
@@ -220,13 +223,13 @@ test_connection_life_cycle (void)
                                       (gpointer) &on_signal_registration_freed_called,
                                       a_gdestroynotify_that_sets_a_gboolean_to_true_and_quits_loop);
   /* filter func */
-  on_filter_freed_called = FALSE;
+  g_atomic_int_set (&on_filter_freed_called, FALSE);
   g_dbus_connection_add_filter (c2,
                                 some_filter_func,
                                 (gpointer) &on_filter_freed_called,
                                 a_gdestroynotify_that_sets_a_gboolean_to_true_and_quits_loop);
   /* object registration */
-  on_register_object_freed_called = FALSE;
+  g_atomic_int_set (&on_register_object_freed_called, FALSE);
   error = NULL;
   registration_id = g_dbus_connection_register_object (c2,
                                                        "/foo",
@@ -239,7 +242,7 @@ test_connection_life_cycle (void)
   g_assert_cmpuint (registration_id, >, 0);
   /* ok, finalize the connection and check that all the GDestroyNotify functions are invoked as expected */
   g_object_unref (c2);
-  quit_mainloop_fired = FALSE;
+  g_atomic_int_set (&quit_mainloop_fired, FALSE);
   quit_mainloop_id = g_timeout_add (30000, test_connection_quit_mainloop, (gpointer) &quit_mainloop_fired);
   _log ("destroynotifies for\n"
         " register_object %p\n"
@@ -250,21 +253,21 @@ test_connection_life_cycle (void)
         &on_signal_registration_freed_called);
   while (TRUE)
     {
-      if (on_signal_registration_freed_called &&
-          on_filter_freed_called &&
-          on_register_object_freed_called)
+      if (g_atomic_int_get (&on_signal_registration_freed_called) &&
+          g_atomic_int_get (&on_filter_freed_called) &&
+          g_atomic_int_get (&on_register_object_freed_called))
         break;
-      if (quit_mainloop_fired)
+      if (g_atomic_int_get (&quit_mainloop_fired))
         break;
       _log ("entering loop");
       g_main_loop_run (loop);
       _log ("exiting loop");
     }
   g_source_remove (quit_mainloop_id);
-  g_assert_true (on_signal_registration_freed_called);
-  g_assert_true (on_filter_freed_called);
-  g_assert_true (on_register_object_freed_called);
-  g_assert_false (quit_mainloop_fired);
+  g_assert_true (g_atomic_int_get (&on_signal_registration_freed_called));
+  g_assert_true (g_atomic_int_get (&on_filter_freed_called));
+  g_assert_true (g_atomic_int_get (&on_register_object_freed_called));
+  g_assert_false (g_atomic_int_get (&quit_mainloop_fired));
 
   /*
    *  Check for correct behavior when the bus goes away
@@ -415,7 +418,7 @@ test_connection_send (void)
 
   /*
    * Check that we never actually send a message if the GCancellable
-   * is already cancelled - i.e.  we should get #G_IO_ERROR_CANCELLED
+   * is already cancelled - i.e.  we should get G_IO_ERROR_CANCELLED
    * when the actual connection is not up.
    */
   ca = g_cancellable_new ();
@@ -934,7 +937,7 @@ test_connection_filter_on_timeout (gpointer user_data)
 {
   g_printerr ("Timeout waiting 30 sec on service\n");
   g_assert_not_reached ();
-  return FALSE;
+  return G_SOURCE_REMOVE;
 }
 
 static void
@@ -1231,6 +1234,9 @@ test_connection_basic (void)
                  flags == G_DBUS_CAPABILITY_FLAGS_UNIX_FD_PASSING);
 
   connection_flags = g_dbus_connection_get_flags (connection);
+  /* Ignore G_DBUS_CONNECTION_FLAGS_CROSS_NAMESPACE, it's an
+   * implementation detail whether we set it */
+  connection_flags &= ~G_DBUS_CONNECTION_FLAGS_CROSS_NAMESPACE;
   g_assert_cmpint (connection_flags, ==,
                    G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT |
                    G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION);

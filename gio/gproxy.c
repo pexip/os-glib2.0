@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2010 Collabora Ltd.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -55,7 +57,7 @@ g_proxy_default_init (GProxyInterface *iface)
  * Find the `gio-proxy` extension point for a proxy implementation that supports
  * the specified protocol.
  *
- * Returns: (transfer full): return a #GProxy or NULL if protocol
+ * Returns: (nullable) (transfer full): return a #GProxy or NULL if protocol
  *               is not supported.
  *
  * Since: 2.26

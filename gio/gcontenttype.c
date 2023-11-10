@@ -4,6 +4,8 @@
  *
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -32,6 +34,7 @@
 #include "gfileenumerator.h"
 #include "gfileinfo.h"
 #include "glibintl.h"
+#include "glib-private.h"
 
 
 /**
@@ -57,7 +60,12 @@
 
 static void tree_magic_schedule_reload (void);
 
-/* We lock this mutex whenever we modify global state in this module.  */
+/* We lock this mutex whenever we modify global state in this module.
+ * Taking and releasing this lock should always be associated with a pair of
+ * g_begin_ignore_leaks()/g_end_ignore_leaks() calls, as any call into xdgmime
+ * could trigger xdg_mime_init(), which makes a number of one-time allocations
+ * which GLib can never free as it doesn’t know when is suitable to call
+ * xdg_mime_shutdown(). */
 G_LOCK_DEFINE_STATIC (gio_xdgmime);
 
 gsize
@@ -66,7 +74,9 @@ _g_unix_content_type_get_sniff_len (void)
   gsize size;
 
   G_LOCK (gio_xdgmime);
+  g_begin_ignore_leaks ();
   size = xdg_mime_get_max_buffer_extents ();
+  g_end_ignore_leaks ();
   G_UNLOCK (gio_xdgmime);
 
   return size;
@@ -78,7 +88,9 @@ _g_unix_content_type_unalias (const gchar *type)
   gchar *res;
 
   G_LOCK (gio_xdgmime);
+  g_begin_ignore_leaks ();
   res = g_strdup (xdg_mime_unalias_mime_type (type));
+  g_end_ignore_leaks ();
   G_UNLOCK (gio_xdgmime);
 
   return res;
@@ -95,6 +107,7 @@ _g_unix_content_type_get_parents (const gchar *type)
   array = g_ptr_array_new ();
 
   G_LOCK (gio_xdgmime);
+  g_begin_ignore_leaks ();
 
   umime = xdg_mime_unalias_mime_type (type);
 
@@ -106,6 +119,7 @@ _g_unix_content_type_get_parents (const gchar *type)
 
   free (parents);
 
+  g_end_ignore_leaks ();
   G_UNLOCK (gio_xdgmime);
 
   g_ptr_array_add (array, NULL);
@@ -233,7 +247,9 @@ g_content_type_equals (const gchar *type1,
   g_return_val_if_fail (type2 != NULL, FALSE);
 
   G_LOCK (gio_xdgmime);
+  g_begin_ignore_leaks ();
   res = xdg_mime_mime_type_equal (type1, type2);
+  g_end_ignore_leaks ();
   G_UNLOCK (gio_xdgmime);
 
   return res;
@@ -259,7 +275,9 @@ g_content_type_is_a (const gchar *type,
   g_return_val_if_fail (supertype != NULL, FALSE);
 
   G_LOCK (gio_xdgmime);
+  g_begin_ignore_leaks ();
   res = xdg_mime_mime_type_subclass (type, supertype);
+  g_end_ignore_leaks ();
   G_UNLOCK (gio_xdgmime);
 
   return res;
@@ -405,7 +423,9 @@ load_comment_for_mime_helper (const char *dir,
   GMarkupParser parser = {
     mime_info_start_element,
     mime_info_end_element,
-    mime_info_text
+    mime_info_text,
+    NULL,
+    NULL
   };
 
   filename = g_build_filename (dir, basename, NULL);
@@ -415,7 +435,7 @@ load_comment_for_mime_helper (const char *dir,
   if (!res)
     return NULL;
 
-  context = g_markup_parse_context_new   (&parser, 0, &parse_data, NULL);
+  context = g_markup_parse_context_new (&parser, G_MARKUP_DEFAULT_FLAGS, &parse_data, NULL);
   res = g_markup_parse_context_parse (context, data, len, NULL);
   g_free (data);
   g_markup_parse_context_free (context);
@@ -465,32 +485,40 @@ gchar *
 g_content_type_get_description (const gchar *type)
 {
   static GHashTable *type_comment_cache = NULL;
+  gchar *type_copy = NULL;
   gchar *comment;
 
   g_return_val_if_fail (type != NULL, NULL);
 
   G_LOCK (gio_xdgmime);
+  g_begin_ignore_leaks ();
   type = xdg_mime_unalias_mime_type (type);
+  g_end_ignore_leaks ();
 
   if (type_comment_cache == NULL)
     type_comment_cache = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
 
   comment = g_hash_table_lookup (type_comment_cache, type);
   comment = g_strdup (comment);
-  G_UNLOCK (gio_xdgmime);
 
   if (comment != NULL)
-    return comment;
+    {
+      G_UNLOCK (gio_xdgmime);
+      return g_steal_pointer (&comment);
+    }
 
-  comment = load_comment_for_mime (type);
+  type_copy = g_strdup (type);
 
+  G_UNLOCK (gio_xdgmime);
+  comment = load_comment_for_mime (type_copy);
   G_LOCK (gio_xdgmime);
+
   g_hash_table_insert (type_comment_cache,
-                       g_strdup (type),
+                       g_steal_pointer (&type_copy),
                        g_strdup (comment));
   G_UNLOCK (gio_xdgmime);
 
-  return comment;
+  return g_steal_pointer (&comment);
 }
 
 /**
@@ -526,7 +554,9 @@ g_content_type_get_icon_internal (const gchar *type,
   g_return_val_if_fail (type != NULL, NULL);
 
   G_LOCK (gio_xdgmime);
+  g_begin_ignore_leaks ();
   xdg_icon = xdg_mime_get_icon (type);
+  g_end_ignore_leaks ();
   G_UNLOCK (gio_xdgmime);
 
   if (xdg_icon)
@@ -617,7 +647,9 @@ g_content_type_get_generic_icon_name (const gchar *type)
   g_return_val_if_fail (type != NULL, NULL);
 
   G_LOCK (gio_xdgmime);
+  g_begin_ignore_leaks ();
   xdg_icon_name = xdg_mime_get_generic_icon (type);
+  g_end_ignore_leaks ();
   G_UNLOCK (gio_xdgmime);
 
   if (!xdg_icon_name)
@@ -701,8 +733,10 @@ g_content_type_from_mime_type (const gchar *mime_type)
   g_return_val_if_fail (mime_type != NULL, NULL);
 
   G_LOCK (gio_xdgmime);
+  g_begin_ignore_leaks ();
   /* mime type and content type are same on unixes */
   umime = g_strdup (xdg_mime_unalias_mime_type (mime_type));
+  g_end_ignore_leaks ();
   G_UNLOCK (gio_xdgmime);
 
   return umime;
@@ -710,7 +744,7 @@ g_content_type_from_mime_type (const gchar *mime_type)
 
 /**
  * g_content_type_guess:
- * @filename: (nullable): a string, or %NULL
+ * @filename: (nullable) (type filename): a path, or %NULL
  * @data: (nullable) (array length=data_size): a stream of data, or %NULL
  * @data_size: the size of @data
  * @result_uncertain: (out) (optional): return location for the certainty
@@ -749,11 +783,12 @@ g_content_type_guess (const gchar  *filename,
   g_return_val_if_fail (data_size != (gsize) -1, g_strdup (XDG_MIME_TYPE_UNKNOWN));
 
   G_LOCK (gio_xdgmime);
+  g_begin_ignore_leaks ();
 
   if (filename)
     {
       i = strlen (filename);
-      if (filename[i - 1] == '/')
+      if (i > 0 && filename[i - 1] == '/')
         {
           name_mimetypes[0] = "inode/directory";
           name_mimetypes[1] = NULL;
@@ -773,6 +808,7 @@ g_content_type_guess (const gchar  *filename,
   if (n_name_mimetypes == 1)
     {
       gchar *s = g_strdup (name_mimetypes[0]);
+      g_end_ignore_leaks ();
       G_UNLOCK (gio_xdgmime);
       return s;
     }
@@ -841,6 +877,7 @@ g_content_type_guess (const gchar  *filename,
         }
     }
 
+  g_end_ignore_leaks ();
   G_UNLOCK (gio_xdgmime);
 
   return mimetype;
@@ -995,6 +1032,8 @@ parse_header (gchar *line)
 
   line[len - 1] = 0;
   s = strchr (line, ':');
+  if (s == NULL)
+    return NULL;
 
   match = g_slice_new0 (TreeMatch);
   match->priority = atoi (line + 1);
@@ -1023,9 +1062,13 @@ parse_match_line (gchar *line,
     {
       *depth = atoi (line);
       s = strchr (line, '>');
+      if (s == NULL)
+        goto handle_error;
     }
   s += 2;
   p = strchr (s, '"');
+  if (p == NULL)
+    goto handle_error;
   *p = 0;
 
   matchlet->path = g_strdup (s);
@@ -1056,6 +1099,10 @@ parse_match_line (gchar *line,
   g_strfreev (parts);
 
   return matchlet;
+
+handle_error:
+  g_slice_free (TreeMatchlet, matchlet);
+  return NULL;
 }
 
 static gint
@@ -1117,7 +1164,7 @@ read_tree_magic_from_directory (const gchar *prefix)
   gchar *text;
   gsize len;
   gchar **lines;
-  gint i;
+  gsize i;
   TreeMatch *match;
   TreeMatchlet *matchlet;
   gint depth;
@@ -1132,14 +1179,18 @@ read_tree_magic_from_directory (const gchar *prefix)
           match = NULL;
           for (i = 0; lines[i] && lines[i][0]; i++)
             {
-              if (lines[i][0] == '[')
+              if (lines[i][0] == '[' && (match = parse_header (lines[i])) != NULL)
                 {
-                  match = parse_header (lines[i]);
                   insert_match (match);
                 }
               else if (match != NULL)
                 {
                   matchlet = parse_match_line (lines[i], &depth);
+                  if (matchlet == NULL)
+                    {
+                      g_warning ("%s: body corrupt; skipping", filename);
+                      break;
+                    }
                   insert_matchlet (match, matchlet, depth);
                 }
               else

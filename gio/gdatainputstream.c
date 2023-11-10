@@ -4,6 +4,8 @@
  * Copyright (C) 2007 Jürg Billeter
  * Copyright © 2009 Codethink Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -27,7 +29,6 @@
 #include "gioenumtypes.h"
 #include "gioerror.h"
 #include "glibintl.h"
-#include "gstrfuncsprivate.h"
 
 #include <string.h>
 
@@ -77,9 +78,9 @@ g_data_input_stream_class_init (GDataInputStreamClass *klass)
   object_class->set_property = g_data_input_stream_set_property;
 
   /**
-   * GDataStream:byte-order:
+   * GDataInputStream:byte-order:
    *
-   * The ::byte-order property determines the byte ordering that
+   * The :byte-order property determines the byte ordering that
    * is used when reading multi-byte entities (such as integers)
    * from the stream.
    */ 
@@ -93,7 +94,7 @@ g_data_input_stream_class_init (GDataInputStreamClass *klass)
                                                       G_PARAM_READWRITE|G_PARAM_STATIC_NAME|G_PARAM_STATIC_BLURB));
 
   /**
-   * GDataStream:newline-type:
+   * GDataInputStream:newline-type:
    *
    * The :newline-type property determines what is considered
    * as a line ending when reading complete lines from the stream.
@@ -311,7 +312,7 @@ read_data (GDataInputStream  *stream,
   res = g_input_stream_read (G_INPUT_STREAM (stream),
 			     buffer, size,
 			     NULL, NULL);
-  g_warn_if_fail (res == size);
+  g_warn_if_fail (res >= 0 && (gsize) res == size);
   return TRUE;
 }
 
@@ -632,7 +633,7 @@ scan_for_newline (GDataInputStream *stream,
   GDataInputStreamPrivate *priv;
   const char *buffer;
   gsize start, end, peeked;
-  int i;
+  gsize i;
   gssize found_pos;
   int newline_len;
   gsize available, checked;
@@ -862,7 +863,7 @@ scan_for_chars (GDataInputStream *stream,
   GBufferedInputStream *bstream;
   const char *buffer;
   gsize start, end, peeked;
-  int i;
+  gsize i;
   gsize available, checked;
   const char *stop_char;
   const char *stop_end;

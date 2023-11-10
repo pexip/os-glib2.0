@@ -2,6 +2,8 @@
  *
  * Copyright 2013 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -40,6 +42,7 @@
 #undef G_CREDENTIALS_USE_OPENBSD_SOCKPEERCRED
 #undef G_CREDENTIALS_USE_SOLARIS_UCRED
 #undef G_CREDENTIALS_USE_APPLE_XUCRED
+#undef G_CREDENTIALS_USE_WIN32_PID
 
 /*
  * G_CREDENTIALS_NATIVE_TYPE:
@@ -167,6 +170,17 @@
 #define G_CREDENTIALS_SOCKET_GET_CREDENTIALS_SUPPORTED 1
 #define G_CREDENTIALS_SPOOFING_SUPPORTED 1
 #define G_CREDENTIALS_HAS_PID 0
+
+void _g_credentials_set_local_peerid (GCredentials *credentials,
+                                      pid_t         pid);
+
+#elif defined(_WIN32)
+#define G_CREDENTIALS_SUPPORTED 1
+#define G_CREDENTIALS_USE_WIN32_PID 1
+#define G_CREDENTIALS_NATIVE_TYPE G_CREDENTIALS_TYPE_WIN32_PID
+#define G_CREDENTIALS_NATIVE_SIZE (sizeof (DWORD))
+#define G_CREDENTIALS_SOCKET_GET_CREDENTIALS_SUPPORTED 1
+#define G_CREDENTIALS_HAS_PID 1
 
 #endif
 

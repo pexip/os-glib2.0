@@ -5,6 +5,8 @@
  * Copyright 1998 Sebastian Wilhelmi; University of Karlsruhe
  *                Owen Taylor
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -164,16 +166,17 @@
  * G_LOCK_DEFINE:
  * @name: the name of the lock
  *
- * The #G_LOCK_ macros provide a convenient interface to #GMutex.
- * #G_LOCK_DEFINE defines a lock. It can appear in any place where
+ * The `G_LOCK_` macros provide a convenient interface to #GMutex.
+ * %G_LOCK_DEFINE defines a lock. It can appear in any place where
  * variable definitions may appear in programs, i.e. in the first block
  * of a function or outside of functions. The @name parameter will be
  * mangled to get the name of the #GMutex. This means that you
  * can use names of existing variables as the parameter - e.g. the name
  * of the variable you intend to protect with the lock. Look at our
- * give_me_next_number() example using the #G_LOCK macros:
+ * give_me_next_number() example using the `G_LOCK` macros:
  *
- * Here is an example for using the #G_LOCK convenience macros:
+ * Here is an example for using the `G_LOCK` convenience macros:
+ *
  * |[<!-- language="C" --> 
  *   G_LOCK_DEFINE (current_number);
  *
@@ -196,14 +199,14 @@
  * G_LOCK_DEFINE_STATIC:
  * @name: the name of the lock
  *
- * This works like #G_LOCK_DEFINE, but it creates a static object.
+ * This works like %G_LOCK_DEFINE, but it creates a static object.
  */
 
 /**
  * G_LOCK_EXTERN:
  * @name: the name of the lock
  *
- * This declares a lock, that is defined with #G_LOCK_DEFINE in another
+ * This declares a lock, that is defined with %G_LOCK_DEFINE in another
  * module.
  */
 
@@ -212,7 +215,7 @@
  * @name: the name of the lock
  *
  * Works like g_mutex_lock(), but for a lock defined with
- * #G_LOCK_DEFINE.
+ * %G_LOCK_DEFINE.
  */
 
 /**
@@ -220,7 +223,7 @@
  * @name: the name of the lock
  *
  * Works like g_mutex_trylock(), but for a lock defined with
- * #G_LOCK_DEFINE.
+ * %G_LOCK_DEFINE.
  *
  * Returns: %TRUE, if the lock could be locked.
  */
@@ -230,7 +233,7 @@
  * @name: the name of the lock
  *
  * Works like g_mutex_unlock(), but for a lock defined with
- * #G_LOCK_DEFINE.
+ * %G_LOCK_DEFINE.
  */
 
 /* GMutex Documentation {{{1 ------------------------------------------ */
@@ -471,7 +474,7 @@
 
 /**
  * GThreadFunc:
- * @data: data passed to the thread
+ * @user_data: data passed to the thread
  *
  * Specifies the type of the @func functions passed to g_thread_new()
  * or g_thread_try_new().
@@ -513,7 +516,7 @@ static GMutex    g_once_mutex;
 static GCond     g_once_cond;
 static GSList   *g_once_init_list = NULL;
 
-static volatile guint g_thread_n_created_counter = 0;
+static guint g_thread_n_created_counter = 0;  /* (atomic) */
 
 static void g_thread_cleanup (gpointer data);
 static GPrivate     g_thread_specific_private = G_PRIVATE_INIT (g_thread_cleanup);
@@ -686,6 +689,9 @@ g_once_impl (GOnce       *once,
  *   // use initialization_value here
  * ]|
  *
+ * While @location has a `volatile` qualifier, this is a historical artifact and
+ * the pointer passed to it should not be `volatile`.
+ *
  * Returns: %TRUE if the initialization section should be entered,
  *     %FALSE and blocks otherwise
  *
@@ -694,7 +700,7 @@ g_once_impl (GOnce       *once,
 gboolean
 (g_once_init_enter) (volatile void *location)
 {
-  volatile gsize *value_location = location;
+  gsize *value_location = (gsize *) location;
   gboolean need_init = FALSE;
   g_mutex_lock (&g_once_mutex);
   if (g_atomic_pointer_get (value_location) == 0)
@@ -725,18 +731,23 @@ gboolean
  * releases concurrent threads blocking in g_once_init_enter() on this
  * initialization variable.
  *
+ * While @location has a `volatile` qualifier, this is a historical artifact and
+ * the pointer passed to it should not be `volatile`.
+ *
  * Since: 2.14
  */
 void
 (g_once_init_leave) (volatile void *location,
                      gsize          result)
 {
-  volatile gsize *value_location = location;
+  gsize *value_location = (gsize *) location;
+  gsize old_value;
 
-  g_return_if_fail (g_atomic_pointer_get (value_location) == 0);
   g_return_if_fail (result != 0);
 
-  g_atomic_pointer_set (value_location, result);
+  old_value = (gsize) g_atomic_pointer_exchange (value_location, result);
+  g_return_if_fail (old_value == 0);
+
   g_mutex_lock (&g_once_mutex);
   g_return_if_fail (g_once_init_list != NULL);
   g_once_init_list = g_slist_remove (g_once_init_list, (void*) value_location);

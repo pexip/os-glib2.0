@@ -3,6 +3,8 @@
  * Copyright © 2006-2010 Red Hat, Inc.
  * Copyright © 2011 Nokia Corporation
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -188,7 +190,7 @@ delayed_close_cb (gpointer data)
     close_async (df->stream, df->io_priority, df->cancellable, df->callback,
                  df->user_data);
 
-  return FALSE;
+  return G_SOURCE_REMOVE;
 }
 
 static void

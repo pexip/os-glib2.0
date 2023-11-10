@@ -44,6 +44,12 @@ input. The options specified control the text that generated, substituting vario
 keywords enclosed in <literal>@</literal> characters in the templates.
 </para>
 
+<para>Since version 2.74, GLib provides the <literal>G_DEFINE_ENUM_TYPE</literal>
+and <literal>G_DEFINE_FLAGS_TYPE</literal> C pre-processor macros. These macros
+can be used to define a GType for projects that have few, small enumeration
+types without going through the complexities of generating code at build
+time.</para>
+
 <refsect2><title>Production text substitutions</title>
 <para>
 Certain keywords enclosed in <literal>@</literal> characters will be substituted in the
@@ -480,9 +486,9 @@ A C source template file will typically look like this:
 GType
 @enum_name@_get_type (void)
 {
-  static volatile gsize g_@type@_type_id__volatile;
+  static gsize static_g_@type@_type_id;
 
-  if (g_once_init_enter (&amp;g_define_type_id__volatile))
+  if (g_once_init_enter (&amp;static_g_@type@_type_id))
     {
       static const G@Type@Value values[] = {
 /*** END value-header ***/
@@ -498,9 +504,9 @@ GType
       GType g_@type@_type_id =
         g_@type@_register_static (g_intern_static_string ("@EnumName@"), values);
 
-      g_once_init_leave (&amp;g_@type@_type_id__volatile, g_@type@_type_id);
+      g_once_init_leave (&amp;static_g_@type@_type_id, g_@type@_type_id);
     }
-  return g_@type@_type_id__volatile;
+  return static_g_@type@_type_id;
 }
 
 /*** END value-tail ***/

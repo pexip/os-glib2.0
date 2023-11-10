@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -211,9 +213,9 @@ g_dbus_object_manager_get_objects (GDBusObjectManager *manager)
  * @manager: A #GDBusObjectManager.
  * @object_path: Object path to look up.
  *
- * Gets the #GDBusObjectProxy at @object_path, if any.
+ * Gets the #GDBusObject at @object_path, if any.
  *
- * Returns: (transfer full): A #GDBusObject or %NULL. Free with
+ * Returns: (transfer full) (nullable): A #GDBusObject or %NULL. Free with
  *   g_object_unref().
  *
  * Since: 2.30
@@ -236,7 +238,7 @@ g_dbus_object_manager_get_object (GDBusObjectManager *manager,
  * Gets the interface proxy for @interface_name at @object_path, if
  * any.
  *
- * Returns: (transfer full): A #GDBusInterface instance or %NULL. Free
+ * Returns: (transfer full) (nullable): A #GDBusInterface instance or %NULL. Free
  *   with g_object_unref().
  *
  * Since: 2.30

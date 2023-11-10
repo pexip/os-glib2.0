@@ -33,6 +33,8 @@
 
 #include <glib.h>
 
+#include "glib/glib-private.h"
+
 #ifdef G_OS_UNIX
 #include <unistd.h>
 #include <sys/resource.h>
@@ -132,16 +134,17 @@ test_thread3 (void)
 static void
 test_thread4 (void)
 {
-#ifdef HAVE_PRLIMIT
+#ifdef _GLIB_ADDRESS_SANITIZER
+  g_test_incomplete ("FIXME: Leaks a GSystemThread's name, see glib#2308");
+#elif defined(HAVE_PRLIMIT)
   struct rlimit ol, nl;
   GThread *thread;
   GError *error;
-  gint ret;
 
   getrlimit (RLIMIT_NPROC, &nl);
   nl.rlim_cur = 1;
 
-  if ((ret = prlimit (getpid (), RLIMIT_NPROC, &nl, &ol)) != 0)
+  if (prlimit (getpid (), RLIMIT_NPROC, &nl, &ol) != 0)
     g_error ("prlimit failed: %s", g_strerror (errno));
 
   error = NULL;
@@ -167,7 +170,7 @@ test_thread4 (void)
       g_error_free (error);
     }
 
-  if ((ret = prlimit (getpid (), RLIMIT_NPROC, &ol, NULL)) != 0)
+  if (prlimit (getpid (), RLIMIT_NPROC, &ol, NULL) != 0)
     g_error ("resetting RLIMIT_NPROC failed: %s", g_strerror (errno));
 #endif
 }

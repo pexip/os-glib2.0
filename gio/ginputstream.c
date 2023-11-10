@@ -2,6 +2,8 @@
  * 
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -129,7 +131,7 @@ g_input_stream_init (GInputStream *stream)
  * @stream: a #GInputStream.
  * @buffer: (array length=count) (element-type guint8) (out caller-allocates):
  *     a buffer to read data into (which should be at least count bytes long).
- * @count: the number of bytes that will be read from the stream
+ * @count: (in): the number of bytes that will be read from the stream
  * @cancellable: (nullable): optional #GCancellable object, %NULL to ignore.
  * @error: location to store the error occurring, or %NULL to ignore
  *
@@ -210,7 +212,7 @@ g_input_stream_read  (GInputStream  *stream,
  * @stream: a #GInputStream.
  * @buffer: (array length=count) (element-type guint8) (out caller-allocates):
  *     a buffer to read data into (which should be at least count bytes long).
- * @count: the number of bytes that will be read from the stream
+ * @count: (in): the number of bytes that will be read from the stream
  * @bytes_read: (out): location to store the number of bytes that was read from the stream
  * @cancellable: (nullable): optional #GCancellable object, %NULL to ignore.
  * @error: location to store the error occurring, or %NULL to ignore
@@ -411,12 +413,43 @@ g_input_stream_real_skip (GInputStream  *stream,
 
   if (G_IS_SEEKABLE (stream) && g_seekable_can_seek (G_SEEKABLE (stream)))
     {
+      GSeekable *seekable = G_SEEKABLE (stream);
+      goffset start, end;
+      gboolean success;
+
+      /* g_seekable_seek() may try to set pending itself */
+      stream->priv->pending = FALSE;
+
+      start = g_seekable_tell (seekable);
+
       if (g_seekable_seek (G_SEEKABLE (stream),
-			   count,
-			   G_SEEK_CUR,
-			   cancellable,
-			   NULL))
-	return count;
+                           0,
+                           G_SEEK_END,
+                           cancellable,
+                           NULL))
+        {
+          end = g_seekable_tell (seekable);
+          g_assert (start >= 0);
+          g_assert (end >= start);
+          if (start > (goffset) (G_MAXOFFSET - count) ||
+              (goffset) (start + count) > end)
+            {
+              stream->priv->pending = TRUE;
+              return end - start;
+            }
+
+          success = g_seekable_seek (G_SEEKABLE (stream),
+                                     start + count,
+                                     G_SEEK_SET,
+                                     cancellable,
+                                     error);
+          stream->priv->pending = TRUE;
+
+          if (success)
+            return count;
+          else
+            return -1;
+        }
     }
 
   /* If not seekable, or seek failed, fall back to reading data: */
@@ -552,7 +585,7 @@ async_ready_close_callback_wrapper (GObject      *source_object,
  * @stream: A #GInputStream.
  * @buffer: (array length=count) (element-type guint8) (out caller-allocates):
  *     a buffer to read data into (which should be at least count bytes long).
- * @count: the number of bytes that will be read from the stream
+ * @count: (in): the number of bytes that will be read from the stream
  * @io_priority: the [I/O priority][io-priority]
  * of the request. 
  * @cancellable: (nullable): optional #GCancellable object, %NULL to ignore.
@@ -744,7 +777,7 @@ read_all_async_thread (GTask        *task,
  * @stream: A #GInputStream
  * @buffer: (array length=count) (element-type guint8) (out caller-allocates):
  *     a buffer to read data into (which should be at least count bytes long)
- * @count: the number of bytes that will be read from the stream
+ * @count: (in): the number of bytes that will be read from the stream
  * @io_priority: the [I/O priority][io-priority] of the request
  * @cancellable: (nullable): optional #GCancellable object, %NULL to ignore
  * @callback: (scope async): callback to call when the request is satisfied

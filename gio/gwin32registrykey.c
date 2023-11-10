@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2014 Руслан Ижбулатов <lrn1986@gmail.com>
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -27,8 +29,6 @@
 #include <windows.h>
 #include <ntstatus.h>
 #include <winternl.h>
-
-#include "gstrfuncsprivate.h"
 
 #ifndef _WDMDDK_
 typedef enum _KEY_INFORMATION_CLASS {
@@ -966,7 +966,7 @@ g_win32_registry_subkey_iter_next (GWin32RegistrySubkeyIter  *iter,
  **/
 gboolean
 g_win32_registry_subkey_iter_get_name_w (GWin32RegistrySubkeyIter  *iter,
-                                         gunichar2                **subkey_name,
+                                         const gunichar2          **subkey_name,
                                          gsize                     *subkey_name_len,
                                          GError                   **error)
 {
@@ -1008,7 +1008,7 @@ g_win32_registry_subkey_iter_get_name_w (GWin32RegistrySubkeyIter  *iter,
  **/
 gboolean
 g_win32_registry_subkey_iter_get_name (GWin32RegistrySubkeyIter  *iter,
-                                       gchar                    **subkey_name,
+                                       const gchar              **subkey_name,
                                        gsize                     *subkey_name_len,
                                        GError                   **error)
 {
@@ -1033,13 +1033,15 @@ g_win32_registry_subkey_iter_get_name (GWin32RegistrySubkeyIter  *iter,
                                           &subkey_name_len_glong,
                                           error);
 
-  if (iter->subkey_name_u8 != NULL)
-    {
-      *subkey_name_len = subkey_name_len_glong;
-      return TRUE;
-    }
+  if (iter->subkey_name_u8 == NULL)
+    return FALSE;
 
-  return FALSE;
+  *subkey_name = iter->subkey_name_u8;
+
+  if (subkey_name_len)
+    *subkey_name_len = subkey_name_len_glong;
+
+  return TRUE;
 }
 
 /**
@@ -2425,17 +2427,20 @@ key_changed (PVOID            closure,
              ULONG            reserved)
 {
   GWin32RegistryKey *key = G_WIN32_REGISTRY_KEY (closure);
+  gpointer user_data;
+  GWin32RegistryKeyWatchCallbackFunc callback;
+
+  callback = g_steal_pointer (&key->priv->callback);
+  user_data = g_steal_pointer (&key->priv->user_data);
 
   g_free (status_block);
   g_atomic_int_set (&key->priv->change_indicator, G_WIN32_KEY_CHANGED);
   g_atomic_int_set (&key->priv->watch_indicator, G_WIN32_KEY_UNWATCHED);
   key->priv->update_flags = G_WIN32_REGISTRY_UPDATED_NOTHING;
 
-  if (key->priv->callback)
-    key->priv->callback (key, key->priv->user_data);
+  if (callback)
+    callback (key, user_data);
 
-  key->priv->callback = NULL;
-  key->priv->user_data = NULL;
   g_object_unref (key);
 }
 
@@ -2502,7 +2507,7 @@ g_win32_registry_key_watch (GWin32RegistryKey                   *key,
   if (g_once_init_enter (&nt_notify_change_multiple_keys))
   {
     NtNotifyChangeMultipleKeysFunc func;
-    HMODULE ntdll = GetModuleHandle ("ntdll.dll");
+    HMODULE ntdll = GetModuleHandleW (L"ntdll.dll");
 
     if (ntdll != NULL)
       func = (NtNotifyChangeMultipleKeysFunc) GetProcAddress (ntdll, "NtNotifyChangeMultipleKeys");
@@ -2550,9 +2555,7 @@ g_win32_registry_key_watch (GWin32RegistryKey                   *key,
                                            0,
                                            TRUE);
 
-  g_assert (status != STATUS_SUCCESS);
-
-  if (status == STATUS_PENDING)
+  if (status == STATUS_PENDING || status == STATUS_SUCCESS)
     return TRUE;
 
   g_atomic_int_set (&key->priv->change_indicator, G_WIN32_KEY_UNKNOWN);

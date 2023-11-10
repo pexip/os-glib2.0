@@ -1,6 +1,8 @@
 /*
  * Copyright © 2011 Ryan Lortie
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -105,6 +107,9 @@
  * This call acts as a full compiler and hardware
  * memory barrier (before the get).
  *
+ * While @atomic has a `volatile` qualifier, this is a historical artifact and
+ * the pointer passed to it should not be `volatile`.
+ *
  * Returns: the value of the integer
  *
  * Since: 2.4
@@ -125,6 +130,9 @@ gint
  * This call acts as a full compiler and hardware
  * memory barrier (after the set).
  *
+ * While @atomic has a `volatile` qualifier, this is a historical artifact and
+ * the pointer passed to it should not be `volatile`.
+ *
  * Since: 2.4
  */
 void
@@ -144,6 +152,9 @@ void
  *
  * This call acts as a full compiler and hardware memory barrier.
  *
+ * While @atomic has a `volatile` qualifier, this is a historical artifact and
+ * the pointer passed to it should not be `volatile`.
+ *
  * Since: 2.4
  **/
 void
@@ -162,6 +173,9 @@ void
  * `{ *atomic -= 1; return (*atomic == 0); }`.
  *
  * This call acts as a full compiler and hardware memory barrier.
+ *
+ * While @atomic has a `volatile` qualifier, this is a historical artifact and
+ * the pointer passed to it should not be `volatile`.
  *
  * Returns: %TRUE if the resultant value is zero
  *
@@ -189,6 +203,9 @@ gboolean
  *
  * This call acts as a full compiler and hardware memory barrier.
  *
+ * While @atomic has a `volatile` qualifier, this is a historical artifact and
+ * the pointer passed to it should not be `volatile`.
+ *
  * Returns: %TRUE if the exchange took place
  *
  * Since: 2.4
@@ -199,6 +216,64 @@ gboolean
                                      gint           newval)
 {
   return g_atomic_int_compare_and_exchange (atomic, oldval, newval);
+}
+
+/**
+ * g_atomic_int_compare_and_exchange_full:
+ * @atomic: a pointer to a #gint or #guint
+ * @oldval: the value to compare with
+ * @newval: the value to conditionally replace with
+ * @preval: (out): the contents of @atomic before this operation
+ *
+ * Compares @atomic to @oldval and, if equal, sets it to @newval.
+ * If @atomic was not equal to @oldval then no change occurs.
+ * In any case the value of @atomic before this operation is stored in @preval.
+ *
+ * This compare and exchange is done atomically.
+ *
+ * Think of this operation as an atomic version of
+ * `{ *preval = *atomic; if (*atomic == oldval) { *atomic = newval; return TRUE; } else return FALSE; }`.
+ *
+ * This call acts as a full compiler and hardware memory barrier.
+ *
+ * See also g_atomic_int_compare_and_exchange()
+ *
+ * Returns: %TRUE if the exchange took place
+ *
+ * Since: 2.74
+ **/
+gboolean
+(g_atomic_int_compare_and_exchange_full) (gint *atomic,
+                                          gint  oldval,
+                                          gint  newval,
+                                          gint *preval)
+{
+  return g_atomic_int_compare_and_exchange_full (atomic, oldval, newval, preval);
+}
+
+/**
+ * g_atomic_int_exchange:
+ * @atomic: a pointer to a #gint or #guint
+ * @newval: the value to replace with
+ *
+ * Sets the @atomic to @newval and returns the old value from @atomic.
+ *
+ * This exchange is done atomically.
+ *
+ * Think of this operation as an atomic version of
+ * `{ tmp = *atomic; *atomic = val; return tmp; }`.
+ *
+ * This call acts as a full compiler and hardware memory barrier.
+ *
+ * Returns: the value of @atomic before the exchange, signed
+ *
+ * Since: 2.74
+ **/
+gint
+(g_atomic_int_exchange) (gint *atomic,
+                         gint  newval)
+{
+  return g_atomic_int_exchange (atomic, newval);
 }
 
 /**
@@ -215,6 +290,9 @@ gboolean
  *
  * Before version 2.30, this function did not return a value
  * (but g_atomic_int_exchange_and_add() did, and had the same meaning).
+ *
+ * While @atomic has a `volatile` qualifier, this is a historical artifact and
+ * the pointer passed to it should not be `volatile`.
  *
  * Returns: the value of @atomic before the add, signed
  *
@@ -240,6 +318,9 @@ gint
  * Think of this operation as an atomic version of
  * `{ tmp = *atomic; *atomic &= val; return tmp; }`.
  *
+ * While @atomic has a `volatile` qualifier, this is a historical artifact and
+ * the pointer passed to it should not be `volatile`.
+ *
  * Returns: the value of @atomic before the operation, unsigned
  *
  * Since: 2.30
@@ -263,6 +344,9 @@ guint
  * `{ tmp = *atomic; *atomic |= val; return tmp; }`.
  *
  * This call acts as a full compiler and hardware memory barrier.
+ *
+ * While @atomic has a `volatile` qualifier, this is a historical artifact and
+ * the pointer passed to it should not be `volatile`.
  *
  * Returns: the value of @atomic before the operation, unsigned
  *
@@ -288,6 +372,9 @@ guint
  *
  * This call acts as a full compiler and hardware memory barrier.
  *
+ * While @atomic has a `volatile` qualifier, this is a historical artifact and
+ * the pointer passed to it should not be `volatile`.
+ *
  * Returns: the value of @atomic before the operation, unsigned
  *
  * Since: 2.30
@@ -309,6 +396,9 @@ guint
  * This call acts as a full compiler and hardware
  * memory barrier (before the get).
  *
+ * While @atomic has a `volatile` qualifier, this is a historical artifact and
+ * the pointer passed to it should not be `volatile`.
+ *
  * Returns: the value of the pointer
  *
  * Since: 2.4
@@ -316,7 +406,7 @@ guint
 gpointer
 (g_atomic_pointer_get) (const volatile void *atomic)
 {
-  return g_atomic_pointer_get ((const volatile gpointer *) atomic);
+  return g_atomic_pointer_get ((gpointer *) atomic);
 }
 
 /**
@@ -329,13 +419,16 @@ gpointer
  * This call acts as a full compiler and hardware
  * memory barrier (after the set).
  *
+ * While @atomic has a `volatile` qualifier, this is a historical artifact and
+ * the pointer passed to it should not be `volatile`.
+ *
  * Since: 2.4
  **/
 void
 (g_atomic_pointer_set) (volatile void *atomic,
                         gpointer       newval)
 {
-  g_atomic_pointer_set ((volatile gpointer *) atomic, newval);
+  g_atomic_pointer_set ((gpointer *) atomic, newval);
 }
 
 /**
@@ -354,6 +447,9 @@ void
  *
  * This call acts as a full compiler and hardware memory barrier.
  *
+ * While @atomic has a `volatile` qualifier, this is a historical artifact and
+ * the pointer passed to it should not be `volatile`.
+ *
  * Returns: %TRUE if the exchange took place
  *
  * Since: 2.4
@@ -363,8 +459,68 @@ gboolean
                                          gpointer       oldval,
                                          gpointer       newval)
 {
-  return g_atomic_pointer_compare_and_exchange ((volatile gpointer *) atomic,
+  return g_atomic_pointer_compare_and_exchange ((gpointer *) atomic,
                                                 oldval, newval);
+}
+
+ /**
+ * g_atomic_pointer_compare_and_exchange_full:
+ * @atomic: (not nullable): a pointer to a #gpointer-sized value
+ * @oldval: the value to compare with
+ * @newval: the value to conditionally replace with
+ * @preval: (not nullable) (out): the contents of @atomic before this operation
+ *
+ * Compares @atomic to @oldval and, if equal, sets it to @newval.
+ * If @atomic was not equal to @oldval then no change occurs.
+ * In any case the value of @atomic before this operation is stored in @preval.
+ *
+ * This compare and exchange is done atomically.
+ *
+ * Think of this operation as an atomic version of
+ * `{ *preval = *atomic; if (*atomic == oldval) { *atomic = newval; return TRUE; } else return FALSE; }`.
+ *
+ * This call acts as a full compiler and hardware memory barrier.
+ *
+ * See also g_atomic_pointer_compare_and_exchange()
+ *
+ * Returns: %TRUE if the exchange took place
+ *
+ * Since: 2.74
+ **/
+gboolean
+(g_atomic_pointer_compare_and_exchange_full) (void     *atomic,
+                                              gpointer  oldval,
+                                              gpointer  newval,
+                                              void     *preval)
+{
+  return g_atomic_pointer_compare_and_exchange_full ((gpointer *) atomic,
+                                                     oldval, newval,
+                                                     (gpointer *) preval);
+}
+
+/**
+ * g_atomic_pointer_exchange:
+ * @atomic: a pointer to a #gpointer-sized value
+ * @newval: the value to replace with
+ *
+ * Sets the @atomic to @newval and returns the old value from @atomic.
+ *
+ * This exchange is done atomically.
+ *
+ * Think of this operation as an atomic version of
+ * `{ tmp = *atomic; *atomic = val; return tmp; }`.
+ *
+ * This call acts as a full compiler and hardware memory barrier.
+ *
+ * Returns: the value of @atomic before the exchange
+ *
+ * Since: 2.74
+ **/
+gpointer
+(g_atomic_pointer_exchange) (void     *atomic,
+                             gpointer  newval)
+{
+  return g_atomic_pointer_exchange ((gpointer *) atomic, newval);
 }
 
 /**
@@ -379,6 +535,9 @@ gboolean
  *
  * This call acts as a full compiler and hardware memory barrier.
  *
+ * While @atomic has a `volatile` qualifier, this is a historical artifact and
+ * the pointer passed to it should not be `volatile`.
+ *
  * Returns: the value of @atomic before the add, signed
  *
  * Since: 2.30
@@ -387,7 +546,7 @@ gssize
 (g_atomic_pointer_add) (volatile void *atomic,
                         gssize         val)
 {
-  return g_atomic_pointer_add ((volatile gpointer *) atomic, val);
+  return g_atomic_pointer_add ((gpointer *) atomic, val);
 }
 
 /**
@@ -403,6 +562,9 @@ gssize
  *
  * This call acts as a full compiler and hardware memory barrier.
  *
+ * While @atomic has a `volatile` qualifier, this is a historical artifact and
+ * the pointer passed to it should not be `volatile`.
+ *
  * Returns: the value of @atomic before the operation, unsigned
  *
  * Since: 2.30
@@ -411,7 +573,7 @@ gsize
 (g_atomic_pointer_and) (volatile void *atomic,
                         gsize          val)
 {
-  return g_atomic_pointer_and ((volatile gpointer *) atomic, val);
+  return g_atomic_pointer_and ((gpointer *) atomic, val);
 }
 
 /**
@@ -427,6 +589,9 @@ gsize
  *
  * This call acts as a full compiler and hardware memory barrier.
  *
+ * While @atomic has a `volatile` qualifier, this is a historical artifact and
+ * the pointer passed to it should not be `volatile`.
+ *
  * Returns: the value of @atomic before the operation, unsigned
  *
  * Since: 2.30
@@ -435,7 +600,7 @@ gsize
 (g_atomic_pointer_or) (volatile void *atomic,
                        gsize          val)
 {
-  return g_atomic_pointer_or ((volatile gpointer *) atomic, val);
+  return g_atomic_pointer_or ((gpointer *) atomic, val);
 }
 
 /**
@@ -451,6 +616,9 @@ gsize
  *
  * This call acts as a full compiler and hardware memory barrier.
  *
+ * While @atomic has a `volatile` qualifier, this is a historical artifact and
+ * the pointer passed to it should not be `volatile`.
+ *
  * Returns: the value of @atomic before the operation, unsigned
  *
  * Since: 2.30
@@ -459,7 +627,7 @@ gsize
 (g_atomic_pointer_xor) (volatile void *atomic,
                         gsize          val)
 {
-  return g_atomic_pointer_xor ((volatile gpointer *) atomic, val);
+  return g_atomic_pointer_xor ((gpointer *) atomic, val);
 }
 
 #elif defined (G_PLATFORM_WIN32)
@@ -559,6 +727,23 @@ gboolean
   return InterlockedCompareExchange (atomic, newval, oldval) == oldval;
 }
 
+gboolean
+(g_atomic_int_compare_and_exchange_full) (gint *atomic,
+                                          gint  oldval,
+                                          gint  newval,
+                                          gint *preval)
+{
+  *preval = InterlockedCompareExchange (atomic, newval, oldval);
+  return *preval == oldval;
+}
+
+gint
+(g_atomic_int_exchange) (gint *atomic,
+                         gint  newval)
+{
+  return InterlockedExchange (atomic, newval);
+}
+
 gint
 (g_atomic_int_add) (volatile gint *atomic,
                     gint           val)
@@ -591,7 +776,7 @@ guint
 gpointer
 (g_atomic_pointer_get) (const volatile void *atomic)
 {
-  const volatile gpointer *ptr = atomic;
+  const gpointer *ptr = atomic;
 
   MemoryBarrier ();
   return *ptr;
@@ -601,7 +786,7 @@ void
 (g_atomic_pointer_set) (volatile void *atomic,
                         gpointer       newval)
 {
-  volatile gpointer *ptr = atomic;
+  gpointer *ptr = atomic;
 
   *ptr = newval;
   MemoryBarrier ();
@@ -613,6 +798,26 @@ gboolean
                                          gpointer       newval)
 {
   return InterlockedCompareExchangePointer (atomic, newval, oldval) == oldval;
+}
+
+gboolean
+(g_atomic_pointer_compare_and_exchange_full) (void     *atomic,
+                                              gpointer  oldval,
+                                              gpointer  newval,
+                                              void     *preval)
+{
+  gpointer *pre = preval;
+
+  *pre = InterlockedCompareExchangePointer (atomic, newval, oldval);
+
+  return *pre == oldval;
+}
+
+gpointer
+(g_atomic_pointer_exchange) (void     *atomic,
+                             gpointer  newval)
+{
+  return InterlockedExchangePointer (atomic, newval);
 }
 
 gssize
@@ -737,6 +942,41 @@ gboolean
   return success;
 }
 
+gboolean
+(g_atomic_int_compare_and_exchange_full) (gint *atomic,
+                                          gint  oldval,
+                                          gint  newval,
+                                          gint *preval)
+{
+  gboolean success;
+
+  pthread_mutex_lock (&g_atomic_lock);
+
+  *preval = *atomic;
+
+  if ((success = (*atomic == oldval)))
+    *atomic = newval;
+
+  pthread_mutex_unlock (&g_atomic_lock);
+
+  return success;
+}
+
+gint
+(g_atomic_int_exchange) (gint *atomic,
+                         gint  newval)
+{
+  gint *ptr = atomic;
+  gint oldval;
+
+  pthread_mutex_lock (&g_atomic_lock);
+  oldval = *ptr;
+  *ptr = newval;
+  pthread_mutex_unlock (&g_atomic_lock);
+
+  return oldval;
+}
+
 gint
 (g_atomic_int_add) (volatile gint *atomic,
                     gint           val)
@@ -797,7 +1037,7 @@ guint
 gpointer
 (g_atomic_pointer_get) (const volatile void *atomic)
 {
-  const volatile gpointer *ptr = atomic;
+  const gpointer *ptr = atomic;
   gpointer value;
 
   pthread_mutex_lock (&g_atomic_lock);
@@ -811,7 +1051,7 @@ void
 (g_atomic_pointer_set) (volatile void *atomic,
                         gpointer       newval)
 {
-  volatile gpointer *ptr = atomic;
+  gpointer *ptr = atomic;
 
   pthread_mutex_lock (&g_atomic_lock);
   *ptr = newval;
@@ -823,7 +1063,7 @@ gboolean
                                          gpointer       oldval,
                                          gpointer       newval)
 {
-  volatile gpointer *ptr = atomic;
+  gpointer *ptr = atomic;
   gboolean success;
 
   pthread_mutex_lock (&g_atomic_lock);
@@ -836,11 +1076,47 @@ gboolean
   return success;
 }
 
+gboolean
+(g_atomic_pointer_compare_and_exchange_full) (void     *atomic,
+                                              gpointer  oldval,
+                                              gpointer  newval,
+                                              void     *preval)
+{
+  gpointer *ptr = atomic;
+  gpointer *pre = preval;
+  gboolean success;
+
+  pthread_mutex_lock (&g_atomic_lock);
+
+  *pre = *ptr;
+  if ((success = (*ptr == oldval)))
+    *ptr = newval;
+
+  pthread_mutex_unlock (&g_atomic_lock);
+
+  return success;
+}
+
+gpointer
+(g_atomic_pointer_exchange) (void    *atomic,
+                             gpointer newval)
+{
+  gpointer *ptr = atomic;
+  gpointer oldval;
+
+  pthread_mutex_lock (&g_atomic_lock);
+  oldval = *ptr;
+  *ptr = newval;
+  pthread_mutex_unlock (&g_atomic_lock);
+
+  return oldval;
+}
+
 gssize
 (g_atomic_pointer_add) (volatile void *atomic,
                         gssize         val)
 {
-  volatile gssize *ptr = atomic;
+  gssize *ptr = atomic;
   gssize oldval;
 
   pthread_mutex_lock (&g_atomic_lock);
@@ -855,7 +1131,7 @@ gsize
 (g_atomic_pointer_and) (volatile void *atomic,
                         gsize          val)
 {
-  volatile gsize *ptr = atomic;
+  gsize *ptr = atomic;
   gsize oldval;
 
   pthread_mutex_lock (&g_atomic_lock);
@@ -870,7 +1146,7 @@ gsize
 (g_atomic_pointer_or) (volatile void *atomic,
                        gsize          val)
 {
-  volatile gsize *ptr = atomic;
+  gsize *ptr = atomic;
   gsize oldval;
 
   pthread_mutex_lock (&g_atomic_lock);
@@ -885,7 +1161,7 @@ gsize
 (g_atomic_pointer_xor) (volatile void *atomic,
                         gsize          val)
 {
-  volatile gsize *ptr = atomic;
+  gsize *ptr = atomic;
   gsize oldval;
 
   pthread_mutex_lock (&g_atomic_lock);
@@ -915,5 +1191,5 @@ gint
 g_atomic_int_exchange_and_add (volatile gint *atomic,
                                gint           val)
 {
-  return (g_atomic_int_add) (atomic, val);
+  return (g_atomic_int_add) ((gint *) atomic, val);
 }

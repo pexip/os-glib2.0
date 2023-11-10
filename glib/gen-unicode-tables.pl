@@ -119,7 +119,7 @@ $FOLDING_MAPPING = 2;
      'CJ' => "G_UNICODE_BREAK_CONDITIONAL_JAPANESE_STARTER",
      'CL' => "G_UNICODE_BREAK_CLOSE_PUNCTUATION",
      'CM' => "G_UNICODE_BREAK_COMBINING_MARK",
-     'CP' => "G_UNICODE_BREAK_CLOSE_PARANTHESIS",
+     'CP' => "G_UNICODE_BREAK_CLOSE_PARENTHESIS",
      'CR' => "G_UNICODE_BREAK_CARRIAGE_RETURN",
      'EB' => "G_UNICODE_BREAK_EMOJI_BASE",
      'EM' => "G_UNICODE_BREAK_EMOJI_MODIFIER",
@@ -795,13 +795,17 @@ sub print_row
     my ($column) = 4;
     for ($i = $start; $i < $start + 256; ++$i)
     {
-	print OUT ", "
+	print OUT ","
 	    if $i > $start;
 	my ($text) = $values[$i - $start];
 	if (length ($text) + $column + 2 > 78)
 	{
 	    print OUT "\n    ";
 	    $column = 4;
+	}
+	else
+	{
+	    print OUT " "
 	}
 	print OUT $text;
 	$column += length ($text) + 2;

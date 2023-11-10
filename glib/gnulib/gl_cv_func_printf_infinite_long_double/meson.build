@@ -167,7 +167,7 @@ int main ()
 '''
 
 if gl_cv_func_printf_long_double
-  if not meson.is_cross_build() or meson.has_exe_wrapper()
+  if meson.can_run_host_binaries()
     run_result = cc.run(printf_infinite_long_double_test,
         name : 'printf supports infinite \'long double\' arguments')
     gl_cv_func_printf_infinite_long_double = (run_result.compiled() and run_result.returncode() == 0)
@@ -175,7 +175,7 @@ if gl_cv_func_printf_long_double
     if host_machine.cpu_family() == 'x86_64'
       gl_cv_func_printf_infinite_long_double = false
     else
-      if host_system == 'linux'
+      if host_system in ['linux', 'android']
         gl_cv_func_printf_infinite_long_double = true
       elif (host_system.startswith ('freebsd1') or
             host_system.startswith ('freebsd2') or

@@ -1,6 +1,8 @@
 /*
  * Copyright © 2010 Codethink Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -104,9 +106,9 @@
  * }
  * ]|
  * The complete example can be found here: 
- * [gapplication-example-cmdline.c](https://git.gnome.org/browse/glib/tree/gio/tests/gapplication-example-cmdline.c)
+ * [gapplication-example-cmdline.c](https://gitlab.gnome.org/GNOME/glib/-/blob/HEAD/gio/tests/gapplication-example-cmdline.c)
  *
- * In more complicated cases, the handling of the comandline can be
+ * In more complicated cases, the handling of the commandline can be
  * split between the launcher and the primary instance.
  * |[<!-- language="C" -->
  * static gboolean
@@ -118,6 +120,12 @@
  *   gchar **argv;
  *
  *   argv = *arguments;
+ *
+ *   if (argv[0] == NULL)
+ *     {
+ *       *exit_status = 0;
+ *       return FALSE;
+ *     }
  *
  *   i = 1;
  *   while (argv[i])
@@ -155,7 +163,7 @@
  * instance.
  *
  * The complete example can be found here:
- * [gapplication-example-cmdline2.c](https://git.gnome.org/browse/glib/tree/gio/tests/gapplication-example-cmdline2.c)
+ * [gapplication-example-cmdline2.c](https://gitlab.gnome.org/GNOME/glib/-/blob/HEAD/gio/tests/gapplication-example-cmdline2.c)
  *
  * If handling the commandline requires a lot of work, it may
  * be better to defer it.
@@ -197,7 +205,7 @@
  * hold the application until you are done with the commandline.
  *
  * The complete example can be found here:
- * [gapplication-example-cmdline3.c](https://git.gnome.org/browse/glib/tree/gio/tests/gapplication-example-cmdline3.c)
+ * [gapplication-example-cmdline3.c](https://gitlab.gnome.org/GNOME/glib/-/blob/HEAD/gio/tests/gapplication-example-cmdline3.c)
  */
 
 /**
@@ -252,20 +260,20 @@ grok_platform_data (GApplicationCommandLine *cmdline)
   g_variant_iter_init (&iter, cmdline->priv->platform_data);
 
   while (g_variant_iter_loop (&iter, "{&sv}", &key, &value))
-    if (strcmp (key, "cwd") == 0)
+    if (strcmp (key, "cwd") == 0 && g_variant_is_of_type (value, G_VARIANT_TYPE_BYTESTRING))
       {
         if (!cmdline->priv->cwd)
           cmdline->priv->cwd = g_variant_dup_bytestring (value, NULL);
       }
 
-    else if (strcmp (key, "environ") == 0)
+    else if (strcmp (key, "environ") == 0 && g_variant_is_of_type (value, G_VARIANT_TYPE_BYTESTRING_ARRAY))
       {
         if (!cmdline->priv->environ)
           cmdline->priv->environ =
             g_variant_dup_bytestring_array (value, NULL);
       }
 
-    else if (strcmp (key, "options") == 0)
+    else if (strcmp (key, "options") == 0 && g_variant_is_of_type (value, G_VARIANT_TYPE_VARDICT))
       {
         if (!cmdline->priv->options)
           cmdline->priv->options = g_variant_ref (value);
@@ -499,6 +507,9 @@ g_application_command_line_get_arguments (GApplicationCommandLine *cmdline,
  * If no options were sent then an empty dictionary is returned so that
  * you don't need to check for %NULL.
  *
+ * The data has been passed via an untrusted external process, so the types of
+ * all values must be checked before being used.
+ *
  * Returns: (transfer none): a #GVariantDict with the options
  *
  * Since: 2.40
@@ -523,13 +534,13 @@ g_application_command_line_get_options_dict (GApplicationCommandLine *cmdline)
  * The #GInputStream can be used to read data passed to the standard
  * input of the invoking process.
  * This doesn't work on all platforms.  Presently, it is only available
- * on UNIX when using a DBus daemon capable of passing file descriptors.
+ * on UNIX when using a D-Bus daemon capable of passing file descriptors.
  * If stdin is not available then %NULL will be returned.  In the
  * future, support may be expanded to other platforms.
  *
  * You must only call this function once per commandline invocation.
  *
- * Returns: (transfer full): a #GInputStream for stdin
+ * Returns: (nullable) (transfer full): a #GInputStream for stdin
  *
  * Since: 2.34
  **/
@@ -610,7 +621,7 @@ g_application_command_line_get_environ (GApplicationCommandLine *cmdline)
  * The return value should not be modified or freed and is valid for as
  * long as @cmdline exists.
  *
- * Returns: the value of the variable, or %NULL if unset or unsent
+ * Returns: (nullable): the value of the variable, or %NULL if unset or unsent
  *
  * Since: 2.28
  **/
@@ -784,6 +795,9 @@ g_application_command_line_get_exit_status (GApplicationCommandLine *cmdline)
  * context in which the invocation occurred.  It typically contains
  * information like the current working directory and the startup
  * notification ID.
+ *
+ * It comes from an untrusted external process and hence the types of all
+ * values must be validated before being used.
  *
  * For local invocation, it will be %NULL.
  *

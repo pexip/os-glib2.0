@@ -2,6 +2,8 @@
  * 
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -293,7 +295,7 @@ g_output_stream_write_all (GOutputStream  *stream,
   gssize res;
 
   g_return_val_if_fail (G_IS_OUTPUT_STREAM (stream), FALSE);
-  g_return_val_if_fail (buffer != NULL, FALSE);
+  g_return_val_if_fail (buffer != NULL || count == 0, FALSE);
 
   _bytes_written = 0;
   while (_bytes_written < count)
@@ -2344,7 +2346,7 @@ g_output_stream_real_writev (GOutputStream         *stream,
 
       _bytes_written += res;
       /* if we had a short write break the loop here */
-      if (res < vectors[i].size)
+      if ((gsize) res < vectors[i].size)
         break;
     }
 

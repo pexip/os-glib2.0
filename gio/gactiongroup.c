@@ -1,6 +1,8 @@
 /*
  * Copyright © 2010 Codethink Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -589,6 +591,33 @@ g_action_group_change_action_state (GActionGroup *action_group,
  * parameters then @parameter must be %NULL.  See
  * g_action_group_get_action_parameter_type().
  *
+ * If the #GActionGroup implementation supports asynchronous remote
+ * activation over D-Bus, this call may return before the relevant
+ * D-Bus traffic has been sent, or any replies have been received. In
+ * order to block on such asynchronous activation calls,
+ * g_dbus_connection_flush() should be called prior to the code, which
+ * depends on the result of the action activation. Without flushing
+ * the D-Bus connection, there is no guarantee that the action would
+ * have been activated.
+ *
+ * The following code which runs in a remote app instance, shows an
+ * example of a "quit" action being activated on the primary app
+ * instance over D-Bus. Here g_dbus_connection_flush() is called
+ * before `exit()`. Without g_dbus_connection_flush(), the "quit" action
+ * may fail to be activated on the primary instance.
+ *
+ * |[<!-- language="C" -->
+ * // call "quit" action on primary instance
+ * g_action_group_activate_action (G_ACTION_GROUP (app), "quit", NULL);
+ *
+ * // make sure the action is activated now
+ * g_dbus_connection_flush (...);
+ *
+ * g_debug ("application has been terminated. exiting.");
+ *
+ * exit (0);
+ * ]|
+ *
  * Since: 2.28
  **/
 void
@@ -712,8 +741,8 @@ g_action_group_action_state_changed (GActionGroup *action_group,
  * @action_group: a #GActionGroup
  * @action_name: the name of an action in the group
  * @enabled: (out): if the action is presently enabled
- * @parameter_type: (out) (optional): the parameter type, or %NULL if none needed
- * @state_type: (out) (optional): the state type, or %NULL if stateless
+ * @parameter_type: (out) (transfer none) (optional): the parameter type, or %NULL if none needed
+ * @state_type: (out) (transfer none) (optional): the state type, or %NULL if stateless
  * @state_hint: (out) (optional): the state hint, or %NULL if none
  * @state: (out) (optional): the current state, or %NULL if stateless
  *

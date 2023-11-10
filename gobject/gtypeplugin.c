@@ -1,6 +1,8 @@
 /* GObject - GLib Type, Object, Parameter and Signal Library
  * Copyright (C) 2000 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -26,9 +28,10 @@
  * @see_also: #GTypeModule and g_type_register_dynamic().
  * @title: GTypePlugin
  *
+ * An interface that handles the lifecycle of dynamically loaded types.
+ *
  * The GObject type system supports dynamic loading of types.
- * The #GTypePlugin interface is used to handle the lifecycle
- * of dynamically loaded types. It goes as follows:
+ * It goes as follows:
  *
  * 1. The type is initially introduced (usually upon loading the module
  *    the first time, or by your main application that knows what modules
@@ -85,9 +88,16 @@ g_type_plugin_get_type (void)
   if (!type_plugin_type)
     {
       const GTypeInfo type_plugin_info = {
-	sizeof (GTypePluginClass),
-	NULL,           /* base_init */
-	NULL,           /* base_finalize */
+        sizeof (GTypePluginClass),
+        NULL,           /* base_init */
+        NULL,           /* base_finalize */
+        0,              /* class_init */
+        NULL,           /* class_destroy */
+        NULL,           /* class_data */
+        0,              /* instance_size */
+        0,              /* n_preallocs */
+        NULL,           /* instance_init */
+        NULL,           /* value_table */
       };
       
       type_plugin_type = g_type_register_static (G_TYPE_INTERFACE, g_intern_static_string ("GTypePlugin"), &type_plugin_info, 0);
@@ -167,7 +177,7 @@ g_type_plugin_complete_type_info (GTypePlugin     *plugin,
 /**
  * g_type_plugin_complete_interface_info:
  * @plugin: the #GTypePlugin
- * @instance_type: the #GType of an instantiable type to which the interface
+ * @instance_type: the #GType of an instantiatable type to which the interface
  *  is added
  * @interface_type: the #GType of the interface whose info is completed
  * @info: the #GInterfaceInfo to fill in

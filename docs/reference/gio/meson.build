@@ -1,14 +1,9 @@
 if get_option('gtk_doc')
-  if installed_tests_enabled
-    subdir('gdbus-object-manager-example')
-  endif
+  subdir('gdbus-object-manager-example')
   subdir('xml')
 
   ignore_headers = [
-    'fam',
-    'fen',
     'gdbus-2.0',
-    'gvdb',
     'inotify',
     'kqueue',
     'libasyncns',
@@ -40,6 +35,7 @@ if get_option('gtk_doc')
     'ghttpproxy.h',
     'giomodule-priv.h',
     'gioprivate.h',
+    'giowin32-afunix.h',
     'giowin32-priv.h',
     'gio_probes.h',
     'gio_trace.h',
@@ -67,6 +63,8 @@ if get_option('gtk_doc')
     'gopenuriportal.h',
     'gpollfilemonitor.h',
     'gportalsupport.h',
+    'gpowerprofilemonitordbus.h',
+    'gpowerprofilemonitorportal.h',
     'gproxyresolverportal.h',
     'gregistrysettingsbackend.h',
     'gresourcefile.h',
@@ -87,8 +85,15 @@ if get_option('gtk_doc')
     'gunixvolume.h',
     'gunixvolumemonitor.h',
     'gwin32networkmonitor.h',
+    'gwin32api-application-activation-manager.h',
+    'gwin32api-iterator.h',
+    'gwin32api-misc.h',
+    'gwin32api-package.h',
+    'gwin32api-storage.h',
     'gwin32appinfo.h',
+    'gwin32file-sync-stream.h',
     'gwin32mount.h',
+    'gwin32packageparser.h',
     'gwin32resolver.h',
     'gwin32volumemonitor.h',
     'thumbnail-verify.h',
@@ -100,14 +105,11 @@ if get_option('gtk_doc')
   if host_system == 'windows'
     ignore_headers += [
       'gfiledescriptorbased.h',
-      'gunixconnection.h',
-      'gunixcredentialsmessage.h',
       'gunixmounts.h',
       'gunixfdlist.h',
       'gunixfdmessage.h',
       'gunixinputstream.h',
       'gunixoutputstream.h',
-      'gunixsocketaddress.h',
       'gdesktopappinfo.h',
       'gosxappinfo.h',
     ]
@@ -144,16 +146,11 @@ if get_option('gtk_doc')
     configuration: version_conf
   )
 
-  # FIXME: configure_file() does not support more than one file in input
-  # argument. If input argument is omitted then meson checks that all items in
-  # the command array are strings. But if we have an input then extra files
-  # can be passed in command array.
-  # See https://github.com/mesonbuild/meson/issues/5893
   concat_files_helper = find_program('concat-files-helper.py')
   configure_file(
     output : 'gio-sections.txt',
-    input : sections_files[0],
-    command : [concat_files_helper, '@OUTPUT@'] + sections_files,
+    input : sections_files,
+    command : [concat_files_helper, '@OUTPUT@', '@INPUT@'],
   )
 
   configure_file(
@@ -178,13 +175,11 @@ if get_option('gtk_doc')
     'gdbus-codegen.xml',
   ]
 
-  if installed_tests_enabled
-    content_files += [
-      gdbus_example_objectmanager_xml,
-      gdbus_example_objectmanager_sources,
-      gdbus_object_manager_example_doc
-    ]
-  endif
+  content_files += [
+    gdbus_example_objectmanager_xml,
+    gdbus_example_objectmanager_sources,
+    gdbus_object_manager_example_doc
+  ]
 
   gnome.gtkdoc('gio',
     main_xml : 'gio-docs.xml',

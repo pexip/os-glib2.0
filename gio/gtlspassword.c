@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2011 Collabora, Ltd.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -23,7 +25,6 @@
 #include "glibintl.h"
 
 #include "gioenumtypes.h"
-#include "gstrfuncsprivate.h"
 #include "gtlspassword.h"
 
 #include <string.h>
@@ -242,9 +243,9 @@ g_tls_password_new (GTlsPasswordFlags  flags,
 }
 
 /**
- * g_tls_password_get_value:
+ * g_tls_password_get_value: (virtual get_value)
  * @password: a #GTlsPassword object
- * @length: (nullable): location to place the length of the password.
+ * @length: (optional): location to place the length of the password.
  *
  * Get the password value. If @length is not %NULL then it will be
  * filled in with the length of the password value. (Note that the
@@ -252,7 +253,7 @@ g_tls_password_new (GTlsPasswordFlags  flags,
  * for @length in contexts where you know the password will have a
  * certain fixed length.)
  *
- * Returns: The password value (owned by the password object).
+ * Returns: (array length=length): The password value (owned by the password object).
  *
  * Since: 2.30
  */

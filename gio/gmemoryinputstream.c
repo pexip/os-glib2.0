@@ -2,6 +2,8 @@
  * 
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -476,7 +478,7 @@ g_memory_input_stream_seek (GSeekable     *seekable,
       return FALSE;
     }
 
-  if (absolute < 0 || absolute > priv->len)
+  if (absolute < 0 || (gsize) absolute > priv->len)
     {
       g_set_error_literal (error,
                            G_IO_ERROR,

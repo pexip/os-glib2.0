@@ -3,6 +3,8 @@
  * Copyright (C) 2006-2007 Red Hat, Inc.
  * Copyright © 2007 Ryan Lortie
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -49,6 +51,7 @@
 #include "gfileicon.h"
 #include <glib/gstdio.h>
 #include "glibintl.h"
+#include "glib-private.h"
 #include "giomodule-priv.h"
 #include "gappinfo.h"
 #include "gappinfoprivate.h"
@@ -89,6 +92,7 @@ enum {
 static void     g_desktop_app_info_iface_init         (GAppInfoIface    *iface);
 static gboolean g_desktop_app_info_ensure_saved       (GDesktopAppInfo  *info,
                                                        GError          **error);
+static gboolean g_desktop_app_info_load_file (GDesktopAppInfo *self);
 
 /**
  * GDesktopAppInfo:
@@ -162,6 +166,7 @@ static const gchar    *desktop_file_dirs_config_dir = NULL;
 static DesktopFileDir *desktop_file_dir_user_config = NULL;  /* (owned) */
 static DesktopFileDir *desktop_file_dir_user_data = NULL;  /* (owned) */
 static GMutex          desktop_file_dir_lock;
+static const gchar    *gio_launch_desktop_path = NULL;
 
 /* Monitor 'changed' signal handler {{{2 */
 static void desktop_file_dir_reset (DesktopFileDir *dir);
@@ -705,7 +710,7 @@ merge_directory_results (void)
       static_total_results = g_renew (struct search_result, static_total_results, static_total_results_allocated);
     }
 
-  if (static_total_results + static_total_results_size != 0)
+  if (static_search_results_size != 0)
     memcpy (static_total_results + static_total_results_size,
             static_search_results,
             static_search_results_size * sizeof (struct search_result));
@@ -1003,6 +1008,19 @@ desktop_file_dir_unindexed_init (DesktopFileDir *dir)
 }
 
 static GDesktopAppInfo *
+g_desktop_app_info_new_from_filename_unlocked (const char *filename)
+{
+  GDesktopAppInfo *info = NULL;
+
+  info = g_object_new (G_TYPE_DESKTOP_APP_INFO, "filename", filename, NULL);
+
+  if (!g_desktop_app_info_load_file (info))
+    g_clear_object (&info);
+
+  return info;
+}
+
+static GDesktopAppInfo *
 desktop_file_dir_unindexed_get_app (DesktopFileDir *dir,
                                     const gchar    *desktop_id)
 {
@@ -1013,7 +1031,7 @@ desktop_file_dir_unindexed_get_app (DesktopFileDir *dir,
   if (!filename)
     return NULL;
 
-  return g_desktop_app_info_new_from_filename (filename);
+  return g_desktop_app_info_new_from_filename_unlocked (filename);
 }
 
 static void
@@ -1033,7 +1051,7 @@ desktop_file_dir_unindexed_get_all (DesktopFileDir *dir,
       if (desktop_file_dir_app_name_is_masked (dir, app_name))
         continue;
 
-      add_to_table_if_appropriate (apps, app_name, g_desktop_app_info_new_from_filename (filename));
+      add_to_table_if_appropriate (apps, app_name, g_desktop_app_info_new_from_filename_unlocked (filename));
     }
 }
 
@@ -1142,7 +1160,7 @@ desktop_file_dir_unindexed_setup_search (DesktopFileDir *dir)
         {
           /* Index the interesting keys... */
           gchar **implements;
-          gint i;
+          gsize i;
 
           for (i = 0; i < G_N_ELEMENTS (desktop_key_match_category); i++)
             {
@@ -1221,7 +1239,7 @@ static gboolean
 array_contains (GPtrArray *array,
                 const gchar *str)
 {
-  gint i;
+  guint i;
 
   for (i = 0; i < array->len; i++)
     if (g_str_equal (array->pdata[i], str))
@@ -1545,7 +1563,7 @@ desktop_file_dir_get_implementations (DesktopFileDir  *dir,
 static void
 desktop_file_dirs_lock (void)
 {
-  gint i;
+  guint i;
   const gchar *user_config_dir = g_get_user_config_dir ();
 
   g_mutex_lock (&desktop_file_dir_lock);
@@ -1754,6 +1772,56 @@ binary_from_exec (const char *exec)
   return g_strndup (start, p - start);
 }
 
+/*< internal >
+ * g_desktop_app_info_get_desktop_id_for_filename
+ * @self: #GDesktopAppInfo to get desktop id of
+ *
+ * Tries to find the desktop ID for a particular `.desktop` filename, as per the
+ * [Desktop Entry Specification](https://specifications.freedesktop.org/desktop-
+ * entry-spec/desktop-entry-spec-latest.html#desktop-file-id).
+ *
+ * Returns: desktop id or basename if filename is unknown.
+ */
+static char *
+g_desktop_app_info_get_desktop_id_for_filename (GDesktopAppInfo *self)
+{
+  guint i;
+  gchar *desktop_id = NULL;
+
+  g_return_val_if_fail (self->filename != NULL, NULL);
+
+  for (i = 0; i < desktop_file_dirs->len; i++)
+    {
+      DesktopFileDir *dir = g_ptr_array_index (desktop_file_dirs, i);
+      GHashTable *app_names;
+      GHashTableIter iter;
+      gpointer key, value;
+
+      app_names = dir->app_names;
+
+      if (!app_names)
+        continue;
+
+      g_hash_table_iter_init (&iter, app_names);
+      while (g_hash_table_iter_next (&iter, &key, &value))
+        {
+          if (!strcmp (value, self->filename))
+            {
+              desktop_id = g_strdup (key);
+              break;
+            }
+        }
+
+      if (desktop_id)
+        break;
+    }
+
+  if (!desktop_id)
+    desktop_id = g_path_get_basename (self->filename);
+
+  return g_steal_pointer (&desktop_id);
+}
+
 static gboolean
 g_desktop_app_info_load_from_keyfile (GDesktopAppInfo *info,
                                       GKeyFile        *key_file)
@@ -1816,6 +1884,10 @@ g_desktop_app_info_load_from_keyfile (GDesktopAppInfo *info,
       else
         {
           char *t;
+
+          /* Since @exec is not an empty string, there must be at least one
+           * argument, so dereferencing argv[0] should return non-NULL. */
+          g_assert (argc > 0);
           t = g_find_program_in_path (argv[0]);
           g_strfreev (argv);
 
@@ -1912,6 +1984,9 @@ g_desktop_app_info_load_from_keyfile (GDesktopAppInfo *info,
       g_free (basename);
     }
 
+  if (info->filename)
+    info->desktop_id = g_desktop_app_info_get_desktop_id_for_filename (info);
+
   info->keyfile = g_key_file_ref (key_file);
 
   return TRUE;
@@ -1924,8 +1999,6 @@ g_desktop_app_info_load_file (GDesktopAppInfo *self)
   gboolean retval = FALSE;
 
   g_return_val_if_fail (self->filename != NULL, FALSE);
-
-  self->desktop_id = g_path_get_basename (self->filename);
 
   key_file = g_key_file_new ();
 
@@ -1953,11 +2026,14 @@ g_desktop_app_info_new_from_keyfile (GKeyFile *key_file)
 
   info = g_object_new (G_TYPE_DESKTOP_APP_INFO, NULL);
   info->filename = NULL;
+
+  desktop_file_dirs_lock ();
+
   if (!g_desktop_app_info_load_from_keyfile (info, key_file))
-    {
-      g_object_unref (info);
-      return NULL;
-    }
+    g_clear_object (&info);
+
+  desktop_file_dirs_unlock ();
+
   return info;
 }
 
@@ -1975,12 +2051,12 @@ g_desktop_app_info_new_from_filename (const char *filename)
 {
   GDesktopAppInfo *info = NULL;
 
-  info = g_object_new (G_TYPE_DESKTOP_APP_INFO, "filename", filename, NULL);
-  if (!g_desktop_app_info_load_file (info))
-    {
-      g_object_unref (info);
-      return NULL;
-    }
+  desktop_file_dirs_lock ();
+
+  info = g_desktop_app_info_new_from_filename_unlocked (filename);
+
+  desktop_file_dirs_unlock ();
+
   return info;
 }
 
@@ -2140,7 +2216,7 @@ g_desktop_app_info_get_is_hidden (GDesktopAppInfo *info)
  * situations such as the #GDesktopAppInfo returned from
  * g_desktop_app_info_new_from_keyfile(), this function will return %NULL.
  *
- * Returns: (type filename): The full path to the file for @info,
+ * Returns: (nullable) (type filename): The full path to the file for @info,
  *     or %NULL if not known.
  * Since: 2.24
  */
@@ -2188,7 +2264,7 @@ g_desktop_app_info_get_icon (GAppInfo *appinfo)
  *
  * Gets the categories from the desktop file.
  *
- * Returns: The unparsed Categories key from the desktop file;
+ * Returns: (nullable): The unparsed Categories key from the desktop file;
  *     i.e. no attempt is made to split it by ';' or validate it.
  */
 const char *
@@ -2217,9 +2293,9 @@ g_desktop_app_info_get_keywords (GDesktopAppInfo *info)
  * g_desktop_app_info_get_generic_name:
  * @info: a #GDesktopAppInfo
  *
- * Gets the generic name from the destkop file.
+ * Gets the generic name from the desktop file.
  *
- * Returns: The value of the GenericName key
+ * Returns: (nullable): The value of the GenericName key
  */
 const char *
 g_desktop_app_info_get_generic_name (GDesktopAppInfo *info)
@@ -2233,7 +2309,7 @@ g_desktop_app_info_get_generic_name (GDesktopAppInfo *info)
  *
  * Gets the value of the NoDisplay key, which helps determine if the
  * application info should be shown in menus. See
- * #G_KEY_FILE_DESKTOP_KEY_NO_DISPLAY and g_app_info_should_show().
+ * %G_KEY_FILE_DESKTOP_KEY_NO_DISPLAY and g_app_info_should_show().
  *
  * Returns: The value of the NoDisplay key
  *
@@ -2601,6 +2677,10 @@ prepend_terminal_to_vector (int    *argc,
       else
         {
           if (check == NULL)
+            check = g_find_program_in_path ("tilix");
+          if (check == NULL)
+            check = g_find_program_in_path ("konsole");
+          if (check == NULL)
             check = g_find_program_in_path ("nxterm");
           if (check == NULL)
             check = g_find_program_in_path ("color-xterm");
@@ -2609,9 +2689,12 @@ prepend_terminal_to_vector (int    *argc,
           if (check == NULL)
             check = g_find_program_in_path ("dtterm");
           if (check == NULL)
+            check = g_find_program_in_path ("xterm");
+          if (check == NULL)
             {
-              check = g_strdup ("xterm");
-              g_debug ("Couldn’t find a terminal: falling back to xterm");
+              g_debug ("Couldn’t find a known terminal");
+              g_free (term_argv);
+              return FALSE;
             }
           term_argv[0] = check;
           term_argv[1] = g_strdup ("-e");
@@ -2724,6 +2807,26 @@ notify_desktop_launch (GDBusConnection  *session_bus,
   g_object_unref (msg);
 }
 
+static void
+emit_launch_started (GAppLaunchContext *context,
+                     GDesktopAppInfo   *info,
+                     const gchar       *startup_id)
+{
+  GVariantBuilder builder;
+  GVariant *platform_data = NULL;
+
+  if (startup_id)
+    {
+      g_variant_builder_init (&builder, G_VARIANT_TYPE_ARRAY);
+      g_variant_builder_add (&builder, "{sv}",
+                             "startup-notification-id",
+                             g_variant_new_string (startup_id));
+      platform_data = g_variant_ref_sink (g_variant_builder_end (&builder));
+    }
+  g_signal_emit_by_name (context, "launch-started", info, platform_data);
+  g_clear_pointer (&platform_data, g_variant_unref);
+}
+
 #define _SPAWN_FLAGS_DEFAULT (G_SPAWN_SEARCH_PATH)
 
 static gboolean
@@ -2771,14 +2874,6 @@ g_desktop_app_info_launch_uris_with_spawn (GDesktopAppInfo            *info,
       char *sn_id = NULL;
       char **wrapped_argv;
       int i;
-      const gchar * const wrapper_argv[] =
-        {
-          "/bin/sh",
-          "-e",
-          "-u",
-          "-c", "export GIO_LAUNCHED_DESKTOP_FILE_PID=$$; exec \"$@\"",
-          "sh",  /* argv[0] for sh */
-        };
 
       old_uris = dup_uris;
       if (!expand_application_parameters (info, exec_line, &dup_uris, &argc, &argv, error))
@@ -2818,28 +2913,36 @@ g_desktop_app_info_launch_uris_with_spawn (GDesktopAppInfo            *info,
             }
 
           g_list_free_full (launched_files, g_object_unref);
+
+          emit_launch_started (launch_context, info, sn_id);
         }
 
-      /* Wrap the @argv in a command which will set the
-       * `GIO_LAUNCHED_DESKTOP_FILE_PID` environment variable. We can’t set this
-       * in @envp along with `GIO_LAUNCHED_DESKTOP_FILE` because we need to know
-       * the PID of the new forked process. We can’t use setenv() between fork()
-       * and exec() because we’d rather use posix_spawn() for speed.
-       *
-       * `sh` should be available on all the platforms that `GDesktopAppInfo`
-       * currently supports (since they are all POSIX). If additional platforms
-       * need to be supported in future, it will probably have to be replaced
-       * with a wrapper program (grep the GLib git history for
-       * `gio-launch-desktop` for an example of this which could be
-       * resurrected). */
-      wrapped_argv = g_new (char *, argc + G_N_ELEMENTS (wrapper_argv) + 1);
+      if (g_once_init_enter (&gio_launch_desktop_path))
+        {
+          const gchar *tmp = NULL;
+          gboolean is_setuid = GLIB_PRIVATE_CALL (g_check_setuid) ();
 
-      for (i = 0; i < G_N_ELEMENTS (wrapper_argv); i++)
-        wrapped_argv[i] = g_strdup (wrapper_argv[i]);
+          /* Allow test suite to specify path to gio-launch-desktop */
+          if (!is_setuid)
+            tmp = g_getenv ("GIO_LAUNCH_DESKTOP");
+
+          /* Allow build system to specify path to gio-launch-desktop */
+          if (tmp == NULL && g_file_test (GIO_LAUNCH_DESKTOP, G_FILE_TEST_IS_EXECUTABLE))
+            tmp = GIO_LAUNCH_DESKTOP;
+
+          /* Fall back on usual searching in $PATH */
+          if (tmp == NULL)
+            tmp = "gio-launch-desktop";
+          g_once_init_leave (&gio_launch_desktop_path, tmp);
+        }
+
+      wrapped_argv = g_new (char *, argc + 2);
+      wrapped_argv[0] = g_strdup (gio_launch_desktop_path);
+
       for (i = 0; i < argc; i++)
-        wrapped_argv[i + G_N_ELEMENTS (wrapper_argv)] = g_steal_pointer (&argv[i]);
+        wrapped_argv[i + 1] = g_steal_pointer (&argv[i]);
 
-      wrapped_argv[i + G_N_ELEMENTS (wrapper_argv)] = NULL;
+      wrapped_argv[i + 1] = NULL;
       g_free (argv);
       argv = NULL;
 
@@ -2860,6 +2963,7 @@ g_desktop_app_info_launch_uris_with_spawn (GDesktopAppInfo            *info,
 
           g_free (sn_id);
           g_list_free (launched_uris);
+          g_clear_pointer (&wrapped_argv, g_strfreev);
 
           goto out;
         }
@@ -2951,6 +3055,67 @@ g_desktop_app_info_make_platform_data (GDesktopAppInfo   *info,
   return g_variant_builder_end (&builder);
 }
 
+typedef struct
+{
+  GDesktopAppInfo     *info; /* (owned) */
+  GAppLaunchContext   *launch_context; /* (owned) (nullable) */
+  GAsyncReadyCallback  callback;
+  gchar               *startup_id; /* (owned) */
+  gpointer             user_data;
+} LaunchUrisWithDBusData;
+
+static void
+launch_uris_with_dbus_data_free (LaunchUrisWithDBusData *data)
+{
+  g_clear_object (&data->info);
+  g_clear_object (&data->launch_context);
+  g_free (data->startup_id);
+
+  g_free (data);
+}
+
+static void
+launch_uris_with_dbus_signal_cb (GObject      *object,
+                                 GAsyncResult *result,
+                                 gpointer      user_data)
+{
+  LaunchUrisWithDBusData *data = user_data;
+  GVariantBuilder builder;
+
+  if (data->launch_context)
+    {
+      if (g_task_had_error (G_TASK (result)))
+        g_app_launch_context_launch_failed (data->launch_context, data->startup_id);
+      else
+        {
+          GVariant *platform_data;
+
+          g_variant_builder_init (&builder, G_VARIANT_TYPE_ARRAY);
+          /* the docs guarantee `pid` will be set, but we can’t
+           * easily know it for a D-Bus process, so set it to zero */
+          g_variant_builder_add (&builder, "{sv}", "pid", g_variant_new_int32 (0));
+          if (data->startup_id)
+            g_variant_builder_add (&builder, "{sv}",
+                                   "startup-notification-id",
+                                   g_variant_new_string (data->startup_id));
+          platform_data = g_variant_ref_sink (g_variant_builder_end (&builder));
+          g_signal_emit_by_name (data->launch_context,
+                                 "launched",
+                                 data->info,
+                                 platform_data);
+          g_variant_unref (platform_data);
+        }
+    }
+
+  if (data->callback)
+    data->callback (object, result, data->user_data);
+  else if (!g_task_had_error (G_TASK (result)))
+    g_variant_unref (g_dbus_connection_call_finish (G_DBUS_CONNECTION (object),
+                                                    result, NULL));
+
+  launch_uris_with_dbus_data_free (data);
+}
+
 static void
 launch_uris_with_dbus (GDesktopAppInfo    *info,
                        GDBusConnection    *session_bus,
@@ -2960,8 +3125,11 @@ launch_uris_with_dbus (GDesktopAppInfo    *info,
                        GAsyncReadyCallback callback,
                        gpointer            user_data)
 {
+  GVariant *platform_data;
   GVariantBuilder builder;
+  GVariantDict dict;
   gchar *object_path;
+  LaunchUrisWithDBusData *data;
 
   g_variant_builder_init (&builder, G_VARIANT_TYPE_TUPLE);
 
@@ -2975,14 +3143,29 @@ launch_uris_with_dbus (GDesktopAppInfo    *info,
       g_variant_builder_close (&builder);
     }
 
-  g_variant_builder_add_value (&builder, g_desktop_app_info_make_platform_data (info, uris, launch_context));
+  platform_data = g_desktop_app_info_make_platform_data (info, uris, launch_context);
 
+  g_variant_builder_add_value (&builder, platform_data);
   object_path = object_path_from_appid (info->app_id);
+
+  data = g_new0 (LaunchUrisWithDBusData, 1);
+  data->info = g_object_ref (info);
+  data->callback = callback;
+  data->user_data = user_data;
+  data->launch_context = launch_context ? g_object_ref (launch_context) : NULL;
+  g_variant_dict_init (&dict, platform_data);
+  g_variant_dict_lookup (&dict, "desktop-startup-id", "s", &data->startup_id);
+
+  if (launch_context)
+    emit_launch_started (launch_context, info, data->startup_id);
+
   g_dbus_connection_call (session_bus, info->app_id, object_path, "org.freedesktop.Application",
                           uris ? "Open" : "Activate", g_variant_builder_end (&builder),
                           NULL, G_DBUS_CALL_FLAGS_NONE, -1,
-                          cancellable, callback, user_data);
+                          cancellable, launch_uris_with_dbus_signal_cb, g_steal_pointer (&data));
   g_free (object_path);
+
+  g_variant_dict_clear (&dict);
 }
 
 static gboolean
@@ -3082,9 +3265,8 @@ g_desktop_app_info_launch_uris (GAppInfo           *appinfo,
 
 typedef struct
 {
-  GAppInfo *appinfo;
-  GList *uris;
-  GAppLaunchContext *context;
+  GList *uris;  /* (element-type utf8) (owned) (nullable) */
+  GAppLaunchContext *context;  /* (owned) (nullable) */
 } LaunchUrisData;
 
 static void
@@ -3101,16 +3283,20 @@ launch_uris_with_dbus_cb (GObject      *object,
                           gpointer      user_data)
 {
   GTask *task = G_TASK (user_data);
-  GError *error = NULL;
+  GError *local_error = NULL;
+  GVariant *ret;
 
-  g_dbus_connection_call_finish (G_DBUS_CONNECTION (object), result, &error);
-  if (error != NULL)
+  ret = g_dbus_connection_call_finish (G_DBUS_CONNECTION (object), result, &local_error);
+  if (local_error != NULL)
     {
-      g_dbus_error_strip_remote_error (error);
-      g_task_return_error (task, g_steal_pointer (&error));
+      g_dbus_error_strip_remote_error (local_error);
+      g_task_return_error (task, g_steal_pointer (&local_error));
     }
   else
-    g_task_return_boolean (task, TRUE);
+    {
+      g_task_return_boolean (task, TRUE);
+      g_variant_unref (ret);
+    }
 
   g_object_unref (task);
 }
@@ -3137,7 +3323,7 @@ launch_uris_bus_get_cb (GObject      *object,
   LaunchUrisData *data = g_task_get_task_data (task);
   GCancellable *cancellable = g_task_get_cancellable (task);
   GDBusConnection *session_bus;
-  GError *error = NULL;
+  GError *local_error = NULL;
 
   session_bus = g_bus_get_finish (result, NULL);
 
@@ -3163,17 +3349,22 @@ launch_uris_bus_get_cb (GObject      *object,
                                                  data->uris, data->context,
                                                  _SPAWN_FLAGS_DEFAULT, NULL,
                                                  NULL, NULL, NULL, -1, -1, -1,
-                                                 &error);
-      if (error != NULL)
+                                                 &local_error);
+      if (local_error != NULL)
         {
-          g_task_return_error (task, g_steal_pointer (&error));
+          g_task_return_error (task, g_steal_pointer (&local_error));
           g_object_unref (task);
         }
-      else
+      else if (session_bus)
         g_dbus_connection_flush (session_bus,
                                  cancellable,
                                  launch_uris_flush_cb,
                                  g_steal_pointer (&task));
+      else
+        {
+          g_task_return_boolean (task, TRUE);
+          g_clear_object (&task);
+        }
     }
 
   g_clear_object (&session_bus);
@@ -3195,7 +3386,7 @@ g_desktop_app_info_launch_uris_async (GAppInfo           *appinfo,
 
   data = g_new0 (LaunchUrisData, 1);
   data->uris = g_list_copy_deep (uris, (GCopyFunc) g_strdup, NULL);
-  data->context = (context != NULL) ? g_object_ref (context) : NULL;
+  g_set_object (&data->context, context);
   g_task_set_task_data (task, g_steal_pointer (&data), (GDestroyNotify) launch_uris_data_free);
 
   g_bus_get (G_BUS_TYPE_SESSION, cancellable, launch_uris_bus_get_cb, task);
@@ -3729,7 +3920,7 @@ update_program_done (GPid     pid,
                      gpointer data)
 {
   /* Did the application exit correctly */
-  if (g_spawn_check_exit_status (status, NULL))
+  if (g_spawn_check_wait_status (status, NULL))
     {
       /* Here we could clean out any caches in use */
     }
@@ -3739,40 +3930,40 @@ static void
 run_update_command (char *command,
                     char *subdir)
 {
-        char *argv[3] = {
-                NULL,
-                NULL,
-                NULL,
-        };
-        GPid pid = 0;
-        GError *error = NULL;
+  char *argv[3] = {
+          NULL,
+          NULL,
+          NULL,
+  };
+  GPid pid = 0;
+  GError *local_error = NULL;
 
-        argv[0] = command;
-        argv[1] = g_build_filename (g_get_user_data_dir (), subdir, NULL);
+  argv[0] = command;
+  argv[1] = g_build_filename (g_get_user_data_dir (), subdir, NULL);
 
-        if (g_spawn_async ("/", argv,
-                           NULL,       /* envp */
-                           G_SPAWN_SEARCH_PATH |
-                           G_SPAWN_STDOUT_TO_DEV_NULL |
-                           G_SPAWN_STDERR_TO_DEV_NULL |
-                           G_SPAWN_DO_NOT_REAP_CHILD,
-                           NULL, NULL, /* No setup function */
-                           &pid,
-                           &error))
-          g_child_watch_add (pid, update_program_done, NULL);
-        else
-          {
-            /* If we get an error at this point, it's quite likely the user doesn't
-             * have an installed copy of either 'update-mime-database' or
-             * 'update-desktop-database'.  I don't think we want to popup an error
-             * dialog at this point, so we just do a g_warning to give the user a
-             * chance of debugging it.
-             */
-            g_warning ("%s", error->message);
-            g_error_free (error);
-          }
+  if (g_spawn_async ("/", argv,
+                     NULL,       /* envp */
+                     G_SPAWN_SEARCH_PATH |
+                     G_SPAWN_STDOUT_TO_DEV_NULL |
+                     G_SPAWN_STDERR_TO_DEV_NULL |
+                     G_SPAWN_DO_NOT_REAP_CHILD,
+                     NULL, NULL, /* No setup function */
+                     &pid,
+                     &local_error))
+    g_child_watch_add (pid, update_program_done, NULL);
+  else
+    {
+      /* If we get an error at this point, it's quite likely the user doesn't
+       * have an installed copy of either 'update-mime-database' or
+       * 'update-desktop-database'.  I don't think we want to popup an error
+       * dialog at this point, so we just do a g_warning to give the user a
+       * chance of debugging it.
+       */
+      g_warning ("%s", local_error->message);
+      g_error_free (local_error);
+    }
 
-        g_free (argv[1]);
+  g_free (argv[1]);
 }
 
 static gboolean
@@ -4142,7 +4333,7 @@ get_list_of_mimetypes (const gchar *content_type,
 
   if (include_fallback)
     {
-      gint i;
+      guint i;
 
       /* Iterate the array as we grow it, until we have nothing more to add */
       for (i = 0; i < array->len; i++)
@@ -4173,7 +4364,7 @@ g_desktop_app_info_get_desktop_ids_for_content_type (const gchar *content_type,
 {
   GPtrArray *hits, *blocklist;
   gchar **types;
-  gint i, j;
+  guint i, j;
 
   hits = g_ptr_array_new ();
   blocklist = g_ptr_array_new ();
@@ -4371,7 +4562,7 @@ g_app_info_get_default_for_type (const char *content_type,
   GPtrArray *results;
   GAppInfo *info;
   gchar **types;
-  gint i, j, k;
+  guint i, j, k;
 
   g_return_val_if_fail (content_type != NULL, NULL);
 
@@ -4446,6 +4637,8 @@ g_app_info_get_default_for_uri_scheme (const char *uri_scheme)
   GAppInfo *app_info;
   char *content_type, *scheme_down;
 
+  g_return_val_if_fail (uri_scheme != NULL && *uri_scheme != '\0', NULL);
+
   scheme_down = g_ascii_strdown (uri_scheme, -1);
   content_type = g_strdup_printf ("x-scheme-handler/%s", scheme_down);
   g_free (scheme_down);
@@ -4476,7 +4669,7 @@ g_desktop_app_info_get_implementations (const gchar *interface)
 {
   GList *result = NULL;
   GList **ptr;
-  gint i;
+  guint i;
 
   desktop_file_dirs_lock ();
 
@@ -4539,6 +4732,7 @@ g_desktop_app_info_search (const gchar *search_string)
   gint n_categories = 0;
   gint start_of_category;
   gint i, j;
+  guint k;
 
   search_tokens = g_str_tokenize_and_fold (search_string, NULL, NULL);
 
@@ -4546,11 +4740,11 @@ g_desktop_app_info_search (const gchar *search_string)
 
   reset_total_search_results ();
 
-  for (i = 0; i < desktop_file_dirs->len; i++)
+  for (k = 0; k < desktop_file_dirs->len; k++)
     {
       for (j = 0; search_tokens[j]; j++)
         {
-          desktop_file_dir_search (g_ptr_array_index (desktop_file_dirs, i), search_tokens[j]);
+          desktop_file_dir_search (g_ptr_array_index (desktop_file_dirs, k), search_tokens[j]);
           merge_token_results (j == 0);
         }
       merge_directory_results ();
@@ -4618,7 +4812,7 @@ g_app_info_get_all (void)
   GHashTable *apps;
   GHashTableIter iter;
   gpointer value;
-  int i;
+  guint i;
   GList *infos;
 
   apps = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
@@ -4712,7 +4906,7 @@ G_GNUC_END_IGNORE_DEPRECATIONS
  * WM_CLASS property of the main window of the application, if launched
  * through @info.
  *
- * Returns: (transfer none): the startup WM class, or %NULL if none is set
+ * Returns: (nullable) (transfer none): the startup WM class, or %NULL if none is set
  * in the desktop file.
  *
  * Since: 2.34
@@ -4734,7 +4928,7 @@ g_desktop_app_info_get_startup_wm_class (GDesktopAppInfo *info)
  *
  * The @key is looked up in the "Desktop Entry" group.
  *
- * Returns: a newly allocated string, or %NULL if the key
+ * Returns: (nullable): a newly allocated string, or %NULL if the key
  *     is not found
  *
  * Since: 2.36

@@ -2,6 +2,8 @@
  *
  * Copyright © 2011 Red Hat, Inc
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -78,12 +80,16 @@ G_DEFINE_BOXED_TYPE (GResource, g_resource, g_resource_ref, g_resource_unref)
  * the xmllint executable, or xmllint must be in the `PATH`; otherwise
  * the preprocessing step is skipped.
  *
- * `to-pixdata` which will use the gdk-pixbuf-pixdata command to convert
- * images to the GdkPixdata format, which allows you to create pixbufs directly using the data inside
- * the resource file, rather than an (uncompressed) copy of it. For this, the gdk-pixbuf-pixdata
- * program must be in the PATH, or the `GDK_PIXBUF_PIXDATA` environment variable must be
- * set to the full path to the gdk-pixbuf-pixdata executable; otherwise the resource compiler will
- * abort.
+ * `to-pixdata` (deprecated since gdk-pixbuf 2.32) which will use the
+ * `gdk-pixbuf-pixdata` command to convert images to the #GdkPixdata format,
+ * which allows you to create pixbufs directly using the data inside the
+ * resource file, rather than an (uncompressed) copy of it. For this, the
+ * `gdk-pixbuf-pixdata` program must be in the `PATH`, or the
+ * `GDK_PIXBUF_PIXDATA` environment variable must be set to the full path to the
+ * `gdk-pixbuf-pixdata` executable; otherwise the resource compiler will abort.
+ * `to-pixdata` has been deprecated since gdk-pixbuf 2.32, as #GResource
+ * supports embedding modern image formats just as well. Instead of using it,
+ * embed a PNG or SVG file in your #GResource.
  *
  * `json-stripblanks` which will use the `json-glib-format` command to strip
  * ignorable whitespace from the JSON file. For this to work, the
@@ -342,7 +348,7 @@ g_resource_find_overlay (const gchar    *path,
       if (envvar != NULL)
         {
           gchar **parts;
-          gint i, j;
+          gint j;
 
           parts = g_strsplit (envvar, G_SEARCHPATH_SEPARATOR_S, 0);
 
@@ -410,7 +416,7 @@ g_resource_find_overlay (const gchar    *path,
           /* We go out of the way to avoid malloc() in the normal case
            * where the environment variable is not set.
            */
-          static const gchar * const empty_strv[0 + 1];
+          static const gchar *const empty_strv[0 + 1] = { 0 };
           result = empty_strv;
         }
 
@@ -805,7 +811,9 @@ g_resource_lookup_data (GResource             *resource,
   if (!do_lookup (resource, path, lookup_flags, &size, &flags, &data, &data_size, error))
     return NULL;
 
-  if (flags & G_RESOURCE_FLAGS_COMPRESSED)
+  if (size == 0)
+    return g_bytes_new_with_free_func ("", 0, (GDestroyNotify) g_resource_unref, g_resource_ref (resource));
+  else if (flags & G_RESOURCE_FLAGS_COMPRESSED)
     {
       char *uncompressed, *d;
       const char *s;
@@ -932,9 +940,10 @@ g_resource_enumerate_children (GResource             *resource,
 
   if (*path == 0)
     {
-      g_set_error (error, G_RESOURCE_ERROR, G_RESOURCE_ERROR_NOT_FOUND,
-                   _("The resource at “%s” does not exist"),
-                   path);
+      if (error)
+        g_set_error (error, G_RESOURCE_ERROR, G_RESOURCE_ERROR_NOT_FOUND,
+                     _("The resource at “%s” does not exist"),
+                     path);
       return NULL;
     }
 
@@ -971,9 +980,10 @@ g_resource_enumerate_children (GResource             *resource,
 
   if (children == NULL)
     {
-      g_set_error (error, G_RESOURCE_ERROR, G_RESOURCE_ERROR_NOT_FOUND,
-                   _("The resource at “%s” does not exist"),
-                   path);
+      if (error)
+        g_set_error (error, G_RESOURCE_ERROR, G_RESOURCE_ERROR_NOT_FOUND,
+                     _("The resource at “%s” does not exist"),
+                     path);
       return NULL;
     }
 
@@ -1240,9 +1250,10 @@ g_resources_enumerate_children (const gchar           *path,
 
   if (hash == NULL)
     {
-      g_set_error (error, G_RESOURCE_ERROR, G_RESOURCE_ERROR_NOT_FOUND,
-                   _("The resource at “%s” does not exist"),
-                   path);
+      if (error)
+        g_set_error (error, G_RESOURCE_ERROR, G_RESOURCE_ERROR_NOT_FOUND,
+                     _("The resource at “%s” does not exist"),
+                     path);
       return NULL;
     }
   else
@@ -1401,7 +1412,7 @@ register_lazy_static_resources (void)
 void
 g_static_resource_init (GStaticResource *static_resource)
 {
-  gpointer next;
+  GStaticResource *next;
 
   do
     {
@@ -1432,10 +1443,13 @@ g_static_resource_fini (GStaticResource *static_resource)
 
   register_lazy_static_resources_unlocked ();
 
-  resource = g_atomic_pointer_get (&static_resource->resource);
+  resource = g_atomic_pointer_exchange (&static_resource->resource, NULL);
   if (resource)
     {
-      g_atomic_pointer_set (&static_resource->resource, NULL);
+      /* There should be at least two references to the resource now: one for
+       * static_resource->resource, and one in the registered_resources list. */
+      g_assert (g_atomic_int_get (&resource->ref_count) >= 2);
+
       g_resources_unregister_unlocked (resource);
       g_resource_unref (resource);
     }

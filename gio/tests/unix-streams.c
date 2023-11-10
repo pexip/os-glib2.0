@@ -146,7 +146,9 @@ main_thread_skipped (GObject *source, GAsyncResult *res, gpointer user_data)
 
   if (g_cancellable_is_cancelled (main_cancel))
     {
+      g_assert_error (err, G_IO_ERROR, G_IO_ERROR_CANCELLED);
       do_main_cancel (out);
+      g_clear_error (&err);
       return;
     }
 
@@ -180,6 +182,7 @@ main_thread_read (GObject *source, GAsyncResult *res, gpointer user_data)
 
   if (g_cancellable_is_cancelled (main_cancel))
     {
+      g_assert_error (err, G_IO_ERROR, G_IO_ERROR_CANCELLED);
       do_main_cancel (out);
       g_clear_error (&err);
       return;
@@ -217,6 +220,7 @@ main_thread_wrote (GObject *source, GAsyncResult *res, gpointer user_data)
 
   if (g_cancellable_is_cancelled (main_cancel))
     {
+      g_assert_error (err, G_IO_ERROR, G_IO_ERROR_CANCELLED);
       do_main_cancel (out);
       g_clear_error (&err);
       return;
@@ -474,8 +478,9 @@ test_write_wouldblock (void)
   gint fd[2];
   GError *err = NULL;
   guint8 data_write[1024], data_read[1024];
-  guint i;
-  gint pipe_capacity;
+  gsize i;
+  int retval;
+  gsize pipe_capacity;
 
   for (i = 0; i < sizeof (data_write); i++)
     data_write[i] = i;
@@ -483,7 +488,9 @@ test_write_wouldblock (void)
   g_assert_cmpint (pipe (fd), ==, 0);
 
   g_assert_cmpint (fcntl (fd[0], F_SETPIPE_SZ, 4096, NULL), !=, 0);
-  pipe_capacity = fcntl (fd[0], F_GETPIPE_SZ, &pipe_capacity, NULL);
+  retval = fcntl (fd[0], F_GETPIPE_SZ);
+  g_assert_cmpint (retval, >=, 0);
+  pipe_capacity = (gsize) retval;
   g_assert_cmpint (pipe_capacity, >=, 4096);
   g_assert_cmpint (pipe_capacity % 1024, >=, 0);
 
@@ -552,10 +559,11 @@ test_writev_wouldblock (void)
   gint fd[2];
   GError *err = NULL;
   guint8 data_write[1024], data_read[1024];
-  guint i;
+  gsize i;
+  int retval;
+  gsize pipe_capacity;
   GOutputVector vectors[4];
   GPollableReturn res;
-  gint pipe_capacity;
 
   for (i = 0; i < sizeof (data_write); i++)
     data_write[i] = i;
@@ -563,7 +571,9 @@ test_writev_wouldblock (void)
   g_assert_cmpint (pipe (fd), ==, 0);
 
   g_assert_cmpint (fcntl (fd[0], F_SETPIPE_SZ, 4096, NULL), !=, 0);
-  pipe_capacity = fcntl (fd[0], F_GETPIPE_SZ, &pipe_capacity, NULL);
+  retval = fcntl (fd[0], F_GETPIPE_SZ);
+  g_assert_cmpint (retval, >=, 0);
+  pipe_capacity = (gsize) retval;
   g_assert_cmpint (pipe_capacity, >=, 4096);
   g_assert_cmpint (pipe_capacity % 1024, >=, 0);
 
@@ -667,8 +677,9 @@ test_write_async_wouldblock (void)
   GUnixOutputStream *os;
   gint fd[2];
   guint8 *data, *data_read;
-  guint i;
-  gint pipe_capacity;
+  gsize i;
+  int retval;
+  gsize pipe_capacity;
   gsize bytes_written = 0, bytes_read = 0;
 
   g_assert_cmpint (pipe (fd), ==, 0);
@@ -685,7 +696,9 @@ test_write_async_wouldblock (void)
   g_unix_set_fd_nonblocking (fd[1], TRUE, NULL);
 
   g_assert_cmpint (fcntl (fd[0], F_SETPIPE_SZ, 4096, NULL), !=, 0);
-  pipe_capacity = fcntl (fd[0], F_GETPIPE_SZ, &pipe_capacity, NULL);
+  retval = fcntl (fd[0], F_GETPIPE_SZ);
+  g_assert_cmpint (retval, >=, 0);
+  pipe_capacity = (gsize) retval;
   g_assert_cmpint (pipe_capacity, >=, 4096);
 
   data = g_new (guint8, 4 * pipe_capacity);
@@ -754,8 +767,9 @@ test_writev_async_wouldblock (void)
   GUnixOutputStream *os;
   gint fd[2];
   guint8 *data, *data_read;
-  guint i;
-  gint pipe_capacity;
+  gsize i;
+  int retval;
+  gsize pipe_capacity;
   gsize bytes_written = 0, bytes_read = 0;
   GOutputVector vectors[4];
 
@@ -773,7 +787,9 @@ test_writev_async_wouldblock (void)
   g_unix_set_fd_nonblocking (fd[1], TRUE, NULL);
 
   g_assert_cmpint (fcntl (fd[0], F_SETPIPE_SZ, 4096, NULL), !=, 0);
-  pipe_capacity = fcntl (fd[0], F_GETPIPE_SZ, &pipe_capacity, NULL);
+  retval = fcntl (fd[0], F_GETPIPE_SZ);
+  g_assert_cmpint (retval, >=, 0);
+  pipe_capacity = (gsize) retval;
   g_assert_cmpint (pipe_capacity, >=, 4096);
 
   data = g_new (guint8, 4 * pipe_capacity);

@@ -1,5 +1,6 @@
 dbus_service_files = [
   'org.freedesktop.portal.Documents.service',
+  'org.gtk.GDBus.FakeService.service'
 ]
 
 srcdir_cdata = configuration_data()
@@ -24,6 +25,7 @@ foreach service_file : dbus_service_files
     )
     install_data(meson.current_build_dir() / service_file + '.to-install',
       install_dir: installed_tests_execdir / 'services',
+      install_tag: 'tests',
       rename: [service_file],
     )
   endif

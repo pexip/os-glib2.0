@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -73,7 +75,7 @@ g_dbus_interface_get_info (GDBusInterface *interface_)
  * the returned object is being used from other threads. See
  * g_dbus_interface_dup_object() for a thread-safe alternative.
  *
- * Returns: (transfer none): A #GDBusObject or %NULL. The returned
+ * Returns: (nullable) (transfer none): A #GDBusObject or %NULL. The returned
  *     reference belongs to @interface_ and should not be freed.
  *
  * Since: 2.30
@@ -91,7 +93,7 @@ g_dbus_interface_get_object (GDBusInterface *interface_)
  *
  * Gets the #GDBusObject that @interface_ belongs to, if any.
  *
- * Returns: (transfer full): A #GDBusObject or %NULL. The returned
+ * Returns: (nullable) (transfer full): A #GDBusObject or %NULL. The returned
  * reference should be freed with g_object_unref().
  *
  * Since: 2.32

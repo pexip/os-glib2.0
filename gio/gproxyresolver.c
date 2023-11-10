@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2010 Collabora, Ltd.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -67,21 +69,33 @@ g_proxy_resolver_default_init (GProxyResolverInterface *iface)
 {
 }
 
+static GProxyResolver *proxy_resolver_default_singleton = NULL;  /* (owned) (atomic) */
+
 /**
  * g_proxy_resolver_get_default:
  *
  * Gets the default #GProxyResolver for the system.
  *
- * Returns: (transfer none): the default #GProxyResolver.
+ * Returns: (not nullable) (transfer none): the default #GProxyResolver, which
+ *     will be a dummy object if no proxy resolver is available
  *
  * Since: 2.26
  */
 GProxyResolver *
 g_proxy_resolver_get_default (void)
 {
-  return _g_io_module_get_default (G_PROXY_RESOLVER_EXTENSION_POINT_NAME,
-				   "GIO_USE_PROXY_RESOLVER",
-				   (GIOModuleVerifyFunc)g_proxy_resolver_is_supported);
+  if (g_once_init_enter (&proxy_resolver_default_singleton))
+    {
+      GProxyResolver *singleton;
+
+      singleton = _g_io_module_get_default (G_PROXY_RESOLVER_EXTENSION_POINT_NAME,
+                                            "GIO_USE_PROXY_RESOLVER",
+                                            (GIOModuleVerifyFunc) g_proxy_resolver_is_supported);
+
+      g_once_init_leave (&proxy_resolver_default_singleton, singleton);
+    }
+
+  return proxy_resolver_default_singleton;
 }
 
 /**
@@ -144,6 +158,7 @@ g_proxy_resolver_lookup (GProxyResolver  *resolver,
 			 GError         **error)
 {
   GProxyResolverInterface *iface;
+  gchar **proxy_uris;
 
   g_return_val_if_fail (G_IS_PROXY_RESOLVER (resolver), NULL);
   g_return_val_if_fail (uri != NULL, NULL);
@@ -157,7 +172,10 @@ g_proxy_resolver_lookup (GProxyResolver  *resolver,
 
   iface = G_PROXY_RESOLVER_GET_IFACE (resolver);
 
-  return (* iface->lookup) (resolver, uri, cancellable, error);
+  proxy_uris = (* iface->lookup) (resolver, uri, cancellable, error);
+  if (proxy_uris == NULL && error != NULL)
+    g_assert (*error != NULL);
+  return proxy_uris;
 }
 
 /**
@@ -223,10 +241,17 @@ g_proxy_resolver_lookup_finish (GProxyResolver     *resolver,
 				GError            **error)
 {
   GProxyResolverInterface *iface;
+  gchar **proxy_uris;
 
   g_return_val_if_fail (G_IS_PROXY_RESOLVER (resolver), NULL);
 
+  if (g_async_result_is_tagged (result, g_proxy_resolver_lookup_async))
+    return g_task_propagate_pointer (G_TASK (result), error);
+
   iface = G_PROXY_RESOLVER_GET_IFACE (resolver);
 
-  return (* iface->lookup_finish) (resolver, result, error);
+  proxy_uris = (* iface->lookup_finish) (resolver, result, error);
+  if (proxy_uris == NULL && error != NULL)
+    g_assert (*error != NULL);
+  return proxy_uris;
 }

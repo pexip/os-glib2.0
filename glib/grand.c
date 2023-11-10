@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -266,7 +268,7 @@ g_rand_new (void)
    * MinGW-w64 has a wrapper that will emulate rand_s() if it's not in msvcrt
    */
 #if (defined(_MSC_VER) && _MSC_VER >= 1400) || defined(__MINGW64_VERSION_MAJOR)
-  gint i;
+  gsize i;
 
   for (i = 0; i < G_N_ELEMENTS (seed); i++)
     rand_s (&seed[i]);

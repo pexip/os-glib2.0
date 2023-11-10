@@ -2,6 +2,8 @@
  *
  * Copyright 2004 Tor Lillqvist
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -61,7 +63,7 @@ typedef struct stat GStatBuf;
  * A few functions can't be handled in this way, since they are not defined
  * in a portable system header that we could include here.
  *
- * #G_STDIO_WRAP_ON_UNIX is not public API and its behaviour is not guaranteed
+ * G_STDIO_WRAP_ON_UNIX is not public API and its behaviour is not guaranteed
  * in future.
  */
 

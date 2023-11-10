@@ -29,7 +29,7 @@
 
 static GCond cond;
 static GMutex mutex;
-static volatile gint next;
+static gint next;  /* locked by @mutex */
 
 static void
 push_value (gint value)
@@ -239,7 +239,7 @@ test_wait_until (void)
 {
   gint64 until;
   GMutex lock;
-  GCond cond;
+  GCond local_cond;
 
   /* This test will make sure we don't wait too much or too little.
    *
@@ -249,13 +249,13 @@ test_wait_until (void)
    * should not wake up until the specified time has passed.
    */
   g_mutex_init (&lock);
-  g_cond_init (&cond);
+  g_cond_init (&local_cond);
 
   until = g_get_monotonic_time () + G_TIME_SPAN_SECOND;
 
   /* Could still have spurious wakeups, so we must loop... */
   g_mutex_lock (&lock);
-  while (g_cond_wait_until (&cond, &lock, until))
+  while (g_cond_wait_until (&local_cond, &lock, until))
     ;
   g_mutex_unlock (&lock);
 
@@ -265,11 +265,11 @@ test_wait_until (void)
   /* Make sure it returns FALSE on timeout */
   until = g_get_monotonic_time () + G_TIME_SPAN_SECOND / 50;
   g_mutex_lock (&lock);
-  g_assert (g_cond_wait_until (&cond, &lock, until) == FALSE);
+  g_assert (g_cond_wait_until (&local_cond, &lock, until) == FALSE);
   g_mutex_unlock (&lock);
 
   g_mutex_clear (&lock);
-  g_cond_clear (&cond);
+  g_cond_clear (&local_cond);
 }
 
 #ifdef __linux__
@@ -324,8 +324,7 @@ test_wait_until_errno (void)
   act.sa_handler = signal_handler;
 
   g_test_summary ("Check proper handling of errno in g_cond_wait_until with a contended mutex");
-  g_test_bug_base ("https://gitlab.gnome.org/GNOME/glib/");
-  g_test_bug ("merge_requests/957");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/merge_requests/957");
 
   g_mutex_init (&lock);
   g_cond_init (&cond);

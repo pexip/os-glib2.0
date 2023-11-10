@@ -1,6 +1,8 @@
 /*
  * Copyright © 2009, 2010 Codethink Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -156,7 +158,8 @@ add_to_tree (gpointer key,
              gpointer value,
              gpointer user_data)
 {
-  g_tree_insert (user_data, g_strdup (key), g_variant_ref (value));
+  /* A value may be %NULL if its key has been reset */
+  g_tree_insert (user_data, g_strdup (key), (value != NULL) ? g_variant_ref (value) : NULL);
   return FALSE;
 }
 
@@ -403,7 +406,7 @@ delayed_backend_path_writable_changed (GObject          *target,
 
   if (n_keys > 0)
     {
-      CheckPrefixState state = { path, g_new (const gchar *, n_keys) };
+      CheckPrefixState state = { path, g_new (const gchar *, n_keys), 0 };
       gsize i;
 
       /* collect a list of possibly-affected keys (ie: matching the path) */

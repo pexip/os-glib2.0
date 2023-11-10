@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -23,7 +25,6 @@
 #include <string.h>
 
 #include "gdbus-tests.h"
-#include "gstrfuncsprivate.h"
 
 /* all tests rely on a shared mainloop */
 static GMainLoop *loop = NULL;
@@ -128,6 +129,8 @@ static const GDBusInterfaceInfo foo2_interface_info =
   "org.example.Foo2",
   (GDBusMethodInfo **) &foo_method_info_pointers,
   (GDBusSignalInfo **) &foo_signal_info_pointers,
+  NULL,
+  NULL
 };
 
 static void
@@ -199,7 +202,8 @@ static const GDBusInterfaceVTable foo_vtable =
 {
   foo_method_call,
   foo_get_property,
-  foo_set_property
+  foo_set_property,
+  { 0 },
 };
 
 /* -------------------- */
@@ -312,7 +316,8 @@ static const GDBusInterfaceVTable dyna_interface_vtable =
 {
   dyna_cyber,
   NULL,
-  NULL
+  NULL,
+  { 0 }
 };
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -599,20 +604,6 @@ on_subtree_unregistered (gpointer user_data)
   data->num_unregistered_subtree_calls++;
 }
 
-static gboolean
-_g_strv_has_string (const gchar* const * haystack,
-                    const gchar *needle)
-{
-  guint n;
-
-  for (n = 0; haystack != NULL && haystack[n] != NULL; n++)
-    {
-      if (g_strcmp0 (haystack[n], needle) == 0)
-        return TRUE;
-    }
-  return FALSE;
-}
-
 /* -------------------- */
 
 static gchar **
@@ -694,7 +685,8 @@ static const GDBusSubtreeVTable subtree_vtable =
 {
   subtree_enumerate,
   subtree_introspect,
-  subtree_dispatch
+  subtree_dispatch,
+  { 0 }
 };
 
 /* -------------------- */
@@ -748,7 +740,8 @@ static const GDBusSubtreeVTable dynamic_subtree_vtable =
 {
   dynamic_subtree_enumerate,
   dynamic_subtree_introspect,
-  dynamic_subtree_dispatch
+  dynamic_subtree_dispatch,
+  { 0 }
 };
 
 /* -------------------- */
@@ -1301,11 +1294,11 @@ test_object_registration (void)
   nodes = get_nodes_at (c, "/foo/boss");
   g_assert (nodes != NULL);
   g_assert_cmpint (g_strv_length (nodes), ==, 5);
-  g_assert (_g_strv_has_string ((const gchar* const *) nodes, "worker1"));
-  g_assert (_g_strv_has_string ((const gchar* const *) nodes, "worker1p1"));
-  g_assert (_g_strv_has_string ((const gchar* const *) nodes, "worker2"));
-  g_assert (_g_strv_has_string ((const gchar* const *) nodes, "interns"));
-  g_assert (_g_strv_has_string ((const gchar* const *) nodes, "executives"));
+  g_assert (g_strv_contains ((const gchar* const *) nodes, "worker1"));
+  g_assert (g_strv_contains ((const gchar* const *) nodes, "worker1p1"));
+  g_assert (g_strv_contains ((const gchar* const *) nodes, "worker2"));
+  g_assert (g_strv_contains ((const gchar* const *) nodes, "interns"));
+  g_assert (g_strv_contains ((const gchar* const *) nodes, "executives"));
   g_strfreev (nodes);
   /* any registered object always implement org.freedesktop.DBus.[Peer,Introspectable,Properties] */
   g_assert_cmpint (count_interfaces (c, "/foo/boss"), ==, 5);
@@ -1317,7 +1310,7 @@ test_object_registration (void)
    */
   nodes = get_nodes_at (c, "/foo/boss/executives");
   g_assert (nodes != NULL);
-  g_assert (_g_strv_has_string ((const gchar* const *) nodes, "non_subtree_object"));
+  g_assert (g_strv_contains ((const gchar* const *) nodes, "non_subtree_object"));
   g_assert_cmpint (g_strv_length (nodes), ==, 1);
   g_strfreev (nodes);
   g_assert_cmpint (count_interfaces (c, "/foo/boss/executives"), ==, 0);
@@ -1327,11 +1320,11 @@ test_object_registration (void)
   nodes = get_nodes_at (c, "/foo/boss/executives");
   g_assert (nodes != NULL);
   g_assert_cmpint (g_strv_length (nodes), ==, 5);
-  g_assert (_g_strv_has_string ((const gchar* const *) nodes, "non_subtree_object"));
-  g_assert (_g_strv_has_string ((const gchar* const *) nodes, "vp0"));
-  g_assert (_g_strv_has_string ((const gchar* const *) nodes, "vp1"));
-  g_assert (_g_strv_has_string ((const gchar* const *) nodes, "evp0"));
-  g_assert (_g_strv_has_string ((const gchar* const *) nodes, "evp1"));
+  g_assert (g_strv_contains ((const gchar* const *) nodes, "non_subtree_object"));
+  g_assert (g_strv_contains ((const gchar* const *) nodes, "vp0"));
+  g_assert (g_strv_contains ((const gchar* const *) nodes, "vp1"));
+  g_assert (g_strv_contains ((const gchar* const *) nodes, "evp0"));
+  g_assert (g_strv_contains ((const gchar* const *) nodes, "evp1"));
   /* check that /foo/boss/executives/non_subtree_object is not handled by the
    * subtree handlers - we can do this because objects from subtree handlers
    * has exactly one interface and non_subtree_object has two
@@ -1353,13 +1346,13 @@ test_object_registration (void)
   nodes = get_nodes_at (c, "/foo/boss/executives");
   g_assert (nodes != NULL);
   g_assert_cmpint (g_strv_length (nodes), ==, 7);
-  g_assert (_g_strv_has_string ((const gchar* const *) nodes, "non_subtree_object"));
-  g_assert (_g_strv_has_string ((const gchar* const *) nodes, "vp0"));
-  g_assert (_g_strv_has_string ((const gchar* const *) nodes, "vp1"));
-  g_assert (_g_strv_has_string ((const gchar* const *) nodes, "vp2"));
-  g_assert (_g_strv_has_string ((const gchar* const *) nodes, "evp0"));
-  g_assert (_g_strv_has_string ((const gchar* const *) nodes, "evp1"));
-  g_assert (_g_strv_has_string ((const gchar* const *) nodes, "evp2"));
+  g_assert (g_strv_contains ((const gchar* const *) nodes, "non_subtree_object"));
+  g_assert (g_strv_contains ((const gchar* const *) nodes, "vp0"));
+  g_assert (g_strv_contains ((const gchar* const *) nodes, "vp1"));
+  g_assert (g_strv_contains ((const gchar* const *) nodes, "vp2"));
+  g_assert (g_strv_contains ((const gchar* const *) nodes, "evp0"));
+  g_assert (g_strv_contains ((const gchar* const *) nodes, "evp1"));
+  g_assert (g_strv_contains ((const gchar* const *) nodes, "evp2"));
   g_strfreev (nodes);
 
   /* This is to check that a bug (rather, class of bugs) in gdbusconnection.c's
@@ -1396,7 +1389,7 @@ test_object_registration (void)
   nodes = get_nodes_at (c, "/foo/boss/executives");
   g_assert (nodes != NULL);
   g_assert_cmpint (g_strv_length (nodes), ==, 1);
-  g_assert (_g_strv_has_string ((const gchar* const *) nodes, "non_subtree_object"));
+  g_assert (g_strv_contains ((const gchar* const *) nodes, "non_subtree_object"));
   g_strfreev (nodes);
 
   g_assert (g_dbus_connection_unregister_object (c, boss_foo_reg_id));
@@ -1730,7 +1723,7 @@ test_async_properties (void)
   GError *error = NULL;
   guint registration_id, registration_id2;
   static const GDBusInterfaceVTable vtable = {
-    test_async_method_call, NULL, NULL
+    test_async_method_call, NULL, NULL, { 0 }
   };
 
   c = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, &error);
@@ -1787,6 +1780,184 @@ test_async_properties (void)
   g_object_unref (c);
 }
 
+typedef struct
+{
+  GDBusConnection *connection;  /* (owned) */
+  guint registration_id;
+  guint subtree_registration_id;
+} ThreadedUnregistrationData;
+
+static gpointer
+unregister_thread_cb (gpointer user_data)
+{
+  ThreadedUnregistrationData *data = user_data;
+
+  /* Sleeping here makes the race more likely to be hit, as it balances the
+   * time taken to set up the thread and unregister, with the time taken to
+   * make and handle the D-Bus call. This will likely change with future kernel
+   * versions, but there isn’t a more deterministic synchronisation point that
+   * I can think of to use instead. */
+  usleep (330);
+
+  if (data->registration_id > 0)
+    g_assert_true (g_dbus_connection_unregister_object (data->connection, data->registration_id));
+
+  if (data->subtree_registration_id > 0)
+    g_assert_true (g_dbus_connection_unregister_subtree (data->connection, data->subtree_registration_id));
+
+  return NULL;
+}
+
+static void
+async_result_cb (GObject      *source_object,
+                 GAsyncResult *result,
+                 gpointer      user_data)
+{
+  GAsyncResult **result_out = user_data;
+
+  *result_out = g_object_ref (result);
+  g_main_context_wakeup (NULL);
+}
+
+/* Returns %TRUE if this iteration resolved the race with the unregistration
+ * first, %FALSE if the call handler was invoked first. */
+static gboolean
+test_threaded_unregistration_iteration (gboolean subtree)
+{
+  ThreadedUnregistrationData data = { NULL, 0, 0 };
+  ObjectRegistrationData object_registration_data = { 0, 0, 2 };
+  GError *local_error = NULL;
+  GThread *unregister_thread = NULL;
+  const gchar *object_path;
+  GVariant *value = NULL;
+  const gchar *value_str;
+  GAsyncResult *call_result = NULL;
+  gboolean unregistration_was_first;
+
+  data.connection = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, &local_error);
+  g_assert_no_error (local_error);
+  g_assert_nonnull (data.connection);
+
+  /* Register an object or a subtree */
+  if (!subtree)
+    {
+      data.registration_id = g_dbus_connection_register_object (data.connection,
+                                                                "/foo/boss",
+                                                                (GDBusInterfaceInfo *) &foo_interface_info,
+                                                                &foo_vtable,
+                                                                &object_registration_data,
+                                                                on_object_unregistered,
+                                                                &local_error);
+      g_assert_no_error (local_error);
+      g_assert_cmpint (data.registration_id, >, 0);
+
+      object_path = "/foo/boss";
+    }
+  else
+    {
+      data.subtree_registration_id = g_dbus_connection_register_subtree (data.connection,
+                                                                         "/foo/boss/executives",
+                                                                         &subtree_vtable,
+                                                                         G_DBUS_SUBTREE_FLAGS_NONE,
+                                                                         &object_registration_data,
+                                                                         on_subtree_unregistered,
+                                                                         &local_error);
+      g_assert_no_error (local_error);
+      g_assert_cmpint (data.subtree_registration_id, >, 0);
+
+      object_path = "/foo/boss/executives/vp0";
+    }
+
+  /* Allow the registrations to go through. */
+  g_main_context_iteration (NULL, FALSE);
+
+  /* Spawn a thread to unregister the object/subtree. This will race with
+   * the call we subsequently make. */
+  unregister_thread = g_thread_new ("unregister-object",
+                                    unregister_thread_cb, &data);
+
+  /* Call a method on the object (or an object in the subtree). The callback
+   * will be invoked in this main context. */
+  g_dbus_connection_call (data.connection,
+                          g_dbus_connection_get_unique_name (data.connection),
+                          object_path,
+                          "org.example.Foo",
+                          "Method1",
+                          g_variant_new ("(s)", "winwinwin"),
+                          NULL,
+                          G_DBUS_CALL_FLAGS_NONE,
+                          -1,
+                          NULL,
+                          async_result_cb,
+                          &call_result);
+
+  while (call_result == NULL)
+    g_main_context_iteration (NULL, TRUE);
+
+  value = g_dbus_connection_call_finish (data.connection, call_result, &local_error);
+
+  /* The result of the method could either be an error (that the object doesn’t
+   * exist) or a valid result, depending on how the thread was scheduled
+   * relative to the call. */
+  unregistration_was_first = (value == NULL);
+  if (value != NULL)
+    {
+      g_assert_no_error (local_error);
+      g_assert_true (g_variant_is_of_type (value, G_VARIANT_TYPE ("(s)")));
+      g_variant_get (value, "(&s)", &value_str);
+      g_assert_cmpstr (value_str, ==, "You passed the string 'winwinwin'. Jolly good!");
+    }
+  else
+    {
+      g_assert_null (value);
+      g_assert_error (local_error, G_DBUS_ERROR, G_DBUS_ERROR_UNKNOWN_METHOD);
+    }
+
+  g_clear_pointer (&value, g_variant_unref);
+  g_clear_error (&local_error);
+
+  /* Tidy up. */
+  g_thread_join (g_steal_pointer (&unregister_thread));
+
+  g_clear_object (&call_result);
+  g_clear_object (&data.connection);
+
+  return unregistration_was_first;
+}
+
+static void
+test_threaded_unregistration (gconstpointer test_data)
+{
+  gboolean subtree = GPOINTER_TO_INT (test_data);
+  guint i;
+  guint n_iterations_unregistration_first = 0;
+  guint n_iterations_call_first = 0;
+
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/2400");
+  g_test_summary ("Test that object/subtree unregistration from one thread "
+                  "doesn’t cause problems when racing with method callbacks "
+                  "in another thread for that object or subtree");
+
+  /* Run iterations of the test until it’s likely we’ve hit the race. Limit the
+   * number of iterations so the test doesn’t run forever if not. The choice of
+   * 100 is arbitrary. */
+  for (i = 0; i < 1000 && (n_iterations_unregistration_first < 100 || n_iterations_call_first < 100); i++)
+    {
+      if (test_threaded_unregistration_iteration (subtree))
+        n_iterations_unregistration_first++;
+      else
+        n_iterations_call_first++;
+    }
+
+  /* If the condition below is met, we probably failed to reproduce the race.
+   * Don’t fail the test, though, as we can’t always control whether we hit the
+   * race, and spurious test failures are annoying. */
+  if (n_iterations_unregistration_first < 100 ||
+      n_iterations_call_first < 100)
+    g_test_skip_printf ("Failed to reproduce race (%u iterations with unregistration first, %u with call first); skipping test",
+                        n_iterations_unregistration_first, n_iterations_call_first);
+}
+
 /* ---------------------------------------------------------------------------------------------------- */
 
 int
@@ -1804,6 +1975,8 @@ main (int   argc,
   g_test_add_func ("/gdbus/object-registration-with-closures", test_object_registration_with_closures);
   g_test_add_func ("/gdbus/registered-interfaces", test_registered_interfaces);
   g_test_add_func ("/gdbus/async-properties", test_async_properties);
+  g_test_add_data_func ("/gdbus/threaded-unregistration/object", GINT_TO_POINTER (FALSE), test_threaded_unregistration);
+  g_test_add_data_func ("/gdbus/threaded-unregistration/subtree", GINT_TO_POINTER (TRUE), test_threaded_unregistration);
 
   /* TODO: check that we spit out correct introspection data */
   /* TODO: check that registering a whole subtree works */

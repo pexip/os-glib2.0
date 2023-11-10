@@ -137,6 +137,12 @@ GLIB_VERSION_2_60
 GLIB_VERSION_2_62
 GLIB_VERSION_2_64
 GLIB_VERSION_2_66
+GLIB_VERSION_2_68
+GLIB_VERSION_2_70
+GLIB_VERSION_2_72
+GLIB_VERSION_2_74
+GLIB_VERSION_CUR_STABLE
+GLIB_VERSION_PREV_STABLE
 GLIB_VERSION_MIN_REQUIRED
 GLIB_VERSION_MAX_ALLOWED
 GLIB_DISABLE_DEPRECATION_WARNINGS
@@ -164,6 +170,10 @@ GLIB_AVAILABLE_ENUMERATOR_IN_2_60
 GLIB_AVAILABLE_ENUMERATOR_IN_2_62
 GLIB_AVAILABLE_ENUMERATOR_IN_2_64
 GLIB_AVAILABLE_ENUMERATOR_IN_2_66
+GLIB_AVAILABLE_ENUMERATOR_IN_2_68
+GLIB_AVAILABLE_ENUMERATOR_IN_2_70
+GLIB_AVAILABLE_ENUMERATOR_IN_2_72
+GLIB_AVAILABLE_ENUMERATOR_IN_2_74
 GLIB_AVAILABLE_IN_ALL
 GLIB_AVAILABLE_IN_2_26
 GLIB_AVAILABLE_IN_2_28
@@ -186,6 +196,10 @@ GLIB_AVAILABLE_IN_2_60
 GLIB_AVAILABLE_IN_2_62
 GLIB_AVAILABLE_IN_2_64
 GLIB_AVAILABLE_IN_2_66
+GLIB_AVAILABLE_IN_2_68
+GLIB_AVAILABLE_IN_2_70
+GLIB_AVAILABLE_IN_2_72
+GLIB_AVAILABLE_IN_2_74
 GLIB_AVAILABLE_MACRO_IN_2_26
 GLIB_AVAILABLE_MACRO_IN_2_28
 GLIB_AVAILABLE_MACRO_IN_2_30
@@ -207,11 +221,19 @@ GLIB_AVAILABLE_MACRO_IN_2_60
 GLIB_AVAILABLE_MACRO_IN_2_62
 GLIB_AVAILABLE_MACRO_IN_2_64
 GLIB_AVAILABLE_MACRO_IN_2_66
+GLIB_AVAILABLE_MACRO_IN_2_68
+GLIB_AVAILABLE_MACRO_IN_2_70
+GLIB_AVAILABLE_MACRO_IN_2_72
+GLIB_AVAILABLE_MACRO_IN_2_74
 GLIB_AVAILABLE_STATIC_INLINE_IN_2_44
 GLIB_AVAILABLE_STATIC_INLINE_IN_2_60
 GLIB_AVAILABLE_STATIC_INLINE_IN_2_62
 GLIB_AVAILABLE_STATIC_INLINE_IN_2_64
 GLIB_AVAILABLE_STATIC_INLINE_IN_2_66
+GLIB_AVAILABLE_STATIC_INLINE_IN_2_68
+GLIB_AVAILABLE_STATIC_INLINE_IN_2_70
+GLIB_AVAILABLE_STATIC_INLINE_IN_2_72
+GLIB_AVAILABLE_STATIC_INLINE_IN_2_74
 GLIB_AVAILABLE_TYPE_IN_2_26
 GLIB_AVAILABLE_TYPE_IN_2_28
 GLIB_AVAILABLE_TYPE_IN_2_30
@@ -233,6 +255,10 @@ GLIB_AVAILABLE_TYPE_IN_2_60
 GLIB_AVAILABLE_TYPE_IN_2_62
 GLIB_AVAILABLE_TYPE_IN_2_64
 GLIB_AVAILABLE_TYPE_IN_2_66
+GLIB_AVAILABLE_TYPE_IN_2_68
+GLIB_AVAILABLE_TYPE_IN_2_70
+GLIB_AVAILABLE_TYPE_IN_2_72
+GLIB_AVAILABLE_TYPE_IN_2_74
 GLIB_DEPRECATED_ENUMERATOR
 GLIB_DEPRECATED_ENUMERATOR_FOR
 GLIB_DEPRECATED_ENUMERATOR_IN_2_26
@@ -277,6 +303,14 @@ GLIB_DEPRECATED_ENUMERATOR_IN_2_64
 GLIB_DEPRECATED_ENUMERATOR_IN_2_64_FOR
 GLIB_DEPRECATED_ENUMERATOR_IN_2_66
 GLIB_DEPRECATED_ENUMERATOR_IN_2_66_FOR
+GLIB_DEPRECATED_ENUMERATOR_IN_2_68
+GLIB_DEPRECATED_ENUMERATOR_IN_2_68_FOR
+GLIB_DEPRECATED_ENUMERATOR_IN_2_70
+GLIB_DEPRECATED_ENUMERATOR_IN_2_70_FOR
+GLIB_DEPRECATED_ENUMERATOR_IN_2_72
+GLIB_DEPRECATED_ENUMERATOR_IN_2_72_FOR
+GLIB_DEPRECATED_ENUMERATOR_IN_2_74
+GLIB_DEPRECATED_ENUMERATOR_IN_2_74_FOR
 GLIB_DEPRECATED_IN_2_26
 GLIB_DEPRECATED_IN_2_26_FOR
 GLIB_DEPRECATED_IN_2_28
@@ -319,6 +353,14 @@ GLIB_DEPRECATED_IN_2_64
 GLIB_DEPRECATED_IN_2_64_FOR
 GLIB_DEPRECATED_IN_2_66
 GLIB_DEPRECATED_IN_2_66_FOR
+GLIB_DEPRECATED_IN_2_68
+GLIB_DEPRECATED_IN_2_68_FOR
+GLIB_DEPRECATED_IN_2_70
+GLIB_DEPRECATED_IN_2_70_FOR
+GLIB_DEPRECATED_IN_2_72
+GLIB_DEPRECATED_IN_2_72_FOR
+GLIB_DEPRECATED_IN_2_74
+GLIB_DEPRECATED_IN_2_74_FOR
 GLIB_DEPRECATED_MACRO
 GLIB_DEPRECATED_MACRO_FOR
 GLIB_DEPRECATED_MACRO_IN_2_26
@@ -363,6 +405,14 @@ GLIB_DEPRECATED_MACRO_IN_2_64
 GLIB_DEPRECATED_MACRO_IN_2_64_FOR
 GLIB_DEPRECATED_MACRO_IN_2_66
 GLIB_DEPRECATED_MACRO_IN_2_66_FOR
+GLIB_DEPRECATED_MACRO_IN_2_68
+GLIB_DEPRECATED_MACRO_IN_2_68_FOR
+GLIB_DEPRECATED_MACRO_IN_2_70
+GLIB_DEPRECATED_MACRO_IN_2_70_FOR
+GLIB_DEPRECATED_MACRO_IN_2_72
+GLIB_DEPRECATED_MACRO_IN_2_72_FOR
+GLIB_DEPRECATED_MACRO_IN_2_74
+GLIB_DEPRECATED_MACRO_IN_2_74_FOR
 GLIB_DEPRECATED_TYPE
 GLIB_DEPRECATED_TYPE_FOR
 GLIB_DEPRECATED_TYPE_IN_2_26
@@ -407,6 +457,14 @@ GLIB_DEPRECATED_TYPE_IN_2_64
 GLIB_DEPRECATED_TYPE_IN_2_64_FOR
 GLIB_DEPRECATED_TYPE_IN_2_66
 GLIB_DEPRECATED_TYPE_IN_2_66_FOR
+GLIB_DEPRECATED_TYPE_IN_2_68
+GLIB_DEPRECATED_TYPE_IN_2_68_FOR
+GLIB_DEPRECATED_TYPE_IN_2_70
+GLIB_DEPRECATED_TYPE_IN_2_70_FOR
+GLIB_DEPRECATED_TYPE_IN_2_72
+GLIB_DEPRECATED_TYPE_IN_2_72_FOR
+GLIB_DEPRECATED_TYPE_IN_2_74
+GLIB_DEPRECATED_TYPE_IN_2_74_FOR
 GLIB_VERSION_CUR_STABLE
 GLIB_VERSION_PREV_STABLE
 </SECTION>
@@ -455,6 +513,12 @@ G_ALIGNOF
 
 <SUBSECTION>
 G_CONST_RETURN
+G_NORETURN
+G_NORETURN_FUNCPTR
+
+<SUBSECTION>
+G_ALWAYS_INLINE
+G_NO_INLINE
 
 <SUBSECTION>
 G_N_ELEMENTS
@@ -706,6 +770,7 @@ G_HAVE_GNUC_VARARGS
 G_HAVE_ISO_VARARGS
 G_HAVE_GROWING_STACK
 G_VA_COPY_AS_ARRAY
+GLIB_CANNOT_IGNORE_DEPRECATIONS
 GLIB_DEPRECATED
 GLIB_DEPRECATED_FOR
 GLIB_UNAVAILABLE
@@ -716,10 +781,28 @@ GLIB_UNAVAILABLE_TYPE
 G_ANALYZER_ANALYZING
 G_ANALYZER_NORETURN
 g_autoptr_cleanup_generic_gfree
-g_has_typeof
+glib_typeof
 g_macro__has_attribute
 g_macro__has_builtin
 g_macro__has_feature
+g_macro__has_extension
+g_macro__has_attribute___always_inline__
+g_macro__has_attribute___alloc_size__
+g_macro__has_attribute___const__
+g_macro__has_attribute___deprecated__
+g_macro__has_attribute___format__
+g_macro__has_attribute___format_arg__
+g_macro__has_attribute___malloc__
+g_macro__has_attribute___no_instrument_function__
+g_macro__has_attribute___noreturn__
+g_macro__has_attribute___pure__
+g_macro__has_attribute___sentinel__
+g_macro__has_attribute___unused__
+g_macro__has_attribute_fallthrough
+g_macro__has_attribute_may_alias
+g_macro__has_attribute___noinline__
+g_macro__has_attribute_warn_unused_result
+g_macro__has_attribute_cleanup
 </SECTION>
 
 <SECTION>
@@ -737,7 +820,15 @@ g_set_error_literal
 g_propagate_error
 g_clear_error
 g_prefix_error
+g_prefix_error_literal
 g_propagate_prefixed_error
+<SUBSECTION>
+GErrorInitFunc
+GErrorCopyFunc
+GErrorClearFunc
+G_DEFINE_EXTENDED_ERROR
+g_error_domain_register_static
+g_error_domain_register
 </SECTION>
 
 <SECTION>
@@ -770,7 +861,9 @@ G_SOURCE_REMOVE
 
 <SUBSECTION>
 GMainContext
+GMainContextFlags
 g_main_context_new
+g_main_context_new_with_flags
 g_main_context_ref
 g_main_context_unref
 g_main_context_default
@@ -816,6 +909,7 @@ g_main_context_pop_thread_default
 g_timeout_source_new
 g_timeout_source_new_seconds
 g_timeout_add
+g_timeout_add_once
 g_timeout_add_full
 g_timeout_add_seconds
 g_timeout_add_seconds_full
@@ -823,6 +917,7 @@ g_timeout_add_seconds_full
 <SUBSECTION>
 g_idle_source_new
 g_idle_add
+g_idle_add_once
 g_idle_add_full
 g_idle_remove_by_data
 
@@ -860,11 +955,13 @@ g_source_get_can_recurse
 g_source_get_id
 g_source_get_name
 g_source_set_name
+g_source_set_static_name
 g_source_set_name_by_id
 g_source_get_context
 g_source_set_callback
 GSourceFunc
 G_SOURCE_FUNC
+GSourceOnceFunc
 g_source_set_callback_indirect
 g_source_set_ready_time
 g_source_get_ready_time
@@ -883,6 +980,9 @@ g_source_remove_by_funcs_user_data
 g_source_remove_by_user_data
 GClearHandleFunc
 g_clear_handle_id
+
+<SUBSECTION>
+g_steal_fd
 
 <SUBSECTION Private>
 GLIB_HAVE_ALLOCA_H
@@ -1112,6 +1212,7 @@ g_once_init_enter_impl
 <FILE>thread_pools</FILE>
 GThreadPool
 g_thread_pool_new
+g_thread_pool_new_full
 g_thread_pool_push
 g_thread_pool_set_max_threads
 g_thread_pool_get_max_threads
@@ -1177,6 +1278,8 @@ g_atomic_int_set
 g_atomic_int_inc
 g_atomic_int_dec_and_test
 g_atomic_int_compare_and_exchange
+g_atomic_int_compare_and_exchange_full
+g_atomic_int_exchange
 g_atomic_int_add
 g_atomic_int_and
 g_atomic_int_or
@@ -1186,6 +1289,8 @@ g_atomic_int_xor
 g_atomic_pointer_get
 g_atomic_pointer_set
 g_atomic_pointer_compare_and_exchange
+g_atomic_pointer_compare_and_exchange_full
+g_atomic_pointer_exchange
 g_atomic_pointer_add
 g_atomic_pointer_and
 g_atomic_pointer_or
@@ -1310,11 +1415,19 @@ g_mem_gc_friendly
 
 <SUBSECTION>
 g_alloca
+g_alloca0
 g_newa
+g_newa0
+
+<SUBSECTION>
+g_aligned_alloc
+g_aligned_alloc0
+g_aligned_free
 
 <SUBSECTION>
 g_memmove
 g_memdup
+g_memdup2
 
 <SUBSECTION>
 GMemVTable
@@ -1365,6 +1478,9 @@ GPatternSpec
 g_pattern_spec_new
 g_pattern_spec_free
 g_pattern_spec_equal
+g_pattern_spec_copy
+g_pattern_spec_match
+g_pattern_spec_match_string
 g_pattern_match
 g_pattern_match_string
 g_pattern_match_simple
@@ -1452,6 +1568,8 @@ g_log_set_always_fatal
 g_log_set_fatal_mask
 g_log_default_handler
 g_log_set_default_handler
+g_log_get_debug_enabled
+g_log_set_debug_enabled
 
 <SUBSECTION>
 g_log_structured
@@ -1470,6 +1588,8 @@ g_log_writer_format_fields
 g_log_writer_journald
 g_log_writer_standard_streams
 g_log_writer_default
+g_log_writer_default_set_use_stderr
+g_log_writer_default_would_drop
 
 <SUBSECTION Private>
 g_log_structured_standard
@@ -1498,9 +1618,11 @@ GSpawnFlags
 GSpawnChildSetupFunc
 g_spawn_async_with_fds
 g_spawn_async_with_pipes
+g_spawn_async_with_pipes_and_fds
 g_spawn_async
 g_spawn_sync
 G_SPAWN_EXIT_ERROR
+g_spawn_check_wait_status
 g_spawn_check_exit_status
 g_spawn_command_line_async
 g_spawn_command_line_sync
@@ -1583,6 +1705,7 @@ GOptionArg
 GOptionFlags
 G_OPTION_REMAINING
 GOptionEntry
+G_OPTION_ENTRY_NULL
 g_option_context_add_main_entries
 GOptionGroup
 g_option_context_add_group
@@ -1790,9 +1913,17 @@ g_strjoinv
 
 <SUBSECTION>
 GStrv
+GStrvBuilder
 g_strv_length
 g_strv_contains
 g_strv_equal
+g_strv_builder_new
+g_strv_builder_ref
+g_strv_builder_unref
+g_strv_builder_add
+g_strv_builder_addv
+g_strv_builder_add_many
+g_strv_builder_end
 
 <SUBSECTION>
 g_strerror
@@ -1917,6 +2048,7 @@ g_time_zone_unref
 g_time_zone_ref
 <SUBSECTION>
 g_time_zone_new
+g_time_zone_new_identifier
 g_time_zone_new_local
 g_time_zone_new_utc
 g_time_zone_new_offset
@@ -2110,6 +2242,7 @@ g_get_real_name
 g_get_user_cache_dir
 g_get_user_data_dir
 g_get_user_config_dir
+g_get_user_state_dir
 g_get_user_runtime_dir
 GUserDirectory
 g_get_user_special_dir
@@ -2412,9 +2545,12 @@ g_bookmark_file_error_quark
 <FILE>modules</FILE>
 <INCLUDE>gmodule.h</INCLUDE>
 GModule
+GModuleError
+G_MODULE_ERROR
 g_module_supported
 g_module_build_path
 g_module_open
+g_module_open_full
 GModuleFlags
 g_module_symbol
 g_module_name
@@ -2427,6 +2563,8 @@ GModuleUnload
 G_MODULE_SUFFIX
 G_MODULE_EXPORT
 G_MODULE_IMPORT
+<SUBSECTION Private>
+g_module_error_quark
 </SECTION>
 
 <SECTION>
@@ -2746,8 +2884,10 @@ g_trash_stack_height
 GHashTable
 g_hash_table_new
 g_hash_table_new_full
+g_hash_table_new_similar
 GHashFunc
 GEqualFunc
+GEqualFuncFull
 g_hash_table_insert
 g_hash_table_replace
 g_hash_table_add
@@ -2825,6 +2965,7 @@ g_string_insert_unichar
 g_string_insert_len
 g_string_overwrite
 g_string_overwrite_len
+g_string_replace
 g_string_erase
 g_string_truncate
 g_string_set_size
@@ -2896,7 +3037,9 @@ g_ptr_array_sized_new
 g_ptr_array_new_with_free_func
 g_ptr_array_copy
 g_ptr_array_new_full
+g_ptr_array_new_null_terminated
 g_ptr_array_set_free_func
+g_ptr_array_is_null_terminated
 g_ptr_array_ref
 g_ptr_array_unref
 g_ptr_array_add
@@ -2951,6 +3094,7 @@ g_bytes_new_static
 g_bytes_new_with_free_func
 g_bytes_new_from_bytes
 g_bytes_get_data
+g_bytes_get_region
 g_bytes_get_size
 g_bytes_hash
 g_bytes_equal
@@ -2968,23 +3112,39 @@ g_bytes_get_type
 <TITLE>Balanced Binary Trees</TITLE>
 <FILE>trees-binary</FILE>
 GTree
+GTreeNode
 g_tree_new
 g_tree_ref
 g_tree_unref
 g_tree_new_with_data
 g_tree_new_full
+g_tree_node_first
+g_tree_node_last
+g_tree_node_previous
+g_tree_node_next
+g_tree_insert_node
 g_tree_insert
+g_tree_replace_node
 g_tree_replace
+g_tree_node_key
+g_tree_node_value
 g_tree_nnodes
 g_tree_height
+g_tree_lookup_node
 g_tree_lookup
 g_tree_lookup_extended
+g_tree_foreach_node
 g_tree_foreach
 g_tree_traverse
 GTraverseFunc
+GTraverseNodeFunc
+g_tree_search_node
 g_tree_search
+g_tree_lower_bound
+g_tree_upper_bound
 g_tree_remove
 g_tree_steal
+g_tree_remove_all
 g_tree_destroy
 </SECTION>
 
@@ -3074,6 +3234,7 @@ g_datalist_id_set_data_full
 g_datalist_id_get_data
 g_datalist_id_remove_data
 g_datalist_id_remove_no_notify
+g_datalist_id_remove_multiple
 GDuplicateFunc
 g_datalist_id_dup_data
 g_datalist_id_replace_data
@@ -3459,6 +3620,7 @@ GTestDataFunc
 g_test_add_data_func
 g_test_add_data_func_full
 g_test_add
+g_test_get_path
 
 GTestFileType
 g_test_build_filename
@@ -3466,8 +3628,11 @@ g_test_get_filename
 g_test_get_dir
 
 g_test_fail
+g_test_fail_printf
 g_test_skip
+g_test_skip_printf
 g_test_incomplete
+g_test_incomplete_printf
 g_test_failed
 g_test_message
 g_test_bug_base
@@ -3510,6 +3675,7 @@ g_assert
 g_assert_not_reached
 
 g_assert_cmpstr
+g_assert_cmpstrv
 g_assert_cmpint
 g_assert_cmpuint
 g_assert_cmphex
@@ -3535,6 +3701,8 @@ g_test_get_root
 g_test_suite_add
 g_test_suite_add_suite
 g_test_run_suite
+g_test_case_free
+g_test_suite_free
 
 <SUBSECTION Private>
 g_test_trap_assertions
