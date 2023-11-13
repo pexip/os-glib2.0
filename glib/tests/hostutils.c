@@ -1,6 +1,8 @@
 /* 
  * Copyright (C) 2008 Red Hat, Inc
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -69,7 +71,23 @@ static const gint num_non_round_trip_names = G_N_ELEMENTS (non_round_trip_names)
 static const gchar *bad_names[] = {
   "disallowed\xef\xbf\xbd" "character",
   "non-utf\x88",
-  "xn--mixed-\xc3\xbcp"
+  "xn--mixed-\xc3\xbcp",
+  "verylongverylongverylongverylongverylongverylongverylongverylongverylong"
+  "verylongverylongverylongverylongverylongverylongverylongverylongverylong"
+  "verylongverylongverylongverylongverylongverylongverylongverylongverylong"
+  "verylongverylongverylongverylongverylongverylongverylongverylongverylong"
+  "verylongverylongverylongverylongverylongverylongverylongverylongverylong"
+  "verylongverylongverylongverylongverylongverylongverylongverylongverylong"
+  "verylongverylongverylongverylongverylongverylongverylongverylongverylong"
+  "verylongverylongverylongverylongverylongverylongverylongverylongverylong"
+  "verylongverylongverylongverylongverylongverylongverylongverylongverylong"
+  "verylongverylongverylongverylongverylongverylongverylongverylongverylong"
+  "verylongverylongverylongverylongverylongverylongverylongverylongverylong"
+  "verylongverylongverylongverylongverylongverylongverylongverylongverylong"
+  "verylongverylongverylongverylongverylongverylongverylongverylongverylong"
+  "verylongverylongverylongverylongverylongverylongverylongverylongverylong"
+  "verylongverylongverylongverylongverylongverylongverylongverylongverylong"
+  "verylongverylongverylongverylongverylongverylongverylongverylongverylong",
 };
 static const gint num_bad_names = G_N_ELEMENTS (bad_names);
 
@@ -81,7 +99,7 @@ test_to_ascii (void)
 
   for (i = 0; i < num_idn_test_domains; i++)
     {
-      g_assert (g_hostname_is_non_ascii (idn_test_domains[i].unicode_name));
+      g_assert_true (g_hostname_is_non_ascii (idn_test_domains[i].unicode_name));
       ascii = g_hostname_to_ascii (idn_test_domains[i].unicode_name);
       g_assert_cmpstr (idn_test_domains[i].ascii_name, ==, ascii);
       g_free (ascii);
@@ -94,14 +112,14 @@ test_to_ascii (void)
   for (i = 0; i < num_non_round_trip_names; i++)
     {
       if (non_round_trip_names[i].orig_is_unicode)
-	g_assert (g_hostname_is_non_ascii (non_round_trip_names[i].orig_name));
+        g_assert_true (g_hostname_is_non_ascii (non_round_trip_names[i].orig_name));
       else
-	g_assert (!g_hostname_is_non_ascii (non_round_trip_names[i].orig_name));
+        g_assert_true (!g_hostname_is_non_ascii (non_round_trip_names[i].orig_name));
 
       if (non_round_trip_names[i].ascii_is_encoded)
-	g_assert (g_hostname_is_ascii_encoded (non_round_trip_names[i].ascii_name));
+        g_assert_true (g_hostname_is_ascii_encoded (non_round_trip_names[i].ascii_name));
       else
-	g_assert (!g_hostname_is_ascii_encoded (non_round_trip_names[i].ascii_name));
+        g_assert_true (!g_hostname_is_ascii_encoded (non_round_trip_names[i].ascii_name));
 
       ascii = g_hostname_to_ascii (non_round_trip_names[i].orig_name);
       g_assert_cmpstr (non_round_trip_names[i].ascii_name, ==, ascii);
@@ -127,7 +145,7 @@ test_to_unicode (void)
 
   for (i = 0; i < num_idn_test_domains; i++)
     {
-      g_assert (g_hostname_is_ascii_encoded (idn_test_domains[i].ascii_name));
+      g_assert_true (g_hostname_is_ascii_encoded (idn_test_domains[i].ascii_name));
       unicode = g_hostname_to_unicode (idn_test_domains[i].ascii_name);
       g_assert_cmpstr (idn_test_domains[i].unicode_name, ==, unicode);
       g_free (unicode);

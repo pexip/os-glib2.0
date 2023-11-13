@@ -1,6 +1,8 @@
 /*
  * Copyright 2019 Collabora Ltd.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -37,6 +39,7 @@ typedef enum
   INTEROP_FLAGS_TCP = (1 << 3),
   INTEROP_FLAGS_LIBDBUS = (1 << 4),
   INTEROP_FLAGS_ABSTRACT = (1 << 5),
+  INTEROP_FLAGS_REQUIRE_SAME_USER = (1 << 6),
   INTEROP_FLAGS_NONE = 0
 } InteropFlags;
 
@@ -325,6 +328,8 @@ do_test_server_auth (InteropFlags flags)
 
   if (flags & INTEROP_FLAGS_ANONYMOUS)
     server_flags |= G_DBUS_SERVER_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS;
+  if (flags & INTEROP_FLAGS_REQUIRE_SAME_USER)
+    server_flags |= G_DBUS_SERVER_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER;
 
   observer = g_dbus_auth_observer_new ();
 
@@ -514,6 +519,12 @@ test_server_auth_external (void)
 }
 
 static void
+test_server_auth_external_require_same_user (void)
+{
+  do_test_server_auth (INTEROP_FLAGS_EXTERNAL | INTEROP_FLAGS_REQUIRE_SAME_USER);
+}
+
+static void
 test_server_auth_sha1 (void)
 {
   do_test_server_auth (INTEROP_FLAGS_SHA1);
@@ -537,6 +548,7 @@ main (int   argc,
   g_test_add_func ("/gdbus/server-auth/anonymous", test_server_auth_anonymous);
   g_test_add_func ("/gdbus/server-auth/anonymous/tcp", test_server_auth_anonymous_tcp);
   g_test_add_func ("/gdbus/server-auth/external", test_server_auth_external);
+  g_test_add_func ("/gdbus/server-auth/external/require-same-user", test_server_auth_external_require_same_user);
   g_test_add_func ("/gdbus/server-auth/sha1", test_server_auth_sha1);
   g_test_add_func ("/gdbus/server-auth/sha1/tcp", test_server_auth_sha1_tcp);
 

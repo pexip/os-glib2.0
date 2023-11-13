@@ -5,6 +5,8 @@
  * Copyright © 2009 Red Hat, Inc
  * Copyright © 2015 Collabora, Ltd.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -75,7 +77,10 @@
 #include "gcredentialsprivate.h"
 #include "glibintl.h"
 #include "gioprivate.h"
-#include "gstrfuncsprivate.h"
+
+#ifdef G_OS_WIN32
+#include "giowin32-afunix.h"
+#endif
 
 /**
  * SECTION:gsocket
@@ -460,6 +465,8 @@ g_socket_details_from_fd (GSocket *socket)
   int value, family;
   int errsv;
 
+  memset (&address, 0, sizeof (address));
+
   fd = socket->priv->fd;
   if (!g_socket_get_option (socket, SOL_SOCKET, SO_TYPE, &value, NULL))
     {
@@ -622,9 +629,19 @@ g_socket (gint     domain,
 	(flags & FD_CLOEXEC) == 0)
       {
 	flags |= FD_CLOEXEC;
-	fcntl (fd, F_SETFD, flags);
+	(void) fcntl (fd, F_SETFD, flags);
       }
   }
+#else
+  if ((domain == AF_INET || domain == AF_INET6) && type == SOCK_DGRAM)
+    {
+      BOOL new_behavior = FALSE;
+      DWORD bytes_returned = 0;
+
+      /* Disable connection reset error on ICMP port unreachable. */
+      WSAIoctl (fd, SIO_UDP_CONNRESET, &new_behavior, sizeof (new_behavior),
+                NULL, 0, &bytes_returned, NULL, NULL);
+    }
 #endif
 
   return fd;
@@ -2215,7 +2232,7 @@ g_socket_w32_get_adapter_ipv4_addr (const gchar *name_or_ip)
   unsigned int malloc_iterations = 0;
   PIP_ADAPTER_ADDRESSES addr_buf = NULL, eth_adapter;
   wchar_t *wchar_name_or_ip = NULL;
-  gulong ip_result;
+  gulong ip_result = 0;
   NET_IFINDEX if_index;
 
   /*
@@ -2234,8 +2251,7 @@ g_socket_w32_get_adapter_ipv4_addr (const gchar *name_or_ip)
    */
 
   /* Step 1: Check if string is an IP address: */
-  ip_result = inet_addr (name_or_ip);
-  if (ip_result != INADDR_NONE)
+  if (inet_pton (AF_INET, name_or_ip, &ip_result) == 1)
     return ip_result;  /* Success, IP address string was given directly */
 
   /*
@@ -2592,8 +2608,12 @@ g_socket_multicast_group_operation_ssm (GSocket       *socket,
             S_ADDR_FIELD(mc_req_src) = iface_addr->sin_addr.s_addr;
 #endif  /* defined(G_OS_WIN32) && defined (HAVE_IF_NAMETOINDEX) */
           }
+
+        g_assert (g_inet_address_get_native_size (group) == sizeof (mc_req_src.imr_multiaddr));
         memcpy (&mc_req_src.imr_multiaddr, g_inet_address_to_bytes (group),
                 g_inet_address_get_native_size (group));
+
+        g_assert (g_inet_address_get_native_size (source_specific) == sizeof (mc_req_src.imr_sourceaddr));
         memcpy (&mc_req_src.imr_sourceaddr,
                 g_inet_address_to_bytes (source_specific),
                 g_inet_address_get_native_size (source_specific));
@@ -3129,7 +3149,7 @@ g_socket_get_available_bytes (GSocket *socket)
        * systems add internal header size to the reported size, making it
        * unusable for this function. */
       avail = recv (socket->priv->fd, buf, bufsize, MSG_PEEK);
-      if (avail == -1)
+      if ((gint) avail == -1)
         {
           int errsv = get_socket_errno ();
 #ifdef G_OS_WIN32
@@ -3758,7 +3778,9 @@ static GSourceFuncs broken_funcs =
   NULL,
   NULL,
   broken_dispatch,
-  NULL
+  NULL,
+  NULL,
+  NULL,
 };
 
 #ifdef G_OS_WIN32
@@ -3790,6 +3812,9 @@ update_select_events (GSocket *socket)
   GIOCondition *ptr;
   GList *l;
   WSAEVENT event;
+
+  if (socket->priv->closed)
+    return;
 
   ensure_event (socket);
 
@@ -3849,7 +3874,8 @@ update_condition_unlocked (GSocket *socket)
   WSANETWORKEVENTS events;
   GIOCondition condition;
 
-  if (WSAEnumNetworkEvents (socket->priv->fd,
+  if (!socket->priv->closed &&
+      WSAEnumNetworkEvents (socket->priv->fd,
 			    socket->priv->event,
 			    &events) == 0)
     {
@@ -3868,7 +3894,7 @@ update_condition_unlocked (GSocket *socket)
 
   if (socket->priv->current_events & FD_CLOSE)
     {
-      int r, errsv, buffer;
+      int r, errsv = NO_ERROR, buffer;
 
       r = recv (socket->priv->fd, &buffer, sizeof (buffer), MSG_PEEK);
       if (r < 0)
@@ -3982,7 +4008,10 @@ socket_source_dispatch (GSource     *source,
   gboolean ret;
 
 #ifdef G_OS_WIN32
-  events = update_condition (socket_source->socket);
+  if ((socket_source->pollfd.revents & G_IO_NVAL) != 0)
+    events = G_IO_NVAL;
+  else
+    events = update_condition (socket_source->socket);
 #else
   if (g_socket_is_closed (socket_source->socket))
     {
@@ -4069,6 +4098,7 @@ static GSourceFuncs socket_source_funcs =
   socket_source_dispatch,
   socket_source_finalize,
   (GSourceFunc)socket_source_closure_callback,
+  NULL,
 };
 
 static GSource *
@@ -4098,7 +4128,7 @@ socket_source_new (GSocket      *socket,
   condition |= G_IO_HUP | G_IO_ERR | G_IO_NVAL;
 
   source = g_source_new (&socket_source_funcs, sizeof (GSocketSource));
-  g_source_set_name (source, "GSocket");
+  g_source_set_static_name (source, "GSocket");
   socket_source = (GSocketSource *)source;
 
   socket_source->socket = g_object_ref (socket);
@@ -4470,6 +4500,15 @@ g_socket_condition_timed_wait (GSocket       *socket,
 
 #ifndef G_OS_WIN32
 
+#ifdef HAVE_QNX
+/* QNX has this weird upper limit, or at least used to back in the 6.x days.
+ * This was discovered empirically and doesn't appear to be mentioned in any
+ * of the official documentation. */
+# define G_SOCKET_CONTROL_BUFFER_SIZE_BYTES 2016
+#else
+# define G_SOCKET_CONTROL_BUFFER_SIZE_BYTES 2048
+#endif
+
 /* Unfortunately these have to be macros rather than inline functions due to
  * using alloca(). */
 #define output_message_to_msghdr(message, prev_message, msg, prev_msg, error) \
@@ -4520,7 +4559,7 @@ G_STMT_START { \
     else \
       /* ABI is incompatible */ \
       { \
-        gint i; \
+        guint i; \
  \
         _msg->msg_iov = g_newa (struct iovec, _message->num_vectors); \
         for (i = 0; i < _message->num_vectors; i++) \
@@ -4535,7 +4574,7 @@ G_STMT_START { \
   /* control */ \
   { \
     struct cmsghdr *cmsg; \
-    gint i; \
+    guint i; \
  \
     _msg->msg_controllen = 0; \
     for (i = 0; i < _message->num_control_messages; i++) \
@@ -4545,8 +4584,7 @@ G_STMT_START { \
       _msg->msg_control = NULL; \
     else \
       { \
-        _msg->msg_control = g_alloca (_msg->msg_controllen); \
-        memset (_msg->msg_control, '\0', _msg->msg_controllen); \
+        _msg->msg_control = g_alloca0 (_msg->msg_controllen); \
       } \
  \
     cmsg = CMSG_FIRSTHDR (_msg); \
@@ -4616,7 +4654,7 @@ G_STMT_START { \
     } \
   else \
     { \
-      _msg->msg_controllen = 2048; \
+      _msg->msg_controllen = G_SOCKET_CONTROL_BUFFER_SIZE_BYTES; \
       _msg->msg_control = g_alloca (_msg->msg_controllen); \
     } \
  \
@@ -4741,6 +4779,11 @@ input_message_from_msghdr (const struct msghdr  *msg,
  * notified of a %G_IO_OUT condition. (On Windows in particular, this is
  * very common due to the way the underlying APIs work.)
  *
+ * The sum of the sizes of each #GOutputVector in vectors must not be
+ * greater than %G_MAXSSIZE. If the message can be larger than this,
+ * then it is mandatory to use the g_socket_send_message_with_timeout()
+ * function.
+ *
  * On error -1 is returned and @error is set accordingly.
  *
  * Returns: Number of bytes written (which may be less than @size), or -1
@@ -4761,6 +4804,49 @@ g_socket_send_message (GSocket                *socket,
 {
   GPollableReturn res;
   gsize bytes_written = 0;
+  gsize vectors_size = 0;
+
+  if (num_vectors != -1)
+    {
+      for (gint i = 0; i < num_vectors; i++)
+        {
+          /* No wrap-around for vectors_size */
+          if (vectors_size > vectors_size + vectors[i].size)
+            {
+              g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+                           _("Unable to send message: %s"),
+                           _("Message vectors too large"));
+              return -1;
+            }
+
+          vectors_size += vectors[i].size;
+        }
+    }
+  else
+    {
+      for (gsize i = 0; vectors[i].buffer != NULL; i++)
+        {
+          /* No wrap-around for vectors_size */
+          if (vectors_size > vectors_size + vectors[i].size)
+            {
+              g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+                           _("Unable to send message: %s"),
+                           _("Message vectors too large"));
+              return -1;
+            }
+
+          vectors_size += vectors[i].size;
+        }
+    }
+
+  /* Check if vector's buffers are too big for gssize */
+  if (vectors_size > G_MAXSSIZE)
+    {
+      g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+                   _("Unable to send message: %s"),
+                   _("Message vectors too large"));
+      return -1;
+    }
 
   res = g_socket_send_message_with_timeout (socket, address,
                                             vectors, num_vectors,
@@ -4768,6 +4854,8 @@ g_socket_send_message (GSocket                *socket,
                                             socket->priv->blocking ? -1 : 0,
                                             &bytes_written,
                                             cancellable, error);
+
+  g_assert (res != G_POLLABLE_RETURN_OK || bytes_written <= G_MAXSSIZE);
 
   if (res == G_POLLABLE_RETURN_WOULD_BLOCK)
     {
@@ -4778,7 +4866,7 @@ g_socket_send_message (GSocket                *socket,
 #endif
     }
 
-  return res == G_POLLABLE_RETURN_OK ? bytes_written : -1;
+  return res == G_POLLABLE_RETURN_OK ? (gssize) bytes_written : -1;
 }
 
 /**
@@ -5118,7 +5206,7 @@ g_socket_send_messages_with_timeout (GSocket        *socket,
 #if !defined (G_OS_WIN32) && defined (HAVE_SENDMMSG)
   {
     struct mmsghdr *msgvec;
-    gint i, num_sent;
+    guint i, num_sent;
 
     /* Clamp the number of vectors if more given than we can write in one go.
      * The caller has to handle short writes anyway.
@@ -5200,7 +5288,7 @@ g_socket_send_messages_with_timeout (GSocket        *socket,
 #else
   {
     gssize result;
-    gint i;
+    guint i;
     gint64 wait_timeout;
 
     wait_timeout = timeout_us;
@@ -5230,7 +5318,11 @@ g_socket_send_messages_with_timeout (GSocket        *socket,
 #endif
           }
 
-        result = pollable_result == G_POLLABLE_RETURN_OK ? bytes_written : -1;
+        if (G_MAXSSIZE > bytes_written &&
+            pollable_result == G_POLLABLE_RETURN_OK)
+          result = (gssize) bytes_written;
+        else
+          result = -1;
 
         /* check if we've timed out or how much time to wait at most */
         if (timeout_us > 0)
@@ -5969,17 +6061,30 @@ g_socket_get_credentials (GSocket   *socket,
     socklen_t optlen = sizeof (cred);
 
     if (getsockopt (socket->priv->fd,
-                    0,
+                    SOL_LOCAL,
                     LOCAL_PEERCRED,
                     &cred,
-                    &optlen) == 0)
+                    &optlen) == 0
+        && optlen != 0)
       {
         if (cred.cr_version == XUCRED_VERSION)
           {
+            pid_t pid;
+            socklen_t optlen = sizeof (pid);
+
             ret = g_credentials_new ();
             g_credentials_set_native (ret,
                                       G_CREDENTIALS_NATIVE_TYPE,
                                       &cred);
+
+#ifdef LOCAL_PEERPID
+            if (getsockopt (socket->priv->fd,
+                            SOL_LOCAL,
+                            LOCAL_PEERPID,
+                            &pid,
+                            &optlen) == 0)
+              _g_credentials_set_local_peerid (ret, pid);
+#endif
           }
         else
           {
@@ -5996,6 +6101,15 @@ g_socket_get_credentials (GSocket   *socket,
 
             return NULL;
           }
+      }
+    else if (optlen == 0 || errno == EINVAL)
+      {
+        g_set_error (error,
+                     G_IO_ERROR,
+                     G_IO_ERROR_NOT_SUPPORTED,
+                     _("Unable to read socket credentials: %s"),
+                     "unsupported socket type");
+        return NULL;
       }
   }
 #elif G_CREDENTIALS_USE_NETBSD_UNPCBID
@@ -6026,6 +6140,23 @@ g_socket_get_credentials (GSocket   *socket,
                                   G_CREDENTIALS_TYPE_SOLARIS_UCRED,
                                   ucred);
         ucred_free (ucred);
+      }
+  }
+#elif G_CREDENTIALS_USE_WIN32_PID
+  {
+    DWORD peerid, drc;
+
+    if (WSAIoctl (socket->priv->fd, SIO_AF_UNIX_GETPEERPID,
+                  NULL, 0U,
+                  &peerid, sizeof(peerid),
+                  /* Windows bug: always 0 https://github.com/microsoft/WSL/issues/4676 */
+                  &drc,
+                  NULL, NULL) == 0)
+      {
+        ret = g_credentials_new ();
+        g_credentials_set_native (ret,
+                                  G_CREDENTIALS_TYPE_WIN32_PID,
+                                  &peerid);
       }
   }
 #else
@@ -6161,7 +6292,9 @@ g_socket_set_option (GSocket  *socket,
 
   g_return_val_if_fail (G_IS_SOCKET (socket), FALSE);
 
-  if (!check_socket (socket, error))
+  /* g_socket_set_option() is called during socket init, so skip the init checks
+   * in check_socket() */
+  if (socket->priv->inited && !check_socket (socket, error))
     return FALSE;
 
   if (setsockopt (socket->priv->fd, level, optname, &value, sizeof (gint)) == 0)

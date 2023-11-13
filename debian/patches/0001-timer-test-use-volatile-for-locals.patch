@@ -15,7 +15,7 @@ Forwarded: yes
  1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/glib/tests/timer.c b/glib/tests/timer.c
-index 149b3af..b7a90c2 100644
+index 42ed5a9..243563e 100644
 --- a/glib/tests/timer.c
 +++ b/glib/tests/timer.c
 @@ -30,7 +30,7 @@ static void
@@ -27,7 +27,7 @@ index 149b3af..b7a90c2 100644
    gulong micros;
  
    timer = g_timer_new ();
-@@ -47,7 +47,7 @@ static void
+@@ -65,7 +65,7 @@ static void
  test_timer_stop (void)
  {
    GTimer *timer;

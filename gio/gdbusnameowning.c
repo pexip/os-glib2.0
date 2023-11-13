@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -39,7 +41,7 @@
  * Convenience API for owning bus names.
  *
  * A simple example for owning a name can be found in
- * [gdbus-example-own-name.c](https://git.gnome.org/browse/glib/tree/gio/tests/gdbus-example-own-name.c) 
+ * [gdbus-example-own-name.c](https://gitlab.gnome.org/GNOME/glib/-/blob/HEAD/gio/tests/gdbus-example-own-name.c)
  */
 
 G_LOCK_DEFINE_STATIC (lock);
@@ -55,7 +57,7 @@ typedef enum
 
 typedef struct
 {
-  volatile gint             ref_count;
+  gint                      ref_count;  /* (atomic) */
   guint                     id;
   GBusNameOwnerFlags        flags;
   gchar                    *name;
@@ -73,7 +75,7 @@ typedef struct
   guint                     name_acquired_subscription_id;
   guint                     name_lost_subscription_id;
 
-  volatile gboolean         cancelled; /* must hold lock when reading or modifying */
+  gboolean                  cancelled; /* must hold lock when reading or modifying */
 
   gboolean                  needs_release;
 } Client;
@@ -197,7 +199,7 @@ schedule_call_in_idle (Client *client, CallType  call_type)
                          call_in_idle_cb,
                          data,
                          (GDestroyNotify) call_handler_data_free);
-  g_source_set_name (idle_source, "[gio, gdbusnameowning.c] call_in_idle_cb");
+  g_source_set_static_name (idle_source, "[gio, gdbusnameowning.c] call_in_idle_cb");
   g_source_attach (idle_source, client->main_context);
   g_source_unref (idle_source);
 }

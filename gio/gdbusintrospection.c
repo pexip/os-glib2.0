@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -98,7 +100,7 @@ typedef struct
  * If @info is statically allocated does nothing. Otherwise increases
  * the reference count.
  *
- * Returns: The same @info.
+ * Returns: (not nullable): The same @info.
  *
  * Since: 2.26
  */
@@ -118,7 +120,7 @@ g_dbus_node_info_ref (GDBusNodeInfo *info)
  * If @info is statically allocated does nothing. Otherwise increases
  * the reference count.
  *
- * Returns: The same @info.
+ * Returns: (not nullable): The same @info.
  *
  * Since: 2.26
  */
@@ -138,7 +140,7 @@ g_dbus_interface_info_ref (GDBusInterfaceInfo *info)
  * If @info is statically allocated does nothing. Otherwise increases
  * the reference count.
  *
- * Returns: The same @info.
+ * Returns: (not nullable): The same @info.
  *
  * Since: 2.26
  */
@@ -158,7 +160,7 @@ g_dbus_method_info_ref (GDBusMethodInfo *info)
  * If @info is statically allocated does nothing. Otherwise increases
  * the reference count.
  *
- * Returns: The same @info.
+ * Returns: (not nullable): The same @info.
  *
  * Since: 2.26
  */
@@ -178,7 +180,7 @@ g_dbus_signal_info_ref (GDBusSignalInfo *info)
  * If @info is statically allocated does nothing. Otherwise increases
  * the reference count.
  *
- * Returns: The same @info.
+ * Returns: (not nullable): The same @info.
  *
  * Since: 2.26
  */
@@ -198,7 +200,7 @@ g_dbus_property_info_ref (GDBusPropertyInfo *info)
  * If @info is statically allocated does nothing. Otherwise increases
  * the reference count.
  *
- * Returns: The same @info.
+ * Returns: (not nullable): The same @info.
  *
  * Since: 2.26
  */
@@ -218,7 +220,7 @@ g_dbus_arg_info_ref (GDBusArgInfo *info)
  * If @info is statically allocated does nothing. Otherwise increases
  * the reference count.
  *
- * Returns: The same @info.
+ * Returns: (not nullable): The same @info.
  *
  * Since: 2.26
  */
@@ -1847,7 +1849,7 @@ g_dbus_node_info_new_for_xml (const gchar  *xml_data,
  *
  * The cost of this function is O(n) in number of annotations.
  *
- * Returns: The value or %NULL if not found. Do not free, it is owned by @annotations.
+ * Returns: (nullable): The value or %NULL if not found. Do not free, it is owned by @annotations.
  *
  * Since: 2.26
  */
@@ -1915,7 +1917,7 @@ static GHashTable *info_cache = NULL;
  * The cost of this function is O(n) in number of methods unless
  * g_dbus_interface_info_cache_build() has been used on @info.
  *
- * Returns: (transfer none): A #GDBusMethodInfo or %NULL if not found. Do not free, it is owned by @info.
+ * Returns: (nullable) (transfer none): A #GDBusMethodInfo or %NULL if not found. Do not free, it is owned by @info.
  *
  * Since: 2.26
  */
@@ -1969,7 +1971,7 @@ g_dbus_interface_info_lookup_method (GDBusInterfaceInfo *info,
  * The cost of this function is O(n) in number of signals unless
  * g_dbus_interface_info_cache_build() has been used on @info.
  *
- * Returns: (transfer none): A #GDBusSignalInfo or %NULL if not found. Do not free, it is owned by @info.
+ * Returns: (nullable) (transfer none): A #GDBusSignalInfo or %NULL if not found. Do not free, it is owned by @info.
  *
  * Since: 2.26
  */
@@ -2023,7 +2025,7 @@ g_dbus_interface_info_lookup_signal (GDBusInterfaceInfo *info,
  * The cost of this function is O(n) in number of properties unless
  * g_dbus_interface_info_cache_build() has been used on @info.
  *
- * Returns: (transfer none): A #GDBusPropertyInfo or %NULL if not found. Do not free, it is owned by @info.
+ * Returns: (nullable) (transfer none): A #GDBusPropertyInfo or %NULL if not found. Do not free, it is owned by @info.
  *
  * Since: 2.26
  */
@@ -2165,7 +2167,7 @@ g_dbus_interface_info_cache_release (GDBusInterfaceInfo *info)
  *
  * The cost of this function is O(n) in number of interfaces.
  *
- * Returns: (transfer none): A #GDBusInterfaceInfo or %NULL if not found. Do not free, it is owned by @info.
+ * Returns: (nullable) (transfer none): A #GDBusInterfaceInfo or %NULL if not found. Do not free, it is owned by @info.
  *
  * Since: 2.26
  */

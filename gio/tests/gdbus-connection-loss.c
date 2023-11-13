@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -53,7 +55,7 @@ on_timeout (gpointer user_data)
 {
   /* tear down bus */
   session_bus_stop ();
-  return FALSE; /* remove source */
+  return G_SOURCE_REMOVE;
 }
 
 static void

@@ -7,6 +7,8 @@
  * Written by Ray Strode <rstrode@redhat.com>
  *            Matthias Clasen <mclasen@redhat.com>
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -218,7 +220,7 @@
 /**
  * GKeyFileError:
  * @G_KEY_FILE_ERROR_UNKNOWN_ENCODING: the text being parsed was in
- *     an unknown encoding
+ *   an unknown encoding
  * @G_KEY_FILE_ERROR_PARSE: document was ill-formed
  * @G_KEY_FILE_ERROR_NOT_FOUND: the file was not found
  * @G_KEY_FILE_ERROR_KEY_NOT_FOUND: a requested key was not found
@@ -232,13 +234,13 @@
  * GKeyFileFlags:
  * @G_KEY_FILE_NONE: No flags, default behaviour
  * @G_KEY_FILE_KEEP_COMMENTS: Use this flag if you plan to write the
- *     (possibly modified) contents of the key file back to a file;
- *     otherwise all comments will be lost when the key file is
- *     written back.
+ *   (possibly modified) contents of the key file back to a file;
+ *   otherwise all comments will be lost when the key file is
+ *   written back.
  * @G_KEY_FILE_KEEP_TRANSLATIONS: Use this flag if you plan to write the
- *     (possibly modified) contents of the key file back to a file;
- *     otherwise only the translations for the current language will be
- *     written back.
+ *   (possibly modified) contents of the key file back to a file;
+ *   otherwise only the translations for the current language will be
+ *   written back.
  *
  * Flags which influence the parsing.
  */
@@ -257,11 +259,12 @@
 /**
  * G_KEY_FILE_DESKTOP_KEY_TYPE:
  *
- * A key under #G_KEY_FILE_DESKTOP_GROUP, whose value is a string
- * giving the type of the desktop entry. Usually
- * #G_KEY_FILE_DESKTOP_TYPE_APPLICATION,
- * #G_KEY_FILE_DESKTOP_TYPE_LINK, or
- * #G_KEY_FILE_DESKTOP_TYPE_DIRECTORY.
+ * A key under %G_KEY_FILE_DESKTOP_GROUP, whose value is a string
+ * giving the type of the desktop entry.
+ *
+ * Usually %G_KEY_FILE_DESKTOP_TYPE_APPLICATION,
+ * %G_KEY_FILE_DESKTOP_TYPE_LINK, or
+ * %G_KEY_FILE_DESKTOP_TYPE_DIRECTORY.
  *
  * Since: 2.14
  */
@@ -269,7 +272,7 @@
 /**
  * G_KEY_FILE_DESKTOP_KEY_VERSION:
  *
- * A key under #G_KEY_FILE_DESKTOP_GROUP, whose value is a string
+ * A key under %G_KEY_FILE_DESKTOP_GROUP, whose value is a string
  * giving the version of the Desktop Entry Specification used for
  * the desktop entry file.
  *
@@ -279,7 +282,7 @@
 /**
  * G_KEY_FILE_DESKTOP_KEY_NAME:
  *
- * A key under #G_KEY_FILE_DESKTOP_GROUP, whose value is a localized
+ * A key under %G_KEY_FILE_DESKTOP_GROUP, whose value is a localized
  * string giving the specific name of the desktop entry.
  *
  * Since: 2.14
@@ -288,7 +291,7 @@
 /**
  * G_KEY_FILE_DESKTOP_KEY_GENERIC_NAME:
  *
- * A key under #G_KEY_FILE_DESKTOP_GROUP, whose value is a localized
+ * A key under %G_KEY_FILE_DESKTOP_GROUP, whose value is a localized
  * string giving the generic name of the desktop entry.
  *
  * Since: 2.14
@@ -297,7 +300,7 @@
 /**
  * G_KEY_FILE_DESKTOP_KEY_NO_DISPLAY:
  *
- * A key under #G_KEY_FILE_DESKTOP_GROUP, whose value is a boolean
+ * A key under %G_KEY_FILE_DESKTOP_GROUP, whose value is a boolean
  * stating whether the desktop entry should be shown in menus.
  *
  * Since: 2.14
@@ -306,7 +309,7 @@
 /**
  * G_KEY_FILE_DESKTOP_KEY_COMMENT:
  *
- * A key under #G_KEY_FILE_DESKTOP_GROUP, whose value is a localized
+ * A key under %G_KEY_FILE_DESKTOP_GROUP, whose value is a localized
  * string giving the tooltip for the desktop entry.
  *
  * Since: 2.14
@@ -315,7 +318,7 @@
 /**
  * G_KEY_FILE_DESKTOP_KEY_ICON:
  *
- * A key under #G_KEY_FILE_DESKTOP_GROUP, whose value is a localized
+ * A key under %G_KEY_FILE_DESKTOP_GROUP, whose value is a localized
  * string giving the name of the icon to be displayed for the desktop
  * entry.
  *
@@ -325,7 +328,7 @@
 /**
  * G_KEY_FILE_DESKTOP_KEY_HIDDEN:
  *
- * A key under #G_KEY_FILE_DESKTOP_GROUP, whose value is a boolean
+ * A key under %G_KEY_FILE_DESKTOP_GROUP, whose value is a boolean
  * stating whether the desktop entry has been deleted by the user.
  *
  * Since: 2.14
@@ -334,7 +337,7 @@
 /**
  * G_KEY_FILE_DESKTOP_KEY_ONLY_SHOW_IN:
  *
- * A key under #G_KEY_FILE_DESKTOP_GROUP, whose value is a list of
+ * A key under %G_KEY_FILE_DESKTOP_GROUP, whose value is a list of
  * strings identifying the environments that should display the
  * desktop entry.
  *
@@ -344,7 +347,7 @@
 /**
  * G_KEY_FILE_DESKTOP_KEY_NOT_SHOW_IN:
  *
- * A key under #G_KEY_FILE_DESKTOP_GROUP, whose value is a list of
+ * A key under %G_KEY_FILE_DESKTOP_GROUP, whose value is a list of
  * strings identifying the environments that should not display the
  * desktop entry.
  *
@@ -354,7 +357,7 @@
 /**
  * G_KEY_FILE_DESKTOP_KEY_TRY_EXEC:
  *
- * A key under #G_KEY_FILE_DESKTOP_GROUP, whose value is a string
+ * A key under %G_KEY_FILE_DESKTOP_GROUP, whose value is a string
  * giving the file name of a binary on disk used to determine if the
  * program is actually installed. It is only valid for desktop entries
  * with the `Application` type.
@@ -365,7 +368,7 @@
 /**
  * G_KEY_FILE_DESKTOP_KEY_EXEC:
  *
- * A key under #G_KEY_FILE_DESKTOP_GROUP, whose value is a string
+ * A key under %G_KEY_FILE_DESKTOP_GROUP, whose value is a string
  * giving the command line to execute. It is only valid for desktop
  * entries with the `Application` type.
  *
@@ -375,7 +378,7 @@
  /**
   * G_KEY_FILE_DESKTOP_KEY_PATH:
   *
-  * A key under #G_KEY_FILE_DESKTOP_GROUP, whose value is a string
+  * A key under %G_KEY_FILE_DESKTOP_GROUP, whose value is a string
   * containing the working directory to run the program in. It is only
   * valid for desktop entries with the `Application` type.
   *
@@ -385,10 +388,10 @@
 /**
  * G_KEY_FILE_DESKTOP_KEY_TERMINAL:
  *
- * A key under #G_KEY_FILE_DESKTOP_GROUP, whose value is a boolean
+ * A key under %G_KEY_FILE_DESKTOP_GROUP, whose value is a boolean
  * stating whether the program should be run in a terminal window.
- * It is only valid for desktop entries with the
- * `Application` type.
+ *
+ * It is only valid for desktop entries with the `Application` type.
  *
  * Since: 2.14
  */
@@ -396,7 +399,7 @@
 /**
  * G_KEY_FILE_DESKTOP_KEY_MIME_TYPE:
  *
- * A key under #G_KEY_FILE_DESKTOP_GROUP, whose value is a list
+ * A key under %G_KEY_FILE_DESKTOP_GROUP, whose value is a list
  * of strings giving the MIME types supported by this desktop entry.
  *
  * Since: 2.14
@@ -405,7 +408,7 @@
 /**
  * G_KEY_FILE_DESKTOP_KEY_CATEGORIES:
  *
- * A key under #G_KEY_FILE_DESKTOP_GROUP, whose value is a list
+ * A key under %G_KEY_FILE_DESKTOP_GROUP, whose value is a list
  * of strings giving the categories in which the desktop entry
  * should be shown in a menu.
  *
@@ -415,7 +418,7 @@
 /**
  * G_KEY_FILE_DESKTOP_KEY_STARTUP_NOTIFY:
  *
- * A key under #G_KEY_FILE_DESKTOP_GROUP, whose value is a boolean
+ * A key under %G_KEY_FILE_DESKTOP_GROUP, whose value is a boolean
  * stating whether the application supports the
  * [Startup Notification Protocol Specification](http://www.freedesktop.org/Standards/startup-notification-spec).
  *
@@ -425,7 +428,7 @@
 /**
  * G_KEY_FILE_DESKTOP_KEY_STARTUP_WM_CLASS:
  *
- * A key under #G_KEY_FILE_DESKTOP_GROUP, whose value is string
+ * A key under %G_KEY_FILE_DESKTOP_GROUP, whose value is string
  * identifying the WM class or name hint of a window that the application
  * will create, which can be used to emulate Startup Notification with
  * older applications.
@@ -436,7 +439,7 @@
 /**
  * G_KEY_FILE_DESKTOP_KEY_URL:
  *
- * A key under #G_KEY_FILE_DESKTOP_GROUP, whose value is a string
+ * A key under %G_KEY_FILE_DESKTOP_GROUP, whose value is a string
  * giving the URL to access. It is only valid for desktop entries
  * with the `Link` type.
  *
@@ -446,8 +449,8 @@
 /**
  * G_KEY_FILE_DESKTOP_KEY_DBUS_ACTIVATABLE:
  *
- * A key under #G_KEY_FILE_DESKTOP_GROUP, whose value is a boolean set to true
- * if the application is D-Bus activatable.
+ * A key under %G_KEY_FILE_DESKTOP_GROUP, whose value is a boolean
+ * set to true if the application is D-Bus activatable.
  *
  * Since: 2.38
  */
@@ -455,7 +458,7 @@
 /**
  * G_KEY_FILE_DESKTOP_KEY_ACTIONS:
  *
- * A key under #G_KEY_FILE_DESKTOP_GROUP, whose value is a string list
+ * A key under %G_KEY_FILE_DESKTOP_GROUP, whose value is a string list
  * giving the available application actions.
  *
  * Since: 2.38
@@ -464,7 +467,7 @@
 /**
  * G_KEY_FILE_DESKTOP_TYPE_APPLICATION:
  *
- * The value of the #G_KEY_FILE_DESKTOP_KEY_TYPE, key for desktop
+ * The value of the %G_KEY_FILE_DESKTOP_KEY_TYPE, key for desktop
  * entries representing applications.
  *
  * Since: 2.14
@@ -473,7 +476,7 @@
 /**
  * G_KEY_FILE_DESKTOP_TYPE_LINK:
  *
- * The value of the #G_KEY_FILE_DESKTOP_KEY_TYPE, key for desktop
+ * The value of the %G_KEY_FILE_DESKTOP_KEY_TYPE, key for desktop
  * entries representing links to documents.
  *
  * Since: 2.14
@@ -482,7 +485,7 @@
 /**
  * G_KEY_FILE_DESKTOP_TYPE_DIRECTORY:
  *
- * The value of the #G_KEY_FILE_DESKTOP_KEY_TYPE, key for desktop
+ * The value of the %G_KEY_FILE_DESKTOP_KEY_TYPE, key for desktop
  * entries representing directories.
  *
  * Since: 2.14
@@ -510,9 +513,10 @@ struct _GKeyFile
 
   GKeyFileFlags flags;
 
-  gchar **locales;
+  gboolean checked_locales;  /* TRUE if @locales has been initialised */
+  gchar **locales;  /* (nullable) */
 
-  volatile gint ref_count;
+  gint ref_count;  /* (atomic) */
 };
 
 typedef struct _GKeyFileKeyValuePair GKeyFileKeyValuePair;
@@ -573,7 +577,8 @@ static void                  g_key_file_add_key                (GKeyFile        
 static void                  g_key_file_add_group              (GKeyFile               *key_file,
 								const gchar            *group_name);
 static gboolean              g_key_file_is_group_name          (const gchar *name);
-static gboolean              g_key_file_is_key_name            (const gchar *name);
+static gboolean              g_key_file_is_key_name            (const gchar *name,
+                                                                gsize        len);
 static void                  g_key_file_key_value_pair_free    (GKeyFileKeyValuePair   *pair);
 static gboolean              g_key_file_line_is_comment        (const gchar            *line);
 static gboolean              g_key_file_line_is_group          (const gchar            *line);
@@ -596,7 +601,7 @@ static gdouble               g_key_file_parse_value_as_double  (GKeyFile        
 static gboolean              g_key_file_parse_value_as_boolean (GKeyFile               *key_file,
 								const gchar            *value,
 								GError                **error);
-static gchar                *g_key_file_parse_boolean_as_value (GKeyFile               *key_file,
+static const gchar          *g_key_file_parse_boolean_as_value (GKeyFile               *key_file,
 								gboolean                value);
 static gchar                *g_key_file_parse_value_as_comment (GKeyFile               *key_file,
                                                                 const gchar            *value,
@@ -615,7 +620,8 @@ static void                  g_key_file_parse_group            (GKeyFile        
 								const gchar            *line,
 								gsize                   length,
 								GError                **error);
-static gchar                *key_get_locale                    (const gchar            *key);
+static const gchar          *key_get_locale                    (const gchar            *key,
+                                                                gsize                  *len_out);
 static void                  g_key_file_parse_data             (GKeyFile               *key_file,
 								const gchar            *data,
 								gsize                   length,
@@ -630,12 +636,11 @@ g_key_file_init (GKeyFile *key_file)
 {  
   key_file->current_group = g_slice_new0 (GKeyFileGroup);
   key_file->groups = g_list_prepend (NULL, key_file->current_group);
-  key_file->group_hash = g_hash_table_new (g_str_hash, g_str_equal);
+  key_file->group_hash = NULL;
   key_file->start_group = NULL;
-  key_file->parse_buffer = g_string_sized_new (128);
+  key_file->parse_buffer = NULL;
   key_file->list_separator = ';';
   key_file->flags = 0;
-  key_file->locales = g_strdupv ((gchar **)g_get_language_names ());
 }
 
 static void
@@ -648,6 +653,7 @@ g_key_file_clear (GKeyFile *key_file)
       g_strfreev (key_file->locales);
       key_file->locales = NULL;
     }
+  key_file->checked_locales = FALSE;
 
   if (key_file->parse_buffer)
     {
@@ -743,9 +749,10 @@ find_file_in_data_dirs (const gchar   *file,
 
   while (data_dirs && (data_dir = *data_dirs) && fd == -1)
     {
-      gchar *candidate_file, *sub_dir;
+      const gchar *candidate_file;
+      gchar *sub_dir;
 
-      candidate_file = (gchar *) file;
+      candidate_file = file;
       sub_dir = g_strdup ("");
       while (candidate_file != NULL && fd == -1)
         {
@@ -1225,16 +1232,25 @@ g_key_file_unref (GKeyFile *key_file)
  */
 static gboolean
 g_key_file_locale_is_interesting (GKeyFile    *key_file,
-				  const gchar *locale)
+                                  const gchar *locale,
+                                  gsize        locale_len)
 {
   gsize i;
 
   if (key_file->flags & G_KEY_FILE_KEEP_TRANSLATIONS)
     return TRUE;
 
+  if (!key_file->checked_locales)
+    {
+      g_assert (key_file->locales == NULL);
+      key_file->locales = g_strdupv ((gchar **)g_get_language_names ());
+      key_file->checked_locales = TRUE;
+    }
+
   for (i = 0; key_file->locales[i] != NULL; i++)
     {
-      if (g_ascii_strcasecmp (key_file->locales[i], locale) == 0)
+      if (g_ascii_strncasecmp (key_file->locales[i], locale, locale_len) == 0 &&
+          key_file->locales[i][locale_len] == '\0')
 	return TRUE;
     }
 
@@ -1248,12 +1264,12 @@ g_key_file_parse_line (GKeyFile     *key_file,
 		       GError      **error)
 {
   GError *parse_error = NULL;
-  gchar *line_start;
+  const gchar *line_start;
 
   g_return_if_fail (key_file != NULL);
   g_return_if_fail (line != NULL);
 
-  line_start = (gchar *) line;
+  line_start = line;
   while (g_ascii_isspace (*line_start))
     line_start++;
 
@@ -1344,7 +1360,9 @@ g_key_file_parse_key_value_pair (GKeyFile     *key_file,
 				 gsize         length,
 				 GError      **error)
 {
-  gchar *key, *value, *key_end, *value_start, *locale;
+  gchar *key, *key_end, *value_start;
+  const gchar *locale;
+  gsize locale_len;
   gsize key_len, value_len;
 
   if (key_file->current_group == NULL || key_file->current_group->name == NULL)
@@ -1371,37 +1389,36 @@ g_key_file_parse_key_value_pair (GKeyFile     *key_file,
 
   g_warn_if_fail (key_len <= length);
 
-  key = g_strndup (line, key_len - 1);
-
-  if (!g_key_file_is_key_name (key))
+  if (!g_key_file_is_key_name (line, key_len - 1))
     {
       g_set_error (error, G_KEY_FILE_ERROR,
                    G_KEY_FILE_ERROR_PARSE,
-                   _("Invalid key name: %s"), key);
-      g_free (key);
+                   _("Invalid key name: %.*s"), (int) key_len - 1, line);
       return; 
     }
+
+  key = g_strndup (line, key_len - 1);
 
   /* Pull the value from the line (chugging leading whitespace)
    */
   while (g_ascii_isspace (*value_start))
     value_start++;
 
-  value_len = line + length - value_start + 1;
-
-  value = g_strndup (value_start, value_len);
+  value_len = line + length - value_start;
 
   g_warn_if_fail (key_file->start_group != NULL);
 
-  if (key_file->current_group
-      && key_file->current_group->name
-      && strcmp (key_file->start_group->name,
-                 key_file->current_group->name) == 0
+  /* Checked on entry to this function */
+  g_assert (key_file->current_group != NULL);
+  g_assert (key_file->current_group->name != NULL);
+
+  if (key_file->start_group == key_file->current_group
       && strcmp (key, "Encoding") == 0)
     {
-      if (g_ascii_strcasecmp (value, "UTF-8") != 0)
+      if (value_len != strlen ("UTF-8") ||
+          g_ascii_strncasecmp (value_start, "UTF-8", value_len) != 0)
         {
-	  gchar *value_utf8 = g_utf8_make_valid (value, value_len);
+          gchar *value_utf8 = g_utf8_make_valid (value_start, value_len);
           g_set_error (error, G_KEY_FILE_ERROR,
                        G_KEY_FILE_ERROR_UNKNOWN_ENCODING,
                        _("Key file contains unsupported "
@@ -1409,47 +1426,53 @@ g_key_file_parse_key_value_pair (GKeyFile     *key_file,
 	  g_free (value_utf8);
 
           g_free (key);
-          g_free (value);
           return;
         }
     }
 
   /* Is this key a translation? If so, is it one that we care about?
    */
-  locale = key_get_locale (key);
+  locale = key_get_locale (key, &locale_len);
 
-  if (locale == NULL || g_key_file_locale_is_interesting (key_file, locale))
+  if (locale == NULL || g_key_file_locale_is_interesting (key_file, locale, locale_len))
     {
       GKeyFileKeyValuePair *pair;
 
       pair = g_slice_new (GKeyFileKeyValuePair);
-      pair->key = key;
-      pair->value = value;
+      pair->key = g_steal_pointer (&key);
+      pair->value = g_strndup (value_start, value_len);
 
       g_key_file_add_key_value_pair (key_file, key_file->current_group, pair);
     }
-  else
-    {
-      g_free (key);
-      g_free (value);
-    }
 
-  g_free (locale);
+  g_free (key);
 }
 
-static gchar *
-key_get_locale (const gchar *key)
+static const gchar *
+key_get_locale (const gchar *key,
+                gsize       *len_out)
 {
-  gchar *locale;
+  const gchar *locale;
+  gsize locale_len;
 
   locale = g_strrstr (key, "[");
+  if (locale != NULL)
+    locale_len = strlen (locale);
+  else
+    locale_len = 0;
 
-  if (locale && strlen (locale) <= 2)
-    locale = NULL;
+  if (locale_len > 2)
+    {
+      locale++;  /* skip `[` */
+      locale_len -= 2;  /* drop `[` and `]` */
+    }
+  else
+    {
+      locale = NULL;
+      locale_len = 0;
+    }
 
-  if (locale)
-    locale = g_strndup (locale + 1, strlen (locale) - 2);
-
+  *len_out = locale_len;
   return locale;
 }
 
@@ -1466,6 +1489,9 @@ g_key_file_parse_data (GKeyFile     *key_file,
   g_return_if_fail (data != NULL || length == 0);
 
   parse_error = NULL;
+
+  if (!key_file->parse_buffer)
+    key_file->parse_buffer = g_string_sized_new (128);
 
   i = 0;
   while (i < length)
@@ -1522,6 +1548,9 @@ g_key_file_flush_parse_buffer (GKeyFile  *key_file,
   GError *file_error = NULL;
 
   g_return_if_fail (key_file != NULL);
+
+  if (!key_file->parse_buffer)
+    return;
 
   file_error = NULL;
 
@@ -1620,7 +1649,7 @@ g_key_file_to_data (GKeyFile  *key_file,
  * returned keys will be %NULL-terminated, so @length may
  * optionally be %NULL. In the event that the @group_name cannot
  * be found, %NULL is returned and @error is set to
- * #G_KEY_FILE_ERROR_GROUP_NOT_FOUND.
+ * %G_KEY_FILE_ERROR_GROUP_NOT_FOUND.
  *
  * Returns: (array zero-terminated=1) (transfer full): a newly-allocated %NULL-terminated array of strings.
  *     Use g_strfreev() to free it.
@@ -1790,9 +1819,9 @@ set_not_found_key_error (const char *group_name,
  * Use g_key_file_get_string() to retrieve an unescaped UTF-8 string. 
  *
  * In the event the key cannot be found, %NULL is returned and 
- * @error is set to #G_KEY_FILE_ERROR_KEY_NOT_FOUND.  In the 
+ * @error is set to %G_KEY_FILE_ERROR_KEY_NOT_FOUND.  In the
  * event that the @group_name cannot be found, %NULL is returned 
- * and @error is set to #G_KEY_FILE_ERROR_GROUP_NOT_FOUND.
+ * and @error is set to %G_KEY_FILE_ERROR_GROUP_NOT_FOUND.
  *
  *
  * Returns: a newly allocated string or %NULL if the specified 
@@ -1861,8 +1890,8 @@ g_key_file_set_value (GKeyFile    *key_file,
   GKeyFileKeyValuePair *pair;
 
   g_return_if_fail (key_file != NULL);
-  g_return_if_fail (g_key_file_is_group_name (group_name));
-  g_return_if_fail (g_key_file_is_key_name (key));
+  g_return_if_fail (group_name != NULL && g_key_file_is_group_name (group_name));
+  g_return_if_fail (key != NULL && g_key_file_is_key_name (key, strlen (key)));
   g_return_if_fail (value != NULL);
 
   group = g_key_file_lookup_group (key_file, group_name);
@@ -1900,9 +1929,9 @@ g_key_file_set_value (GKeyFile    *key_file,
  * like \s.
  *
  * In the event the key cannot be found, %NULL is returned and 
- * @error is set to #G_KEY_FILE_ERROR_KEY_NOT_FOUND.  In the 
+ * @error is set to %G_KEY_FILE_ERROR_KEY_NOT_FOUND.  In the
  * event that the @group_name cannot be found, %NULL is returned 
- * and @error is set to #G_KEY_FILE_ERROR_GROUP_NOT_FOUND.
+ * and @error is set to %G_KEY_FILE_ERROR_GROUP_NOT_FOUND.
  *
  * Returns: a newly allocated string or %NULL if the specified 
  *   key cannot be found.
@@ -2011,9 +2040,9 @@ g_key_file_set_string (GKeyFile    *key_file,
  * Returns the values associated with @key under @group_name.
  *
  * In the event the key cannot be found, %NULL is returned and
- * @error is set to #G_KEY_FILE_ERROR_KEY_NOT_FOUND.  In the
+ * @error is set to %G_KEY_FILE_ERROR_KEY_NOT_FOUND.  In the
  * event that the @group_name cannot be found, %NULL is returned
- * and @error is set to #G_KEY_FILE_ERROR_GROUP_NOT_FOUND.
+ * and @error is set to %G_KEY_FILE_ERROR_GROUP_NOT_FOUND.
  *
  * Returns: (array zero-terminated=1 length=length) (element-type utf8) (transfer full): 
  *  a %NULL-terminated string array or %NULL if the specified 
@@ -2193,7 +2222,7 @@ g_key_file_set_locale_string (GKeyFile     *key_file,
  * %G_KEY_FILE_KEEP_TRANSLATIONS in order to load strings for all locales.
  *
  * If @key cannot be found then %NULL is returned and @error is set 
- * to #G_KEY_FILE_ERROR_KEY_NOT_FOUND. If the value associated
+ * to %G_KEY_FILE_ERROR_KEY_NOT_FOUND. If the value associated
  * with @key cannot be interpreted or no suitable translation can
  * be found then the untranslated value is returned.
  *
@@ -2245,9 +2274,6 @@ g_key_file_get_locale_string (GKeyFile     *key_file,
 
       if (translated_value)
 	break;
-
-      g_free (translated_value);
-      translated_value = NULL;
    }
 
   /* Fallback to untranslated key
@@ -2350,7 +2376,7 @@ g_key_file_get_locale_for_key (GKeyFile    *key_file,
  * %G_KEY_FILE_KEEP_TRANSLATIONS in order to load strings for all locales.
  *
  * If @key cannot be found then %NULL is returned and @error is set 
- * to #G_KEY_FILE_ERROR_KEY_NOT_FOUND. If the values associated
+ * to %G_KEY_FILE_ERROR_KEY_NOT_FOUND. If the values associated
  * with @key cannot be interpreted or no suitable translations
  * can be found then the untranslated values are returned. The 
  * returned array is %NULL-terminated, so @length may optionally 
@@ -2472,9 +2498,9 @@ g_key_file_set_locale_string_list (GKeyFile            *key_file,
  * boolean. 
  *
  * If @key cannot be found then %FALSE is returned and @error is set
- * to #G_KEY_FILE_ERROR_KEY_NOT_FOUND. Likewise, if the value
+ * to %G_KEY_FILE_ERROR_KEY_NOT_FOUND. Likewise, if the value
  * associated with @key cannot be interpreted as a boolean then %FALSE
- * is returned and @error is set to #G_KEY_FILE_ERROR_INVALID_VALUE.
+ * is returned and @error is set to %G_KEY_FILE_ERROR_INVALID_VALUE.
  *
  * Returns: the value associated with the key as a boolean, 
  *    or %FALSE if the key was not found or could not be parsed.
@@ -2545,13 +2571,12 @@ g_key_file_set_boolean (GKeyFile    *key_file,
 			const gchar *key,
 			gboolean     value)
 {
-  gchar *result;
+  const gchar *result;
 
   g_return_if_fail (key_file != NULL);
 
   result = g_key_file_parse_boolean_as_value (key_file, value);
   g_key_file_set_value (key_file, group_name, key, result);
-  g_free (result);
 }
 
 /**
@@ -2566,9 +2591,9 @@ g_key_file_set_boolean (GKeyFile    *key_file,
  * booleans. 
  *
  * If @key cannot be found then %NULL is returned and @error is set to
- * #G_KEY_FILE_ERROR_KEY_NOT_FOUND. Likewise, if the values associated
+ * %G_KEY_FILE_ERROR_KEY_NOT_FOUND. Likewise, if the values associated
  * with @key cannot be interpreted as booleans then %NULL is returned
- * and @error is set to #G_KEY_FILE_ERROR_INVALID_VALUE.
+ * and @error is set to %G_KEY_FILE_ERROR_INVALID_VALUE.
  *
  * Returns: (array length=length) (element-type gboolean) (transfer container):
  *    the values associated with the key as a list of booleans, or %NULL if the
@@ -2662,14 +2687,12 @@ g_key_file_set_boolean_list (GKeyFile    *key_file,
   value_list = g_string_sized_new (length * 8);
   for (i = 0; i < length; i++)
     {
-      gchar *value;
+      const gchar *value;
 
       value = g_key_file_parse_boolean_as_value (key_file, list[i]);
 
       g_string_append (value_list, value);
       g_string_append_c (value_list, key_file->list_separator);
-
-      g_free (value);
     }
 
   g_key_file_set_value (key_file, group_name, key, value_list->str);
@@ -2687,10 +2710,10 @@ g_key_file_set_boolean_list (GKeyFile    *key_file,
  * integer. 
  *
  * If @key cannot be found then 0 is returned and @error is set to
- * #G_KEY_FILE_ERROR_KEY_NOT_FOUND. Likewise, if the value associated
+ * %G_KEY_FILE_ERROR_KEY_NOT_FOUND. Likewise, if the value associated
  * with @key cannot be interpreted as an integer, or is out of range
  * for a #gint, then 0 is returned
- * and @error is set to #G_KEY_FILE_ERROR_INVALID_VALUE.
+ * and @error is set to %G_KEY_FILE_ERROR_INVALID_VALUE.
  *
  * Returns: the value associated with the key as an integer, or
  *     0 if the key was not found or could not be parsed.
@@ -2938,10 +2961,10 @@ g_key_file_set_uint64 (GKeyFile    *key_file,
  * integers. 
  *
  * If @key cannot be found then %NULL is returned and @error is set to
- * #G_KEY_FILE_ERROR_KEY_NOT_FOUND. Likewise, if the values associated
+ * %G_KEY_FILE_ERROR_KEY_NOT_FOUND. Likewise, if the values associated
  * with @key cannot be interpreted as integers, or are out of range for
  * #gint, then %NULL is returned
- * and @error is set to #G_KEY_FILE_ERROR_INVALID_VALUE.
+ * and @error is set to %G_KEY_FILE_ERROR_INVALID_VALUE.
  *
  * Returns: (array length=length) (element-type gint) (transfer container):
  *     the values associated with the key as a list of integers, or %NULL if
@@ -3057,9 +3080,9 @@ g_key_file_set_integer_list (GKeyFile    *key_file,
  * double. If @group_name is %NULL, the start_group is used.
  *
  * If @key cannot be found then 0.0 is returned and @error is set to
- * #G_KEY_FILE_ERROR_KEY_NOT_FOUND. Likewise, if the value associated
+ * %G_KEY_FILE_ERROR_KEY_NOT_FOUND. Likewise, if the value associated
  * with @key cannot be interpreted as a double then 0.0 is returned
- * and @error is set to #G_KEY_FILE_ERROR_INVALID_VALUE.
+ * and @error is set to %G_KEY_FILE_ERROR_INVALID_VALUE.
  *
  * Returns: the value associated with the key as a double, or
  *     0.0 if the key was not found or could not be parsed.
@@ -3152,9 +3175,9 @@ g_key_file_set_double  (GKeyFile    *key_file,
  * doubles. 
  *
  * If @key cannot be found then %NULL is returned and @error is set to
- * #G_KEY_FILE_ERROR_KEY_NOT_FOUND. Likewise, if the values associated
+ * %G_KEY_FILE_ERROR_KEY_NOT_FOUND. Likewise, if the values associated
  * with @key cannot be interpreted as doubles then %NULL is returned
- * and @error is set to #G_KEY_FILE_ERROR_INVALID_VALUE.
+ * and @error is set to %G_KEY_FILE_ERROR_INVALID_VALUE.
  *
  * Returns: (array length=length) (element-type gdouble) (transfer container):
  *     the values associated with the key as a list of doubles, or %NULL if the
@@ -3330,7 +3353,7 @@ g_key_file_set_group_comment (GKeyFile     *key_file,
 {
   GKeyFileGroup *group;
   
-  g_return_val_if_fail (g_key_file_is_group_name (group_name), FALSE);
+  g_return_val_if_fail (group_name != NULL && g_key_file_is_group_name (group_name), FALSE);
 
   group = g_key_file_lookup_group (key_file, group_name);
   if (!group)
@@ -3338,7 +3361,7 @@ g_key_file_set_group_comment (GKeyFile     *key_file,
       g_set_error (error, G_KEY_FILE_ERROR,
                    G_KEY_FILE_ERROR_GROUP_NOT_FOUND,
                    _("Key file does not have group “%s”"),
-                   group_name ? group_name : "(null)");
+                   group_name);
 
       return FALSE;
     }
@@ -3460,7 +3483,7 @@ g_key_file_get_key_comment (GKeyFile     *key_file,
   GString *string;
   gchar *comment;
 
-  g_return_val_if_fail (g_key_file_is_group_name (group_name), NULL);
+  g_return_val_if_fail (group_name != NULL && g_key_file_is_group_name (group_name), NULL);
 
   group = g_key_file_lookup_group (key_file, group_name);
   if (!group)
@@ -3636,7 +3659,7 @@ g_key_file_get_top_comment (GKeyFile  *key_file,
  * g_key_file_get_comment:
  * @key_file: a #GKeyFile
  * @group_name: (nullable): a group name, or %NULL
- * @key: a key
+ * @key: (nullable): a key
  * @error: return location for a #GError
  *
  * Retrieves a comment above @key from @group_name.
@@ -3807,7 +3830,7 @@ g_key_file_add_group (GKeyFile    *key_file,
   GKeyFileGroup *group;
 
   g_return_if_fail (key_file != NULL);
-  g_return_if_fail (g_key_file_is_group_name (group_name));
+  g_return_if_fail (group_name != NULL && g_key_file_is_group_name (group_name));
 
   group = g_key_file_lookup_group (key_file, group_name);
   if (group != NULL)
@@ -3824,6 +3847,9 @@ g_key_file_add_group (GKeyFile    *key_file,
 
   if (key_file->start_group == NULL)
     key_file->start_group = group;
+
+  if (!key_file->group_hash)
+    key_file->group_hash = g_hash_table_new (g_str_hash, g_str_equal);
 
   g_hash_table_insert (key_file->group_hash, (gpointer)group->name, group);
 }
@@ -3877,7 +3903,10 @@ g_key_file_remove_group_node (GKeyFile *key_file,
   group = (GKeyFileGroup *) group_node->data;
 
   if (group->name)
-    g_hash_table_remove (key_file->group_hash, group->name);
+    {
+      g_assert (key_file->group_hash);
+      g_hash_table_remove (key_file->group_hash, group->name);
+    }
 
   /* If the current group gets deleted make the current group the last
    * added group.
@@ -4066,23 +4095,21 @@ g_key_file_lookup_group_node (GKeyFile    *key_file,
 			      const gchar *group_name)
 {
   GKeyFileGroup *group;
-  GList *tmp;
 
-  for (tmp = key_file->groups; tmp != NULL; tmp = tmp->next)
-    {
-      group = (GKeyFileGroup *) tmp->data;
+  group = g_key_file_lookup_group (key_file, group_name);
+  if (group == NULL)
+    return NULL;
 
-      if (group && group->name && strcmp (group->name, group_name) == 0)
-        break;
-    }
-
-  return tmp;
+  return g_list_find (key_file->groups, group);
 }
 
 static GKeyFileGroup *
 g_key_file_lookup_group (GKeyFile    *key_file,
 			 const gchar *group_name)
 {
+  if (!key_file->group_hash)
+    return NULL;
+
   return (GKeyFileGroup *)g_hash_table_lookup (key_file->group_hash, group_name);
 }
 
@@ -4129,12 +4156,11 @@ g_key_file_line_is_comment (const gchar *line)
 static gboolean 
 g_key_file_is_group_name (const gchar *name)
 {
-  gchar *p, *q;
+  const gchar *p, *q;
 
-  if (name == NULL)
-    return FALSE;
+  g_assert (name != NULL);
 
-  p = q = (gchar *) name;
+  p = q = name;
   while (*q && *q != ']' && *q != '[' && !g_ascii_iscntrl (*q))
     q = g_utf8_find_next_char (q, NULL);
   
@@ -4145,19 +4171,25 @@ g_key_file_is_group_name (const gchar *name)
 }
 
 static gboolean
-g_key_file_is_key_name (const gchar *name)
+g_key_file_is_key_name (const gchar *name,
+                        gsize        len)
 {
-  gchar *p, *q;
+  const gchar *p, *q, *end;
 
-  if (name == NULL)
-    return FALSE;
+  g_assert (name != NULL);
 
-  p = q = (gchar *) name;
+  p = q = name;
+  end = name + len;
+
   /* We accept a little more than the desktop entry spec says,
    * since gnome-vfs uses mime-types as keys in its cache.
    */
-  while (*q && *q != '=' && *q != '[' && *q != ']')
-    q = g_utf8_find_next_char (q, NULL);
+  while (q < end && *q && *q != '=' && *q != '[' && *q != ']')
+    {
+      q = g_utf8_find_next_char (q, end);
+      if (q == NULL)
+        q = end;
+    }
   
   /* No empty keys, please */
   if (q == p)
@@ -4174,8 +4206,17 @@ g_key_file_is_key_name (const gchar *name)
   if (*q == '[')
     {
       q++;
-      while (*q && (g_unichar_isalnum (g_utf8_get_char_validated (q, -1)) || *q == '-' || *q == '_' || *q == '.' || *q == '@'))
-        q = g_utf8_find_next_char (q, NULL);
+      while (q < end &&
+             *q != '\0' &&
+             (g_unichar_isalnum (g_utf8_get_char_validated (q, end - q)) || *q == '-' || *q == '_' || *q == '.' || *q == '@'))
+        {
+          q = g_utf8_find_next_char (q, end);
+          if (q == NULL)
+            {
+              q = end;
+              break;
+            }
+        }
 
       if (*q != ']')
         return FALSE;     
@@ -4183,7 +4224,7 @@ g_key_file_is_key_name (const gchar *name)
       q++;
     }
 
-  if (*q != '\0')
+  if (q < end)
     return FALSE;
 
   return TRUE;
@@ -4195,9 +4236,9 @@ g_key_file_is_key_name (const gchar *name)
 static gboolean
 g_key_file_line_is_group (const gchar *line)
 {
-  gchar *p;
+  const gchar *p;
 
-  p = (gchar *) line;
+  p = line;
   if (*p != '[')
     return FALSE;
 
@@ -4223,9 +4264,9 @@ g_key_file_line_is_group (const gchar *line)
 static gboolean
 g_key_file_line_is_key_value_pair (const gchar *line)
 {
-  gchar *p;
+  const gchar *p;
 
-  p = (gchar *) g_utf8_strchr (line, -1, '=');
+  p = g_utf8_strchr (line, -1, '=');
 
   if (!p)
     return FALSE;
@@ -4244,11 +4285,12 @@ g_key_file_parse_value_as_string (GKeyFile     *key_file,
 				  GSList      **pieces,
 				  GError      **error)
 {
-  gchar *string_value, *p, *q0, *q;
+  gchar *string_value, *q0, *q;
+  const gchar *p;
 
   string_value = g_new (gchar, strlen (value) + 1);
 
-  p = (gchar *) value;
+  p = value;
   q0 = q = string_value;
   while (*p)
     {
@@ -4343,7 +4385,8 @@ g_key_file_parse_string_as_value (GKeyFile    *key_file,
 				  const gchar *string,
 				  gboolean     escape_separator)
 {
-  gchar *value, *p, *q;
+  gchar *value, *q;
+  const gchar *p;
   gsize length;
   gboolean parsing_leading_space;
 
@@ -4354,7 +4397,7 @@ g_key_file_parse_string_as_value (GKeyFile    *key_file,
    */
   value = g_new (gchar, 2 * length);
 
-  p = (gchar *) string;
+  p = string;
   q = value;
   parsing_leading_space = TRUE;
   while (p < (string + length - 1))
@@ -4540,14 +4583,14 @@ g_key_file_parse_value_as_boolean (GKeyFile     *key_file,
   return FALSE;
 }
 
-static gchar *
+static const gchar *
 g_key_file_parse_boolean_as_value (GKeyFile *key_file,
 				   gboolean  value)
 {
   if (value)
-    return g_strdup ("true");
+    return "true";
   else
-    return g_strdup ("false");
+    return "false";
 }
 
 static gchar *

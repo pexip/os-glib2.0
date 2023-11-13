@@ -66,9 +66,9 @@ custom_marshal_VOID__INVOCATIONHINT (GClosure     *closure,
 static GType
 test_enum_get_type (void)
 {
-  static volatile gsize g_define_type_id__volatile = 0;
+  static gsize static_g_define_type_id = 0;
 
-  if (g_once_init_enter (&g_define_type_id__volatile))
+  if (g_once_init_enter (&static_g_define_type_id))
     {
       static const GEnumValue values[] = {
         { TEST_ENUM_NEGATIVE, "TEST_ENUM_NEGATIVE", "negative" },
@@ -79,18 +79,18 @@ test_enum_get_type (void)
       };
       GType g_define_type_id =
         g_enum_register_static (g_intern_static_string ("TestEnum"), values);
-      g_once_init_leave (&g_define_type_id__volatile, g_define_type_id);
+      g_once_init_leave (&static_g_define_type_id, g_define_type_id);
     }
 
-  return g_define_type_id__volatile;
+  return static_g_define_type_id;
 }
 
 static GType
 test_unsigned_enum_get_type (void)
 {
-  static volatile gsize g_define_type_id__volatile = 0;
+  static gsize static_g_define_type_id = 0;
 
-  if (g_once_init_enter (&g_define_type_id__volatile))
+  if (g_once_init_enter (&static_g_define_type_id))
     {
       static const GEnumValue values[] = {
         { TEST_UNSIGNED_ENUM_FOO, "TEST_UNSIGNED_ENUM_FOO", "foo" },
@@ -99,10 +99,10 @@ test_unsigned_enum_get_type (void)
       };
       GType g_define_type_id =
         g_enum_register_static (g_intern_static_string ("TestUnsignedEnum"), values);
-      g_once_init_leave (&g_define_type_id__volatile, g_define_type_id);
+      g_once_init_leave (&static_g_define_type_id, g_define_type_id);
     }
 
-  return g_define_type_id__volatile;
+  return static_g_define_type_id;
 }
 
 typedef enum {
@@ -135,6 +135,47 @@ static GType flags_type;
 static guint simple_id;
 static guint simple2_id;
 
+typedef struct {
+  GTypeInterface g_iface;
+} FooInterface;
+
+GType foo_get_type (void);
+
+G_DEFINE_INTERFACE (Foo, foo, G_TYPE_OBJECT)
+
+static void
+foo_default_init (FooInterface *iface)
+{
+}
+
+typedef struct {
+  GObject parent;
+} Baa;
+
+typedef struct {
+  GObjectClass parent_class;
+} BaaClass;
+
+static void
+baa_init_foo (FooInterface *iface)
+{
+}
+
+GType baa_get_type (void);
+
+G_DEFINE_TYPE_WITH_CODE (Baa, baa, G_TYPE_OBJECT,
+                         G_IMPLEMENT_INTERFACE (foo_get_type (), baa_init_foo))
+
+static void
+baa_init (Baa *baa)
+{
+}
+
+static void
+baa_class_init (BaaClass *class)
+{
+}
+
 typedef struct _Test Test;
 typedef struct _TestClass TestClass;
 
@@ -144,6 +185,9 @@ struct _Test
 };
 
 static void all_types_handler (Test *test, int i, gboolean b, char c, guchar uc, guint ui, glong l, gulong ul, MyEnum e, MyFlags f, float fl, double db, char *str, GParamSpec *param, GBytes *bytes, gpointer ptr, Test *obj, GVariant *var, gint64 i64, guint64 ui64);
+static gboolean accumulator_sum (GSignalInvocationHint *ihint, GValue *return_accu, const GValue *handler_return, gpointer data);
+static gboolean accumulator_concat_string (GSignalInvocationHint *ihint, GValue *return_accu, const GValue *handler_return, gpointer data);
+static gchar * accumulator_class (Test *test);
 
 struct _TestClass
 {
@@ -152,6 +196,7 @@ struct _TestClass
   void (* variant_changed) (Test *, GVariant *);
   void (* all_types) (Test *test, int i, gboolean b, char c, guchar uc, guint ui, glong l, gulong ul, MyEnum e, MyFlags f, float fl, double db, char *str, GParamSpec *param, GBytes *bytes, gpointer ptr, Test *obj, GVariant *var, gint64 i64, guint64 ui64);
   void (* all_types_null) (Test *test, int i, gboolean b, char c, guchar uc, guint ui, glong l, gulong ul, MyEnum e, MyFlags f, float fl, double db, char *str, GParamSpec *param, GBytes *bytes, gpointer ptr, Test *obj, GVariant *var, gint64 i64, guint64 ui64);
+  gchar * (*accumulator_class) (Test *test);
 };
 
 static GType test_get_type (void);
@@ -171,6 +216,7 @@ test_class_init (TestClass *klass)
   flags_type = g_flags_register_static ("MyFlag", my_flag_values);
 
   klass->all_types = all_types_handler;
+  klass->accumulator_class = accumulator_class;
 
   simple_id = g_signal_new ("simple",
                 G_TYPE_FROM_CLASS (klass),
@@ -196,6 +242,62 @@ test_class_init (TestClass *klass)
                 NULL, NULL,
                 NULL,
                 G_TYPE_NONE,
+                0);
+  g_signal_new ("simple-accumulator",
+                G_TYPE_FROM_CLASS (klass),
+                G_SIGNAL_RUN_LAST,
+                0,
+                accumulator_sum, NULL,
+                NULL,
+                G_TYPE_INT,
+                0);
+  g_signal_new ("accumulator-class-first",
+                G_TYPE_FROM_CLASS (klass),
+                G_SIGNAL_RUN_FIRST,
+                G_STRUCT_OFFSET (TestClass, accumulator_class),
+                accumulator_concat_string, NULL,
+                NULL,
+                G_TYPE_STRING,
+                0);
+  g_signal_new ("accumulator-class-last",
+                G_TYPE_FROM_CLASS (klass),
+                G_SIGNAL_RUN_LAST,
+                G_STRUCT_OFFSET (TestClass, accumulator_class),
+                accumulator_concat_string, NULL,
+                NULL,
+                G_TYPE_STRING,
+                0);
+  g_signal_new ("accumulator-class-cleanup",
+                G_TYPE_FROM_CLASS (klass),
+                G_SIGNAL_RUN_CLEANUP,
+                G_STRUCT_OFFSET (TestClass, accumulator_class),
+                accumulator_concat_string, NULL,
+                NULL,
+                G_TYPE_STRING,
+                0);
+  g_signal_new ("accumulator-class-first-last",
+                G_TYPE_FROM_CLASS (klass),
+                G_SIGNAL_RUN_FIRST | G_SIGNAL_RUN_LAST,
+                G_STRUCT_OFFSET (TestClass, accumulator_class),
+                accumulator_concat_string, NULL,
+                NULL,
+                G_TYPE_STRING,
+                0);
+  g_signal_new ("accumulator-class-first-last-cleanup",
+                G_TYPE_FROM_CLASS (klass),
+                G_SIGNAL_RUN_FIRST | G_SIGNAL_RUN_LAST | G_SIGNAL_RUN_CLEANUP,
+                G_STRUCT_OFFSET (TestClass, accumulator_class),
+                accumulator_concat_string, NULL,
+                NULL,
+                G_TYPE_STRING,
+                0);
+  g_signal_new ("accumulator-class-last-cleanup",
+                G_TYPE_FROM_CLASS (klass),
+                G_SIGNAL_RUN_LAST | G_SIGNAL_RUN_CLEANUP,
+                G_STRUCT_OFFSET (TestClass, accumulator_class),
+                accumulator_concat_string, NULL,
+                NULL,
+                G_TYPE_STRING,
                 0);
   g_signal_new ("generic-marshaller-1",
                 G_TYPE_FROM_CLASS (klass),
@@ -256,6 +358,14 @@ test_class_init (TestClass *klass)
                 NULL, NULL,
                 NULL,
                 G_TYPE_UINT,
+                0);
+  g_signal_new ("generic-marshaller-interface-return",
+                G_TYPE_FROM_CLASS (klass),
+                G_SIGNAL_RUN_LAST,
+                0,
+                NULL, NULL,
+                NULL,
+                foo_get_type (),
                 0);
   s = g_signal_new ("va-marshaller-uint-return",
                 G_TYPE_FROM_CLASS (klass),
@@ -754,6 +864,35 @@ test_generic_marshaller_signal_uint_return (void)
   g_object_unref (test);
 }
 
+static gpointer
+on_generic_marshaller_interface_return (Test *test)
+{
+  return g_object_new (baa_get_type (), NULL);
+}
+
+static void
+test_generic_marshaller_signal_interface_return (void)
+{
+  Test *test;
+  guint id;
+  gpointer retval;
+
+  test = g_object_new (test_get_type (), NULL);
+
+  /* Test return value -30 */
+  id = g_signal_connect (test,
+                         "generic-marshaller-interface-return",
+                         G_CALLBACK (on_generic_marshaller_interface_return),
+                         NULL);
+  g_signal_emit_by_name (test, "generic-marshaller-interface-return", &retval);
+  g_assert_true (g_type_check_instance_is_a ((GTypeInstance*)retval, foo_get_type ()));
+  g_object_unref (retval);
+
+  g_signal_handler_disconnect (test, id);
+
+  g_object_unref (test);
+}
+
 static const GSignalInvocationHint dont_use_this = { 0, };
 
 static void
@@ -970,8 +1109,10 @@ test_destroy_target_object (void)
   sender = g_object_new (test_get_type (), NULL);
   target1 = g_object_new (test_get_type (), NULL);
   target2 = g_object_new (test_get_type (), NULL);
-  g_signal_connect_object (sender, "simple", G_CALLBACK (simple_handler1), target1, 0);
-  g_signal_connect_object (sender, "simple", G_CALLBACK (simple_handler2), target2, 0);
+  g_signal_connect_object (sender, "simple", G_CALLBACK (simple_handler1),
+                           target1, G_CONNECT_DEFAULT);
+  g_signal_connect_object (sender, "simple", G_CALLBACK (simple_handler2),
+                           target2, G_CONNECT_DEFAULT);
   g_signal_emit_by_name (sender, "simple");
   g_object_unref (sender);
 }
@@ -1050,6 +1191,167 @@ test_invocation_hint (void)
 }
 
 static gboolean
+accumulator_sum (GSignalInvocationHint *ihint,
+                 GValue                *return_accu,
+                 const GValue          *handler_return,
+                 gpointer               data)
+{
+  gint acc = g_value_get_int (return_accu);
+  gint ret = g_value_get_int (handler_return);
+
+  g_assert_cmpint (ret, >, 0);
+
+  if (ihint->run_type & G_SIGNAL_ACCUMULATOR_FIRST_RUN)
+    {
+      g_assert_cmpint (acc, ==, 0);
+      g_assert_cmpint (ret, ==, 1);
+      g_assert_true (ihint->run_type & G_SIGNAL_RUN_FIRST);
+      g_assert_false (ihint->run_type & G_SIGNAL_RUN_LAST);
+    }
+  else if (ihint->run_type & G_SIGNAL_RUN_FIRST)
+    {
+      /* Only the first signal handler was called so far */
+      g_assert_cmpint (acc, ==, 1);
+      g_assert_cmpint (ret, ==, 2);
+      g_assert_false (ihint->run_type & G_SIGNAL_RUN_LAST);
+    }
+  else if (ihint->run_type & G_SIGNAL_RUN_LAST)
+    {
+      /* Only the first two signal handler were called so far */
+      g_assert_cmpint (acc, ==, 3);
+      g_assert_cmpint (ret, ==, 3);
+      g_assert_false (ihint->run_type & G_SIGNAL_RUN_FIRST);
+    }
+  else
+    {
+      g_assert_not_reached ();
+    }
+
+  g_value_set_int (return_accu, acc + ret);
+
+  /* Continue with the other signal handlers as long as the sum is < 6,
+   * i.e. don't run simple_accumulator_4_cb() */
+  return acc + ret < 6;
+}
+
+static gint
+simple_accumulator_1_cb (gpointer instance, gpointer data)
+{
+  return 1;
+}
+
+static gint
+simple_accumulator_2_cb (gpointer instance, gpointer data)
+{
+  return 2;
+}
+
+static gint
+simple_accumulator_3_cb (gpointer instance, gpointer data)
+{
+  return 3;
+}
+
+static gint
+simple_accumulator_4_cb (gpointer instance, gpointer data)
+{
+  return 4;
+}
+
+static void
+test_accumulator (void)
+{
+  GObject *test;
+  gint ret = -1;
+
+  test = g_object_new (test_get_type (), NULL);
+
+  /* Connect in reverse order to make sure that LAST signal handlers are
+   * called after FIRST signal handlers but signal handlers in each "group"
+   * are called in the order they were registered */
+  g_signal_connect_after (test, "simple-accumulator", G_CALLBACK (simple_accumulator_3_cb), NULL);
+  g_signal_connect_after (test, "simple-accumulator", G_CALLBACK (simple_accumulator_4_cb), NULL);
+  g_signal_connect (test, "simple-accumulator", G_CALLBACK (simple_accumulator_1_cb), NULL);
+  g_signal_connect (test, "simple-accumulator", G_CALLBACK (simple_accumulator_2_cb), NULL);
+  g_signal_emit_by_name (test, "simple-accumulator", &ret);
+
+  /* simple_accumulator_4_cb() is not run because accumulator is 6 */
+  g_assert_cmpint (ret, ==, 6);
+
+  g_object_unref (test);
+}
+
+static gboolean
+accumulator_concat_string (GSignalInvocationHint *ihint, GValue *return_accu, const GValue *handler_return, gpointer data)
+{
+  const gchar *acc = g_value_get_string (return_accu);
+  const gchar *ret = g_value_get_string (handler_return);
+
+  g_assert_nonnull (ret);
+
+  if (acc == NULL)
+    g_value_set_string (return_accu, ret);
+  else
+    g_value_take_string (return_accu, g_strconcat (acc, ret, NULL));
+
+  return TRUE;
+}
+
+static gchar *
+accumulator_class_before_cb (gpointer instance, gpointer data)
+{
+  return g_strdup ("before");
+}
+
+static gchar *
+accumulator_class_after_cb (gpointer instance, gpointer data)
+{
+  return g_strdup ("after");
+}
+
+static gchar *
+accumulator_class (Test *test)
+{
+  return g_strdup ("class");
+}
+
+static void
+test_accumulator_class (void)
+{
+  const struct {
+    const gchar *signal_name;
+    const gchar *return_string;
+  } tests[] = {
+    {"accumulator-class-first", "classbeforeafter"},
+    {"accumulator-class-last", "beforeclassafter"},
+    {"accumulator-class-cleanup", "beforeafterclass"},
+    {"accumulator-class-first-last", "classbeforeclassafter"},
+    {"accumulator-class-first-last-cleanup", "classbeforeclassafterclass"},
+    {"accumulator-class-last-cleanup", "beforeclassafterclass"},
+  };
+  gsize i;
+
+  for (i = 0; i < G_N_ELEMENTS (tests); i++)
+    {
+      GObject *test;
+      gchar *ret = NULL;
+
+      g_test_message ("Signal: %s", tests[i].signal_name);
+
+      test = g_object_new (test_get_type (), NULL);
+
+      g_signal_connect (test, tests[i].signal_name, G_CALLBACK (accumulator_class_before_cb), NULL);
+      g_signal_connect_after (test, tests[i].signal_name, G_CALLBACK (accumulator_class_after_cb), NULL);
+      g_signal_emit_by_name (test, tests[i].signal_name, &ret);
+
+      g_assert_cmpstr (ret, ==, tests[i].return_string);
+      g_free (ret);
+
+      g_object_unref (test);
+    }
+}
+
+static gboolean
 in_set (const gchar *s,
         const gchar *set[])
 {
@@ -1070,11 +1372,18 @@ test_introspection (void)
   guint *ids;
   guint n_ids;
   const gchar *name;
-  gint i;
+  guint i;
   const gchar *names[] = {
     "simple",
     "simple-detailed",
     "simple-2",
+    "simple-accumulator",
+    "accumulator-class-first",
+    "accumulator-class-last",
+    "accumulator-class-cleanup",
+    "accumulator-class-first-last",
+    "accumulator-class-first-last-cleanup",
+    "accumulator-class-last-cleanup",
     "generic-marshaller-1",
     "generic-marshaller-2",
     "generic-marshaller-enum-return-signed",
@@ -1082,6 +1391,7 @@ test_introspection (void)
     "generic-marshaller-int-return",
     "va-marshaller-int-return",
     "generic-marshaller-uint-return",
+    "generic-marshaller-interface-return",
     "va-marshaller-uint-return",
     "variant-changed-no-slot",
     "variant-changed",
@@ -1330,7 +1640,7 @@ test_lookup_invalid (void)
       return;
     }
 
-  g_test_trap_subprocess (NULL, 0, 0);
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
   g_test_trap_assert_stderr ("*WARNING*unable to look up invalid signal name*");
 }
@@ -1447,7 +1757,7 @@ test_signals_invalid_name (gconstpointer test_data)
       return;
     }
 
-  g_test_trap_subprocess (NULL, 0, 0);
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
   g_test_trap_assert_stderr ("*CRITICAL*g_signal_is_valid_name (signal_name)*");
 }
@@ -1495,9 +1805,12 @@ main (int argc,
   g_test_add_func ("/gobject/signals/generic-marshaller-enum-return-unsigned", test_generic_marshaller_signal_enum_return_unsigned);
   g_test_add_func ("/gobject/signals/generic-marshaller-int-return", test_generic_marshaller_signal_int_return);
   g_test_add_func ("/gobject/signals/generic-marshaller-uint-return", test_generic_marshaller_signal_uint_return);
+  g_test_add_func ("/gobject/signals/generic-marshaller-interface-return", test_generic_marshaller_signal_interface_return);
   g_test_add_func ("/gobject/signals/custom-marshaller", test_custom_marshaller);
   g_test_add_func ("/gobject/signals/connect", test_connect);
   g_test_add_func ("/gobject/signals/emission-hook", test_emission_hook);
+  g_test_add_func ("/gobject/signals/accumulator", test_accumulator);
+  g_test_add_func ("/gobject/signals/accumulator-class", test_accumulator_class);
   g_test_add_func ("/gobject/signals/introspection", test_introspection);
   g_test_add_func ("/gobject/signals/block-handler", test_block_handler);
   g_test_add_func ("/gobject/signals/stop-emission", test_stop_emission);

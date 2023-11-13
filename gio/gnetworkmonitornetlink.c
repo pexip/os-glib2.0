@@ -2,6 +2,8 @@
  *
  * Copyright 2011 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -267,7 +269,7 @@ remove_network (GNetworkMonitorNetlink *nl,
   if (nl->priv->dump_networks)
     {
       GInetAddressMask **dump_networks = (GInetAddressMask **)nl->priv->dump_networks->pdata;
-      int i;
+      guint i;
 
       for (i = 0; i < nl->priv->dump_networks->len; i++)
         {

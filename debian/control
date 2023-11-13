@@ -7,40 +7,38 @@ Section: libs
 Priority: optional
 Maintainer: Pexip AS <packaging@pexip.com>
 XSBC-Pexip-Original-Maintainer: Debian GNOME Maintainers <pkg-gnome-maintainers@lists.alioth.debian.org>
-XSBC-Pexip-Original-Uploaders: Iain Lane <laney@debian.org>, Simon McVittie <smcv@debian.org>
-Build-Depends: dbus <!nocheck>,
-               debhelper-compat (= 12),
-               desktop-file-utils <!nocheck>,
-               dh-exec,
-               dh-python,
+XSBC-Pexip-Original-Uploaders: Iain Lane <laney@debian.org>, Jeremy Bicha <jbicha@ubuntu.com>, Simon McVittie <smcv@debian.org>
+Build-Depends: dbus-daemon <!nocheck> <!noinsttest>,
+               debhelper-compat (= 13),
+               dh-sequence-python3,
+               dh-sequence-gnome,
                docbook-xml,
                docbook-xsl,
-               dpkg-dev (>= 1.17.14),
                gettext,
-               gnome-pkg-tools (>= 0.11),
-               libdbus-1-dev (>= 1.2.14) <!nocheck> <!noinsttest>,
-               libelf-dev (>= 0.142),
+               libdbus-1-dev <!nocheck> <!noinsttest>,
+               libelf-dev,
                libffi-dev (>= 3.3),
-               libgamin-dev [hurd-any] | libfam-dev [hurd-any],
                libmount-dev (>= 2.35.2-7~) [linux-any],
-               libpcre3-dev (>= 1:8.35),
+               libpcre2-dev,
                libselinux1-dev [linux-any],
                libxml2-utils,
                linux-libc-dev [linux-any],
-               meson (>= 0.52.0),
-               pkg-config (>= 0.16.0),
-               python3-dbus <!nocheck>,
+               meson (>= 0.60.0),
+               pkg-config,
                python3-distutils,
-               python3-gi <!nocheck>,
-               python3:any (>= 2.7.5-5~),
-               shared-mime-info <!nocheck>,
-               tzdata <!nocheck>,
+               python3:any,
                xsltproc,
-               xterm <!nocheck>,
                zlib1g-dev
+Build-Depends-Arch: desktop-file-utils <!nocheck>,
+                    locales <!nocheck> | locales-all <!nocheck>,
+                    python3-dbus <!nocheck>,
+                    python3-gi <!nocheck>,
+                    shared-mime-info <!nocheck>,
+                    tzdata <!nocheck>,
+                    xterm <!nocheck>
 Build-Depends-Indep: gtk-doc-tools (>= 1.32.1),
 Rules-Requires-Root: no
-Standards-Version: 4.5.1
+Standards-Version: 4.6.2
 Homepage: https://wiki.gnome.org/Projects/GLib
 Vcs-Browser: https://salsa.debian.org/gnome-team/glib
 Vcs-Git: https://salsa.debian.org/gnome-team/glib.git
@@ -52,13 +50,15 @@ Depends: ${misc:Depends},
          ${shlibs:Depends}
 Recommends: libglib2.0-data,
             shared-mime-info,
-            xdg-user-dirs
+            xdg-user-dirs,
 Breaks: gimp (<< 2.10.14-3~),
-        glib-networking-tests (<< 2.63.2),
-        libgio-fam (<< 2.64.1-2~) [kfreebsd-any hurd-any],
+        glib-networking-tests (<< 2.70.0~),
+        gnome-keyring (<< 40.0-3~),
+        libedataserver-1.2-26 (<< 3.44.3-2~),
         libgirepository-1.0-1 (<< 1.62.0-4~),
-        libgladeui-2-6 (<< 3.22.2)
-Replaces: libgio-fam (<< 2.64.1-2~) [kfreebsd-any hurd-any]
+        libgladeui-2-6 (<< 3.22.2),
+        libsoup2.4-tests (<< 2.72.0-3~),
+Suggests: low-memory-monitor
 Multi-Arch: same
 Pre-Depends: ${misc:Pre-Depends}
 Description: GLib library of C routines
@@ -71,7 +71,8 @@ Description: GLib library of C routines
 Package: libglib2.0-tests
 Build-profiles: <!noinsttest>
 Architecture: any
-Depends: gir1.2-glib-2.0,
+Depends: desktop-file-utils,
+         gir1.2-glib-2.0,
          libglib2.0-dev-bin,
          python3-dbus,
          python3-dbusmock,
@@ -132,7 +133,7 @@ Depends: libffi-dev (>= 3.3),
          libglib2.0-bin (= ${binary:Version}),
          libglib2.0-dev-bin (= ${binary:Version}),
          libmount-dev (>= 2.35.2-7~) [linux-any],
-         libpcre3-dev (>= 1:8.31),
+         libpcre2-dev,
          libselinux1-dev [linux-any],
          pkg-config,
          zlib1g-dev,
@@ -162,12 +163,8 @@ Depends: python3-distutils,
          ${misc:Depends},
          ${python3:Depends},
          ${shlibs:Depends}
-Suggests: libgdk-pixbuf2.0-bin (>= 2.36.12-2~) | libgdk-pixbuf2.0-dev,
+Suggests: libgdk-pixbuf2.0-bin,
           libxml2-utils
-Breaks: libglib2.0-bin (<< 2.54.2-5~),
-        libglib2.0-dev (<< 2.53)
-Replaces: libglib2.0-bin (<< 2.54.2-5~),
-          libglib2.0-dev (<< 2.53)
 Multi-Arch: foreign
 Description: Development utilities for the GLib library
  GLib is a library containing many useful C routines for things such

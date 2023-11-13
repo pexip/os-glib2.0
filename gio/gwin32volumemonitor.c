@@ -3,6 +3,8 @@
  * Copyright (C) 2006-2007 Red Hat, Inc.
  * Copyright (C) 2008 Hans Breuer
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -68,13 +70,13 @@ get_viewable_logical_drives (void)
   DWORD no_drives;
   gboolean hklm_present = FALSE;
 
-  if (RegOpenKeyEx (HKEY_LOCAL_MACHINE,
-		    "Software\\Microsoft\\Windows\\"
-		    "CurrentVersion\\Policies\\Explorer",
-		    0, KEY_READ, &key) == ERROR_SUCCESS)
+  if (RegOpenKeyExW (HKEY_LOCAL_MACHINE,
+		     L"Software\\Microsoft\\Windows\\"
+		     L"CurrentVersion\\Policies\\Explorer",
+		     0, KEY_READ, &key) == ERROR_SUCCESS)
     {
-      if (RegQueryValueEx (key, "NoDrives", NULL, &var_type,
-			   (LPBYTE) &no_drives, &no_drives_size) == ERROR_SUCCESS)
+      if (RegQueryValueExW (key, L"NoDrives", NULL, &var_type,
+			    (LPBYTE) &no_drives, &no_drives_size) == ERROR_SUCCESS)
 	{
 	  /* We need the bits that are set in viewable_drives, and
 	   * unset in no_drives.
@@ -88,13 +90,13 @@ get_viewable_logical_drives (void)
   /* If the key is present in HKLM then the one in HKCU should be ignored */
   if (!hklm_present)
     {
-      if (RegOpenKeyEx (HKEY_CURRENT_USER,
-			"Software\\Microsoft\\Windows\\"
-			"CurrentVersion\\Policies\\Explorer",
-			0, KEY_READ, &key) == ERROR_SUCCESS)
+      if (RegOpenKeyExW (HKEY_CURRENT_USER,
+			 L"Software\\Microsoft\\Windows\\"
+			 L"CurrentVersion\\Policies\\Explorer",
+			 0, KEY_READ, &key) == ERROR_SUCCESS)
 	{
-	  if (RegQueryValueEx (key, "NoDrives", NULL, &var_type,
-			       (LPBYTE) &no_drives, &no_drives_size) == ERROR_SUCCESS)
+	  if (RegQueryValueExW (key, L"NoDrives", NULL, &var_type,
+			        (LPBYTE) &no_drives, &no_drives_size) == ERROR_SUCCESS)
 	    {
 	      viewable_drives = viewable_drives & ~no_drives;
 	    }

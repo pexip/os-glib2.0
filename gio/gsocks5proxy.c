@@ -3,6 +3,8 @@
  * Copyright (C) 2008, 2010 Collabora, Ltd.
  * Copyright (C) 2008 Nokia Corporation. All rights reserved.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -328,7 +330,7 @@ set_connect_msg (guint8       *msg,
  *
  * The parser only requires 4 bytes.
  */
-#define SOCKS5_CONN_REP_LEN	  255
+#define SOCKS5_CONN_REP_LEN	  257
 static gboolean
 parse_connect_reply (const guint8 *data, gint *atype, GError **error)
 {
@@ -509,7 +511,7 @@ g_socks5_proxy_connect (GProxy            *proxy,
       guint8 data[SOCKS5_CONN_REP_LEN];
       gint atype;
 
-      if (!g_input_stream_read_all (in, data, 4, NULL,
+      if (!g_input_stream_read_all (in, data, 4 /* VER, REP, RSV, ATYP */, NULL,
 				    cancellable, error))
 	goto error;
 
@@ -519,23 +521,26 @@ g_socks5_proxy_connect (GProxy            *proxy,
       switch (atype)
 	{
 	  case SOCKS5_ATYP_IPV4:
-	    if (!g_input_stream_read_all (in, data, 6, NULL,
-					  cancellable, error))
+	    if (!g_input_stream_read_all (in, data,
+					  4 /* IPv4 length */ + 2 /* port */,
+					  NULL, cancellable, error))
 	      goto error;
 	    break;
 
 	  case SOCKS5_ATYP_IPV6:
-	    if (!g_input_stream_read_all (in, data, 18, NULL,
-					  cancellable, error))
+	    if (!g_input_stream_read_all (in, data,
+					  16 /* IPv6 length */ + 2 /* port */,
+					  NULL, cancellable, error))
 	      goto error;
 	    break;
 
 	  case SOCKS5_ATYP_DOMAINNAME:
-	    if (!g_input_stream_read_all (in, data, 1, NULL,
-					  cancellable, error))
+	    if (!g_input_stream_read_all (in, data, 1 /* domain name length */,
+					  NULL, cancellable, error))
 	      goto error;
-	    if (!g_input_stream_read_all (in, data, data[0] + 2, NULL,
-					  cancellable, error))
+	    if (!g_input_stream_read_all (in, data,
+					  data[0] /* domain name length */ + 2 /* port */,
+					  NULL, cancellable, error))
 	      goto error;
 	    break;
 	}
@@ -717,11 +722,20 @@ nego_reply_read_cb (GObject      *source,
       return;
     }
 
+  if (read == 0)
+    {
+      g_task_return_new_error (task,
+                               G_IO_ERROR,
+                               G_IO_ERROR_CONNECTION_CLOSED,
+                               "Connection to SOCKSv5 proxy server lost");
+      g_object_unref (task);
+      return;
+    }
+
   data->offset += read;
   
   if (data->offset == data->length)
     {
-      GError *error = NULL;
       gboolean must_auth = FALSE;
       gboolean has_auth = data->username || data->password;
 
@@ -817,6 +831,16 @@ auth_reply_read_cb (GObject      *source,
   if (read < 0)
     {
       g_task_return_error (task, error);
+      g_object_unref (task);
+      return;
+    }
+
+  if (read == 0)
+    {
+      g_task_return_new_error (task,
+                               G_IO_ERROR,
+                               G_IO_ERROR_CONNECTION_CLOSED,
+                               "Connection to SOCKSv5 proxy server lost");
       g_object_unref (task);
       return;
     }
@@ -923,6 +947,16 @@ connect_reply_read_cb (GObject       *source,
       return;
     }
 
+  if (read == 0)
+    {
+      g_task_return_new_error (task,
+                               G_IO_ERROR,
+                               G_IO_ERROR_CONNECTION_CLOSED,
+                               "Connection to SOCKSv5 proxy server lost");
+      g_object_unref (task);
+      return;
+    }
+
   data->offset += read;
 
   if (data->offset == data->length)
@@ -983,6 +1017,16 @@ connect_addr_len_read_cb (GObject      *source,
       return;
     }
 
+  if (read == 0)
+    {
+      g_task_return_new_error (task,
+                               G_IO_ERROR,
+                               G_IO_ERROR_CONNECTION_CLOSED,
+                               "Connection to SOCKSv5 proxy server lost");
+      g_object_unref (task);
+      return;
+    }
+
   data->length = data->buffer[0] + 2;
   data->offset = 0;
 
@@ -1005,6 +1049,16 @@ connect_addr_read_cb (GObject      *source,
   if (read < 0)
     {
       g_task_return_error (task, error);
+      g_object_unref (task);
+      return;
+    }
+
+  if (read == 0)
+    {
+      g_task_return_new_error (task,
+                               G_IO_ERROR,
+                               G_IO_ERROR_CONNECTION_CLOSED,
+                               "Connection to SOCKSv5 proxy server lost");
       g_object_unref (task);
       return;
     }

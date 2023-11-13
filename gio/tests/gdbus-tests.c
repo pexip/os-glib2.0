@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -48,7 +50,7 @@ on_property_notify_timeout (gpointer user_data)
   PropertyNotifyData *data = user_data;
   data->timed_out = TRUE;
   g_main_loop_quit (data->loop);
-  return TRUE;
+  return G_SOURCE_CONTINUE;
 }
 
 gboolean
@@ -83,7 +85,7 @@ static gboolean
 _give_up (gpointer data)
 {
   g_error ("%s", (const gchar *) data);
-  g_return_val_if_reached (TRUE);
+  g_return_val_if_reached (G_SOURCE_CONTINUE);
 }
 
 typedef struct
@@ -143,7 +145,6 @@ ensure_gdbus_testserver_up (GDBusConnection *connection,
     g_main_context_iteration (context, TRUE);
 
   g_bus_unwatch_name (watch_id);
-  watch_id = 0;
 
   while (!data.unwatch_complete)
     g_main_context_iteration (context, TRUE);
@@ -175,7 +176,7 @@ on_signal_received_timeout (gpointer user_data)
   SignalReceivedData *data = user_data;
   data->timed_out = TRUE;
   g_main_loop_quit (data->loop);
-  return TRUE;
+  return G_SOURCE_CONTINUE;
 }
 
 gboolean

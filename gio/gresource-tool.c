@@ -1,6 +1,8 @@
 /*
  * Copyright © 2012 Red Hat, Inc
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -180,17 +182,18 @@ elf_foreach_resource_section (Elf             *elf,
                               SectionCallback  callback,
                               gpointer         data)
 {
+  int ret G_GNUC_UNUSED  /* when compiling with G_DISABLE_ASSERT */;
   size_t shstrndx, shnum;
   size_t scnidx;
   Elf_Scn *scn;
   GElf_Shdr *shdr, shdr_mem;
   const gchar *section_name;
 
-  elf_getshdrstrndx (elf, &shstrndx);
-  g_assert (shstrndx >= 0);
+  ret = elf_getshdrstrndx (elf, &shstrndx);
+  g_assert (ret == 0);
 
-  elf_getshdrnum (elf, &shnum);
-  g_assert (shnum >= 0);
+  ret = elf_getshdrnum (elf, &shnum);
+  g_assert (ret == 0);
 
   for (scnidx = 1; scnidx < shnum; scnidx++)
     {
@@ -476,8 +479,8 @@ static gint
 cmd_help (gboolean     requested,
           const gchar *command)
 {
-  const gchar *description;
-  const gchar *synopsis;
+  const gchar *description = NULL;
+  const gchar *synopsis = NULL;
   gchar *option;
   GString *string;
 

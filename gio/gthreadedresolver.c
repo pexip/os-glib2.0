@@ -5,6 +5,8 @@
  * Copyright (C) 2008 Red Hat, Inc.
  * Copyright (C) 2018 Igalia S.L.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -226,7 +228,7 @@ lookup_by_name_with_flags (GResolver                 *resolver,
   GList *addresses;
   LookupData *data;
 
-  data = lookup_data_new (hostname, AF_UNSPEC);
+  data = lookup_data_new (hostname, flags_to_family (flags));
   task = g_task_new (resolver, cancellable, NULL, NULL);
   g_task_set_source_tag (task, lookup_by_name_with_flags);
   g_task_set_name (task, "[gio] resolver lookup");
@@ -302,19 +304,19 @@ do_lookup_by_address (GTask         *task,
                       GCancellable  *cancellable)
 {
   GInetAddress *address = task_data;
-  struct sockaddr_storage sockaddr;
-  gsize sockaddr_size;
+  struct sockaddr_storage sockaddr_address;
+  gsize sockaddr_address_size;
   GSocketAddress *gsockaddr;
   gchar name[NI_MAXHOST];
   gint retval;
 
   gsockaddr = g_inet_socket_address_new (address, 0);
-  g_socket_address_to_native (gsockaddr, (struct sockaddr *)&sockaddr,
-                              sizeof (sockaddr), NULL);
-  sockaddr_size = g_socket_address_get_native_size (gsockaddr);
+  g_socket_address_to_native (gsockaddr, (struct sockaddr *)&sockaddr_address,
+                              sizeof (sockaddr_address), NULL);
+  sockaddr_address_size = g_socket_address_get_native_size (gsockaddr);
   g_object_unref (gsockaddr);
 
-  retval = getnameinfo ((struct sockaddr *)&sockaddr, sockaddr_size,
+  retval = getnameinfo ((struct sockaddr *) &sockaddr_address, sockaddr_address_size,
                         name, sizeof (name), NULL, 0, NI_NAMEREQD);
   if (retval == 0)
     g_task_return_pointer (task, g_strdup (name), g_free);
@@ -529,18 +531,56 @@ typedef enum __ns_type {
 
 #endif /* __BIONIC__ */
 
+/* Wrapper around dn_expand() which does associated length checks and returns
+ * errors as #GError. */
+static gboolean
+expand_name (const gchar   *rrname,
+             const guint8  *answer,
+             const guint8  *end,
+             const guint8 **p,
+             gchar         *namebuf,
+             gsize          namebuf_len,
+             GError       **error)
+{
+  int expand_result;
+
+  expand_result = dn_expand (answer, end, *p, namebuf, namebuf_len);
+  if (expand_result < 0 || end - *p < expand_result)
+    {
+      g_set_error (error, G_RESOLVER_ERROR, G_RESOLVER_ERROR_INTERNAL,
+                   /* Translators: the placeholder is a DNS record type, such as ‘MX’ or ‘SRV’ */
+                   _("Error parsing DNS %s record: malformed DNS packet"), rrname);
+      return FALSE;
+    }
+
+  *p += expand_result;
+
+  return TRUE;
+}
+
 static GVariant *
-parse_res_srv (guchar  *answer,
-               guchar  *end,
-               guchar **p)
+parse_res_srv (const guint8  *answer,
+               const guint8  *end,
+               const guint8 **p,
+               GError       **error)
 {
   gchar namebuf[1024];
   guint16 priority, weight, port;
 
+  if (end - *p < 6)
+    {
+      g_set_error (error, G_RESOLVER_ERROR, G_RESOLVER_ERROR_INTERNAL,
+                   /* Translators: the placeholder is a DNS record type, such as ‘MX’ or ‘SRV’ */
+                   _("Error parsing DNS %s record: malformed DNS packet"), "SRV");
+      return NULL;
+    }
+
   GETSHORT (priority, *p);
   GETSHORT (weight, *p);
   GETSHORT (port, *p);
-  *p += dn_expand (answer, end, *p, namebuf, sizeof (namebuf));
+
+  if (!expand_name ("SRV", answer, end, p, namebuf, sizeof (namebuf), error))
+    return NULL;
 
   return g_variant_new ("(qqqs)",
                         priority,
@@ -550,16 +590,28 @@ parse_res_srv (guchar  *answer,
 }
 
 static GVariant *
-parse_res_soa (guchar  *answer,
-               guchar  *end,
-               guchar **p)
+parse_res_soa (const guint8  *answer,
+               const guint8  *end,
+               const guint8 **p,
+               GError       **error)
 {
   gchar mnamebuf[1024];
   gchar rnamebuf[1024];
   guint32 serial, refresh, retry, expire, ttl;
 
-  *p += dn_expand (answer, end, *p, mnamebuf, sizeof (mnamebuf));
-  *p += dn_expand (answer, end, *p, rnamebuf, sizeof (rnamebuf));
+  if (!expand_name ("SOA", answer, end, p, mnamebuf, sizeof (mnamebuf), error))
+    return NULL;
+
+  if (!expand_name ("SOA", answer, end, p, rnamebuf, sizeof (rnamebuf), error))
+    return NULL;
+
+  if (end - *p < 20)
+    {
+      g_set_error (error, G_RESOLVER_ERROR, G_RESOLVER_ERROR_INTERNAL,
+                   /* Translators: the placeholder is a DNS record type, such as ‘MX’ or ‘SRV’ */
+                   _("Error parsing DNS %s record: malformed DNS packet"), "SOA");
+      return NULL;
+    }
 
   GETLONG (serial, *p);
   GETLONG (refresh, *p);
@@ -578,28 +630,40 @@ parse_res_soa (guchar  *answer,
 }
 
 static GVariant *
-parse_res_ns (guchar  *answer,
-              guchar  *end,
-              guchar **p)
+parse_res_ns (const guint8  *answer,
+              const guint8  *end,
+              const guint8 **p,
+              GError       **error)
 {
   gchar namebuf[1024];
 
-  *p += dn_expand (answer, end, *p, namebuf, sizeof (namebuf));
+  if (!expand_name ("NS", answer, end, p, namebuf, sizeof (namebuf), error))
+    return NULL;
 
   return g_variant_new ("(s)", namebuf);
 }
 
 static GVariant *
-parse_res_mx (guchar  *answer,
-              guchar  *end,
-              guchar **p)
+parse_res_mx (const guint8  *answer,
+              const guint8  *end,
+              const guint8 **p,
+              GError       **error)
 {
   gchar namebuf[1024];
   guint16 preference;
 
+  if (end - *p < 2)
+    {
+      g_set_error (error, G_RESOLVER_ERROR, G_RESOLVER_ERROR_INTERNAL,
+                   /* Translators: the placeholder is a DNS record type, such as ‘MX’ or ‘SRV’ */
+                   _("Error parsing DNS %s record: malformed DNS packet"), "MX");
+      return NULL;
+    }
+
   GETSHORT (preference, *p);
 
-  *p += dn_expand (answer, end, *p, namebuf, sizeof (namebuf));
+  if (!expand_name ("MX", answer, end, p, namebuf, sizeof (namebuf), error))
+    return NULL;
 
   return g_variant_new ("(qs)",
                         preference,
@@ -607,21 +671,37 @@ parse_res_mx (guchar  *answer,
 }
 
 static GVariant *
-parse_res_txt (guchar  *answer,
-               guchar  *end,
-               guchar **p)
+parse_res_txt (const guint8  *answer,
+               const guint8  *end,
+               const guint8 **p,
+               GError       **error)
 {
   GVariant *record;
   GPtrArray *array;
-  guchar *at = *p;
+  const guint8 *at = *p;
   gsize len;
+
+  if (end - *p == 0)
+    {
+      g_set_error (error, G_RESOLVER_ERROR, G_RESOLVER_ERROR_INTERNAL,
+                   /* Translators: the placeholder is a DNS record type, such as ‘MX’ or ‘SRV’ */
+                   _("Error parsing DNS %s record: malformed DNS packet"), "TXT");
+      return NULL;
+    }
 
   array = g_ptr_array_new_with_free_func (g_free);
   while (at < end)
     {
       len = *(at++);
       if (len > (gsize) (end - at))
-        break;
+        {
+          g_set_error (error, G_RESOLVER_ERROR, G_RESOLVER_ERROR_INTERNAL,
+                       /* Translators: the placeholder is a DNS record type, such as ‘MX’ or ‘SRV’ */
+                       _("Error parsing DNS %s record: malformed DNS packet"), "TXT");
+          g_ptr_array_free (array, TRUE);
+          return NULL;
+        }
+
       g_ptr_array_add (array, g_strndup ((gchar *)at, len));
       at += len;
     }
@@ -633,7 +713,7 @@ parse_res_txt (guchar  *answer,
   return record;
 }
 
-static gint
+gint
 g_resolver_record_type_to_rrtype (GResolverRecordType type)
 {
   switch (type)
@@ -652,21 +732,23 @@ g_resolver_record_type_to_rrtype (GResolverRecordType type)
   g_return_val_if_reached (-1);
 }
 
-static GList *
+GList *
 g_resolver_records_from_res_query (const gchar      *rrname,
                                    gint              rrtype,
-                                   guchar           *answer,
-                                   gint              len,
+                                   const guint8     *answer,
+                                   gssize            len,
                                    gint              herr,
                                    GError          **error)
 {
-  gint count;
+  uint16_t count;
   gchar namebuf[1024];
-  guchar *end, *p;
+  const guint8 *end, *p;
   guint16 type, qclass, rdlength;
-  HEADER *header;
+  const HEADER *header;
   GList *records;
   GVariant *record;
+  gsize len_unsigned;
+  GError *parsing_error = NULL;
 
   if (len <= 0)
     {
@@ -689,18 +771,44 @@ g_resolver_records_from_res_query (const gchar      *rrname,
       return NULL;
     }
 
+  /* We know len ≥ 0 now. */
+  len_unsigned = (gsize) len;
+
+  if (len_unsigned < sizeof (HEADER))
+    {
+      g_set_error (error, G_RESOLVER_ERROR, G_RESOLVER_ERROR_INTERNAL,
+                   /* Translators: the first placeholder is a domain name, the
+                    * second is an error message */
+                   _("Error resolving “%s”: %s"), rrname, _("Malformed DNS packet"));
+      return NULL;
+    }
+
   records = NULL;
 
   header = (HEADER *)answer;
   p = answer + sizeof (HEADER);
-  end = answer + len;
+  end = answer + len_unsigned;
 
   /* Skip query */
   count = ntohs (header->qdcount);
   while (count-- && p < end)
     {
-      p += dn_expand (answer, end, p, namebuf, sizeof (namebuf));
-      p += 4;
+      int expand_result;
+
+      expand_result = dn_expand (answer, end, p, namebuf, sizeof (namebuf));
+      if (expand_result < 0 || end - p < expand_result + 4)
+        {
+          /* Not possible to recover parsing as the length of the rest of the
+           * record is unknown or is too short. */
+          g_set_error (error, G_RESOLVER_ERROR, G_RESOLVER_ERROR_INTERNAL,
+                       /* Translators: the first placeholder is a domain name, the
+                        * second is an error message */
+                       _("Error resolving “%s”: %s"), rrname, _("Malformed DNS packet"));
+          return NULL;
+        }
+
+      p += expand_result;
+      p += 4;  /* skip TYPE and CLASS */
 
       /* To silence gcc warnings */
       namebuf[0] = namebuf[1];
@@ -710,11 +818,34 @@ g_resolver_records_from_res_query (const gchar      *rrname,
   count = ntohs (header->ancount);
   while (count-- && p < end)
     {
-      p += dn_expand (answer, end, p, namebuf, sizeof (namebuf));
+      int expand_result;
+
+      expand_result = dn_expand (answer, end, p, namebuf, sizeof (namebuf));
+      if (expand_result < 0 || end - p < expand_result + 10)
+        {
+          /* Not possible to recover parsing as the length of the rest of the
+           * record is unknown or is too short. */
+          g_set_error (&parsing_error, G_RESOLVER_ERROR, G_RESOLVER_ERROR_INTERNAL,
+                       /* Translators: the first placeholder is a domain name, the
+                        * second is an error message */
+                       _("Error resolving “%s”: %s"), rrname, _("Malformed DNS packet"));
+          break;
+        }
+
+      p += expand_result;
       GETSHORT (type, p);
       GETSHORT (qclass, p);
       p += 4; /* ignore the ttl (type=long) value */
       GETSHORT (rdlength, p);
+
+      if (end - p < rdlength)
+        {
+          g_set_error (&parsing_error, G_RESOLVER_ERROR, G_RESOLVER_ERROR_INTERNAL,
+                       /* Translators: the first placeholder is a domain name, the
+                        * second is an error message */
+                       _("Error resolving “%s”: %s"), rrname, _("Malformed DNS packet"));
+          break;
+        }
 
       if (type != rrtype || qclass != C_IN)
         {
@@ -725,31 +856,40 @@ g_resolver_records_from_res_query (const gchar      *rrname,
       switch (rrtype)
         {
         case T_SRV:
-          record = parse_res_srv (answer, end, &p);
+          record = parse_res_srv (answer, p + rdlength, &p, &parsing_error);
           break;
         case T_MX:
-          record = parse_res_mx (answer, end, &p);
+          record = parse_res_mx (answer, p + rdlength, &p, &parsing_error);
           break;
         case T_SOA:
-          record = parse_res_soa (answer, end, &p);
+          record = parse_res_soa (answer, p + rdlength, &p, &parsing_error);
           break;
         case T_NS:
-          record = parse_res_ns (answer, end, &p);
+          record = parse_res_ns (answer, p + rdlength, &p, &parsing_error);
           break;
         case T_TXT:
-          record = parse_res_txt (answer, p + rdlength, &p);
+          record = parse_res_txt (answer, p + rdlength, &p, &parsing_error);
           break;
         default:
-          g_warn_if_reached ();
+          g_debug ("Unrecognised DNS record type %u", rrtype);
           record = NULL;
           break;
         }
 
       if (record != NULL)
         records = g_list_prepend (records, record);
+
+      if (parsing_error != NULL)
+        break;
     }
 
-  if (records == NULL)
+  if (parsing_error != NULL)
+    {
+      g_propagate_prefixed_error (error, parsing_error, _("Failed to parse DNS response for “%s”: "), rrname);
+      g_list_free_full (records, (GDestroyNotify)g_variant_unref);
+      return NULL;
+    }
+  else if (records == NULL)
     {
       g_set_error (error, G_RESOLVER_ERROR, G_RESOLVER_ERROR_NOT_FOUND,
                    _("No DNS record of the requested type for “%s”"), rrname);

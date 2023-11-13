@@ -34,8 +34,6 @@
 #include <string.h>
 #include "glib.h"
 
-#include "gstrfuncsprivate.h"
-
 #if defined (_MSC_VER) && (_MSC_VER <= 1800)
 #define isnan(x) _isnan(x)
 
@@ -207,6 +205,8 @@ test_is_to_digit (void)
 static void
 test_memdup (void)
 {
+  G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+
   gchar *str_dup = NULL;
   const gchar *str = "The quick brown fox jumps over the lazy dog";
 
@@ -221,6 +221,8 @@ test_memdup (void)
   g_assert_cmpstr (str, ==, str_dup);
 
   g_free (str_dup);
+
+  G_GNUC_END_IGNORE_DEPRECATIONS
 }
 
 /* Testing g_memdup2() function with various positive and negative cases */
@@ -547,9 +549,7 @@ test_strdupv (void)
 
   copy = g_strdupv (vec);
   g_assert_nonnull (copy);
-  g_assert_cmpstr (copy[0], ==, "Foo");
-  g_assert_cmpstr (copy[1], ==, "Bar");
-  g_assert_null (copy[2]);
+  g_assert_cmpstrv (copy, vec);
   g_strfreev (copy);
 }
 
@@ -2130,6 +2130,31 @@ test_transliteration (void)
   g_free (out);
 }
 
+static void
+test_str_equal (void)
+{
+  const guchar *unsigned_a = (const guchar *) "a";
+
+  g_test_summary ("Test macro and function forms of g_str_equal()");
+
+  /* Test function form. */
+  g_assert_true ((g_str_equal) ("a", "a"));
+  g_assert_false ((g_str_equal) ("a", "b"));
+
+  /* Test macro form. */
+  g_assert_true (g_str_equal ("a", "a"));
+  g_assert_false (g_str_equal ("a", "b"));
+
+  /* As g_str_equal() is defined for use with GHashTable, it takes gconstpointer
+   * arguments, so can historically accept unsigned arguments. We need to
+   * continue to support that. */
+  g_assert_true ((g_str_equal) (unsigned_a, "a"));
+  g_assert_false ((g_str_equal) (unsigned_a, "b"));
+
+  g_assert_true (g_str_equal (unsigned_a, "a"));
+  g_assert_false (g_str_equal (unsigned_a, "b"));
+}
+
 /* Testing g_strv_contains() function with various cases */
 static void
 test_strv_contains (void)
@@ -2440,15 +2465,14 @@ test_ascii_string_to_number_usual (void)
 
         case UNSIGNED:
           {
-            guint64 value64 = 0;
             result = g_ascii_string_to_unsigned (data->str,
                                                  data->base,
                                                  data->min,
                                                  data->max,
-                                                 &value64,
+                                                 &valueu64,
                                                  &error);
-            value = value64;
-            g_assert_cmpint (value, ==, value64);
+            value = valueu64;
+            g_assert_cmpint (value, ==, valueu64);
             break;
           }
 
@@ -2598,6 +2622,7 @@ main (int   argc,
   g_test_add_func ("/strfuncs/strv-length", test_strv_length);
   g_test_add_func ("/strfuncs/test-is-to-digit", test_is_to_digit);
   g_test_add_func ("/strfuncs/transliteration", test_transliteration);
+  g_test_add_func ("/strfuncs/str-equal", test_str_equal);
 
   return g_test_run();
 }

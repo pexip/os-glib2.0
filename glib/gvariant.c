@@ -2,6 +2,8 @@
  * Copyright © 2007, 2008 Ryan Lortie
  * Copyright © 2010 Codethink Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -33,8 +35,6 @@
 
 #include <string.h>
 
-#include "gstrfuncsprivate.h"
-
 /**
  * SECTION:gvariant
  * @title: GVariant
@@ -50,7 +50,7 @@
  * its type nor its content can be modified further.
  *
  * GVariant is useful whenever data needs to be serialized, for example when
- * sending method parameters in DBus, or when saving settings using GSettings.
+ * sending method parameters in D-Bus, or when saving settings using GSettings.
  *
  * When creating a new #GVariant, you pass the data you want to store in it
  * along with a string representing the type of data you wish to pass to it.
@@ -85,19 +85,19 @@
  * concurrently accessed in any way from any number of threads without
  * problems.
  *
- * #GVariant is heavily optimised for dealing with data in serialised
+ * #GVariant is heavily optimised for dealing with data in serialized
  * form.  It works particularly well with data located in memory-mapped
- * files.  It can perform nearly all deserialisation operations in a
+ * files.  It can perform nearly all deserialization operations in a
  * small constant time, usually touching only a single memory page.
- * Serialised #GVariant data can also be sent over the network.
+ * Serialized #GVariant data can also be sent over the network.
  *
  * #GVariant is largely compatible with D-Bus.  Almost all types of
  * #GVariant instances can be sent over D-Bus.  See #GVariantType for
- * exceptions.  (However, #GVariant's serialisation format is not the same
- * as the serialisation format of a D-Bus message body: use #GDBusMessage,
+ * exceptions.  (However, #GVariant's serialization format is not the same
+ * as the serialization format of a D-Bus message body: use #GDBusMessage,
  * in the gio library, for those.)
  *
- * For space-efficiency, the #GVariant serialisation format does not
+ * For space-efficiency, the #GVariant serialization format does not
  * automatically include the variant's length, type or endianness,
  * which must either be implied from context (such as knowledge that a
  * particular file format always contains a little-endian
@@ -127,14 +127,14 @@
  * in the future.
  *
  * The memory allocated by #GVariant can be grouped into 4 broad
- * purposes: memory for serialised data, memory for the type
+ * purposes: memory for serialized data, memory for the type
  * information cache, buffer management memory and memory for the
  * #GVariant structure itself.
  *
- * ## Serialised Data Memory
+ * ## Serialized Data Memory
  *
  * This is the memory that is used for storing GVariant data in
- * serialised form.  This is what would be sent over the network or
+ * serialized form.  This is what would be sent over the network or
  * what would end up on disk, not counting any indicator of the
  * endianness, or of the length or type of the top-level variant.
  *
@@ -168,7 +168,7 @@
  *
  * As an example, consider a dictionary mapping strings to variants.
  * In the case that the dictionary is empty, 0 bytes are required for
- * the serialisation.
+ * the serialization.
  *
  * If we add an item "width" that maps to the int32 value of 500 then
  * we will use 4 byte to store the int32 (so 6 for the variant
@@ -194,7 +194,7 @@
  *
  * For each GVariant type that currently exists in the program a type
  * information structure is kept in the type information cache.  The
- * type information structure is required for rapid deserialisation.
+ * type information structure is required for rapid deserialization.
  *
  * Continuing with the above example, if a #GVariant exists with the
  * type "a{sv}" then a type information struct will exist for
@@ -239,14 +239,14 @@
  * ## Buffer Management Memory
  *
  * #GVariant uses an internal buffer management structure to deal
- * with the various different possible sources of serialised data
+ * with the various different possible sources of serialized data
  * that it uses.  The buffer is responsible for ensuring that the
  * correct call is made when the data is no longer in use by
  * #GVariant.  This may involve a g_free() or a g_slice_free() or
  * even g_mapped_file_unref().
  *
  * One buffer management structure is used for each chunk of
- * serialised data.  The size of the buffer management structure
+ * serialized data.  The size of the buffer management structure
  * is 4 * (void *).  On 32-bit systems, that's 16 bytes.
  *
  * ## GVariant structure
@@ -256,7 +256,7 @@
  *
  * #GVariant structures only exist if they are explicitly created
  * with API calls.  For example, if a #GVariant is constructed out of
- * serialised data for the example given above (with the dictionary)
+ * serialized data for the example given above (with the dictionary)
  * then although there are 9 individual values that comprise the
  * entire dictionary (two keys, two values, two variants containing
  * the values, two dictionary entries, plus the dictionary itself),
@@ -266,8 +266,8 @@
  * If calls are made to start accessing the other values then
  * #GVariant instances will exist for those values only for as long
  * as they are in use (ie: until you call g_variant_unref()).  The
- * type information is shared.  The serialised data and the buffer
- * management structure for that serialised data is shared by the
+ * type information is shared.  The serialized data and the buffer
+ * management structure for that serialized data is shared by the
  * child.
  *
  * ## Summary
@@ -275,12 +275,12 @@
  * To put the entire example together, for our dictionary mapping
  * strings to variants (with two entries, as given above), we are
  * using 91 bytes of memory for type information, 29 bytes of memory
- * for the serialised data, 16 bytes for buffer management and 24
+ * for the serialized data, 16 bytes for buffer management and 24
  * bytes for the #GVariant instance, or a total of 160 bytes, plus
  * malloc overhead.  If we were to use g_variant_get_child_value() to
  * access the two dictionary entries, we would use an additional 48
  * bytes.  If we were to have other dictionaries of the same type, we
- * would use more memory for the serialised data and buffer
+ * would use more memory for the serialized data and buffer
  * management for those dictionaries, but the type information would
  * be shared.
  */
@@ -801,7 +801,14 @@ g_variant_new_array (const GVariantType *child_type,
 
   for (i = 0; i < n_children; i++)
     {
-      TYPE_CHECK (children[i], child_type, NULL);
+      gboolean is_of_child_type = g_variant_is_of_type (children[i], child_type);
+      if G_UNLIKELY (!is_of_child_type)
+        {
+          while (i != 0)
+            g_variant_unref (my_children[--i]);
+          g_free (my_children);
+          g_return_val_if_fail (is_of_child_type, NULL);
+        }
       my_children[i] = g_variant_ref_sink (children[i]);
       trusted &= g_variant_is_trusted (children[i]);
     }
@@ -1096,7 +1103,7 @@ g_variant_lookup_value (GVariant           *dictionary,
  * @n_elements: (out): a pointer to the location to store the number of items
  * @element_size: the size of each element
  *
- * Provides access to the serialised data for an array of fixed-sized
+ * Provides access to the serialized data for an array of fixed-sized
  * items.
  *
  * @value must be an array with fixed-sized elements.  Numeric types are
@@ -1104,7 +1111,7 @@ g_variant_lookup_value (GVariant           *dictionary,
  *
  * @element_size must be the size of a single element in the array,
  * as given by the section on
- * [serialized data memory][gvariant-serialised-data-memory].
+ * [serialized data memory][gvariant-serialized-data-memory].
  *
  * In particular, arrays of these fixed-sized types can be interpreted
  * as an array of the given C type, with @element_size set to the size
@@ -1117,7 +1124,7 @@ g_variant_lookup_value (GVariant           *dictionary,
  *
  * For example, if calling this function for an array of 32-bit integers,
  * you might say `sizeof(gint32)`. This value isn't used except for the purpose
- * of a double-check that the form of the serialised data matches the caller's
+ * of a double-check that the form of the serialized data matches the caller's
  * expectation.
  *
  * @n_elements, which must be non-%NULL, is set equal to the number of
@@ -1192,7 +1199,7 @@ g_variant_get_fixed_array (GVariant *value,
  * @element_size must be the size of a single element in the array.
  * For example, if calling this function for an array of 32-bit integers,
  * you might say sizeof(gint32). This value isn't used except for the purpose
- * of a double-check that the form of the serialised data matches the caller's
+ * of a double-check that the form of the serialized data matches the caller's
  * expectation.
  *
  * @n_elements must be the length of the @elements array.
@@ -2206,20 +2213,22 @@ g_variant_print_string (GVariant *value,
                         GString  *string,
                         gboolean  type_annotate)
 {
+  const gchar *value_type_string = g_variant_get_type_string (value);
+
   if G_UNLIKELY (string == NULL)
     string = g_string_new (NULL);
 
-  switch (g_variant_classify (value))
+  switch (value_type_string[0])
     {
     case G_VARIANT_CLASS_MAYBE:
       if (type_annotate)
-        g_string_append_printf (string, "@%s ",
-                                g_variant_get_type_string (value));
+        g_string_append_printf (string, "@%s ", value_type_string);
 
       if (g_variant_n_children (value))
         {
-          gchar *printed_child;
-          GVariant *element;
+          const GVariantType *base_type;
+          guint i, depth;
+          GVariant *element = NULL;
 
           /* Nested maybes:
            *
@@ -2233,19 +2242,36 @@ g_variant_print_string (GVariant *value,
            * "just" is actually exactly the case where we have a nested
            * Nothing.
            *
-           * Instead of searching for that nested Nothing, we just print
-           * the contained value into a separate string and see if we
-           * end up with "nothing" at the end of it.  If so, we need to
-           * add "just" at our level.
+           * Search for the nested Nothing, to save a lot of recursion if there
+           * are multiple levels of maybes.
            */
-          element = g_variant_get_child_value (value, 0);
-          printed_child = g_variant_print (element, FALSE);
-          g_variant_unref (element);
+          for (depth = 0, base_type = g_variant_get_type (value);
+               g_variant_type_is_maybe (base_type);
+               depth++, base_type = g_variant_type_element (base_type));
 
-          if (g_str_has_suffix (printed_child, "nothing"))
-            g_string_append (string, "just ");
-          g_string_append (string, printed_child);
-          g_free (printed_child);
+          element = g_variant_ref (value);
+          for (i = 0; i < depth && element != NULL; i++)
+            {
+              GVariant *new_element = g_variant_n_children (element) ? g_variant_get_child_value (element, 0) : NULL;
+              g_variant_unref (element);
+              element = g_steal_pointer (&new_element);
+            }
+
+          if (element == NULL)
+            {
+              /* One of the maybes was Nothing, so print out the right number of
+               * justs. */
+              for (; i > 1; i--)
+                g_string_append (string, "just ");
+              g_string_append (string, "nothing");
+            }
+          else
+            {
+              /* There are no Nothings, so print out the child with no prefixes. */
+              g_variant_print_string (element, string, FALSE);
+            }
+
+          g_clear_pointer (&element, g_variant_unref);
         }
       else
         g_string_append (string, "nothing");
@@ -2258,7 +2284,7 @@ g_variant_print_string (GVariant *value,
        * if the first two characters are 'ay' then it's a bytestring.
        * under certain conditions we print those as strings.
        */
-      if (g_variant_get_type_string (value)[1] == 'y')
+      if (value_type_string[1] == 'y')
         {
           const gchar *str;
           gsize size;
@@ -2300,7 +2326,7 @@ g_variant_print_string (GVariant *value,
        * dictionary entries (ie: a dictionary) so we print that
        * differently.
        */
-      if (g_variant_get_type_string (value)[1] == '{')
+      if (value_type_string[1] == '{')
         /* dictionary */
         {
           const gchar *comma = "";
@@ -2309,8 +2335,7 @@ g_variant_print_string (GVariant *value,
           if ((n = g_variant_n_children (value)) == 0)
             {
               if (type_annotate)
-                g_string_append_printf (string, "@%s ",
-                                        g_variant_get_type_string (value));
+                g_string_append_printf (string, "@%s ", value_type_string);
               g_string_append (string, "{}");
               break;
             }
@@ -2346,8 +2371,7 @@ g_variant_print_string (GVariant *value,
           if ((n = g_variant_n_children (value)) == 0)
             {
               if (type_annotate)
-                g_string_append_printf (string, "@%s ",
-                                        g_variant_get_type_string (value));
+                g_string_append_printf (string, "@%s ", value_type_string);
               g_string_append (string, "[]");
               break;
             }
@@ -2746,8 +2770,8 @@ g_variant_equal (gconstpointer one,
       g_variant_get_type_info ((GVariant *) two))
     return FALSE;
 
-  /* if both values are trusted to be in their canonical serialised form
-   * then a simple memcmp() of their serialised data will answer the
+  /* if both values are trusted to be in their canonical serialized form
+   * then a simple memcmp() of their serialized data will answer the
    * question.
    *
    * if not, then this might generate a false negative (since it is
@@ -3191,8 +3215,7 @@ struct heap_builder
 #define GVSB_MAGIC               ((gsize) 1033660112u)
 #define GVSB_MAGIC_PARTIAL       ((gsize) 2942751021u)
 #define GVHB_MAGIC               ((gsize) 3087242682u)
-#define is_valid_builder(b)      (b != NULL && \
-                                  GVSB(b)->magic == GVSB_MAGIC)
+#define is_valid_builder(b)      (GVSB(b)->magic == GVSB_MAGIC)
 #define is_valid_heap_builder(b) (GVHB(b)->magic == GVHB_MAGIC)
 
 /* Just to make sure that by adding a union to GVariantBuilder, we
@@ -3202,7 +3225,9 @@ G_STATIC_ASSERT (sizeof (GVariantBuilder) == sizeof (gsize[16]));
 static gboolean
 ensure_valid_builder (GVariantBuilder *builder)
 {
-  if (is_valid_builder (builder))
+  if (builder == NULL)
+    return FALSE;
+  else if (is_valid_builder (builder))
     return TRUE;
   if (builder->u.s.partial_magic == GVSB_MAGIC_PARTIAL)
     {
@@ -3218,6 +3243,24 @@ ensure_valid_builder (GVariantBuilder *builder)
     }
   return is_valid_builder (builder);
 }
+
+/* return_if_invalid_builder (b) is like
+ * g_return_if_fail (ensure_valid_builder (b)), except that
+ * the side effects of ensure_valid_builder are evaluated
+ * regardless of whether G_DISABLE_CHECKS is defined or not. */
+#define return_if_invalid_builder(b) G_STMT_START {                \
+  gboolean valid_builder G_GNUC_UNUSED = ensure_valid_builder (b); \
+  g_return_if_fail (valid_builder);                                \
+} G_STMT_END
+
+/* return_val_if_invalid_builder (b, val) is like
+ * g_return_val_if_fail (ensure_valid_builder (b), val), except that
+ * the side effects of ensure_valid_builder are evaluated
+ * regardless of whether G_DISABLE_CHECKS is defined or not. */
+#define return_val_if_invalid_builder(b, val) G_STMT_START {       \
+  gboolean valid_builder G_GNUC_UNUSED = ensure_valid_builder (b); \
+  g_return_val_if_fail (valid_builder, val);                       \
+} G_STMT_END
 
 /**
  * g_variant_builder_new:
@@ -3331,7 +3374,7 @@ g_variant_builder_clear (GVariantBuilder *builder)
     /* all-zeros or partial case */
     return;
 
-  g_return_if_fail (ensure_valid_builder (builder));
+  return_if_invalid_builder (builder);
 
   g_variant_type_free (GVSB(builder)->type);
 
@@ -3457,8 +3500,19 @@ g_variant_builder_init (GVariantBuilder    *builder,
       g_assert_not_reached ();
    }
 
+#ifdef G_ANALYZER_ANALYZING
+  /* Static analysers can’t couple the code in g_variant_builder_init() to the
+   * code in g_variant_builder_end() by GVariantType, so end up assuming that
+   * @offset and @children mismatch and that uninitialised memory is accessed
+   * from @children. At runtime, this is caught by the preconditions at the top
+   * of g_variant_builder_end(). Help the analyser by zero-initialising the
+   * memory to avoid a false positive. */
+  GVSB(builder)->children = g_new0 (GVariant *,
+                                    GVSB(builder)->allocated_children);
+#else
   GVSB(builder)->children = g_new (GVariant *,
                                    GVSB(builder)->allocated_children);
+#endif
 }
 
 static void
@@ -3494,7 +3548,7 @@ void
 g_variant_builder_add_value (GVariantBuilder *builder,
                              GVariant        *value)
 {
-  g_return_if_fail (ensure_valid_builder (builder));
+  return_if_invalid_builder (builder);
   g_return_if_fail (GVSB(builder)->offset < GVSB(builder)->max_items);
   g_return_if_fail (!GVSB(builder)->expected_type ||
                     g_variant_is_of_type (value,
@@ -3575,7 +3629,7 @@ g_variant_builder_open (GVariantBuilder    *builder,
 {
   GVariantBuilder *parent;
 
-  g_return_if_fail (ensure_valid_builder (builder));
+  return_if_invalid_builder (builder);
   g_return_if_fail (GVSB(builder)->offset < GVSB(builder)->max_items);
   g_return_if_fail (!GVSB(builder)->expected_type ||
                     g_variant_type_is_subtype_of (type,
@@ -3621,7 +3675,7 @@ g_variant_builder_close (GVariantBuilder *builder)
 {
   GVariantBuilder *parent;
 
-  g_return_if_fail (ensure_valid_builder (builder));
+  return_if_invalid_builder (builder);
   g_return_if_fail (GVSB(builder)->parent != NULL);
 
   parent = GVSB(builder)->parent;
@@ -3689,7 +3743,7 @@ g_variant_builder_end (GVariantBuilder *builder)
   GVariantType *my_type;
   GVariant *value;
 
-  g_return_val_if_fail (ensure_valid_builder (builder), NULL);
+  return_val_if_invalid_builder (builder, NULL);
   g_return_val_if_fail (GVSB(builder)->offset >= GVSB(builder)->min_items,
                         NULL);
   g_return_val_if_fail (!GVSB(builder)->uniform_item_types ||
@@ -3848,8 +3902,7 @@ struct heap_dict
 #define GVSD_MAGIC              ((gsize) 2579507750u)
 #define GVSD_MAGIC_PARTIAL      ((gsize) 3488698669u)
 #define GVHD_MAGIC              ((gsize) 2450270775u)
-#define is_valid_dict(d)        (d != NULL && \
-                                 GVSD(d)->magic == GVSD_MAGIC)
+#define is_valid_dict(d)        (GVSD(d)->magic == GVSD_MAGIC)
 #define is_valid_heap_dict(d)   (GVHD(d)->magic == GVHD_MAGIC)
 
 /* Just to make sure that by adding a union to GVariantDict, we didn't
@@ -3859,7 +3912,9 @@ G_STATIC_ASSERT (sizeof (GVariantDict) == sizeof (gsize[16]));
 static gboolean
 ensure_valid_dict (GVariantDict *dict)
 {
-  if (is_valid_dict (dict))
+  if (dict == NULL)
+    return FALSE;
+  else if (is_valid_dict (dict))
     return TRUE;
   if (dict->u.s.partial_magic == GVSD_MAGIC_PARTIAL)
     {
@@ -3875,6 +3930,24 @@ ensure_valid_dict (GVariantDict *dict)
     }
   return is_valid_dict (dict);
 }
+
+/* return_if_invalid_dict (d) is like
+ * g_return_if_fail (ensure_valid_dict (d)), except that
+ * the side effects of ensure_valid_dict are evaluated
+ * regardless of whether G_DISABLE_CHECKS is defined or not. */
+#define return_if_invalid_dict(d) G_STMT_START {                \
+  gboolean valid_dict G_GNUC_UNUSED = ensure_valid_dict (d);    \
+  g_return_if_fail (valid_dict);                                \
+} G_STMT_END
+
+/* return_val_if_invalid_dict (d, val) is like
+ * g_return_val_if_fail (ensure_valid_dict (d), val), except that
+ * the side effects of ensure_valid_dict are evaluated
+ * regardless of whether G_DISABLE_CHECKS is defined or not. */
+#define return_val_if_invalid_dict(d, val) G_STMT_START {       \
+  gboolean valid_dict G_GNUC_UNUSED = ensure_valid_dict (d);    \
+  g_return_val_if_fail (valid_dict, val);                       \
+} G_STMT_END
 
 /**
  * g_variant_dict_new:
@@ -3983,7 +4056,7 @@ g_variant_dict_lookup (GVariantDict *dict,
   GVariant *value;
   va_list ap;
 
-  g_return_val_if_fail (ensure_valid_dict (dict), FALSE);
+  return_val_if_invalid_dict (dict, FALSE);
   g_return_val_if_fail (key != NULL, FALSE);
   g_return_val_if_fail (format_string != NULL, FALSE);
 
@@ -4017,7 +4090,7 @@ g_variant_dict_lookup (GVariantDict *dict,
  * returned.  If @expected_type was specified then any non-%NULL return
  * value will have this type.
  *
- * Returns: (transfer full): the value of the dictionary key, or %NULL
+ * Returns: (transfer full) (nullable): the value of the dictionary key, or %NULL
  *
  * Since: 2.40
  **/
@@ -4028,7 +4101,7 @@ g_variant_dict_lookup_value (GVariantDict       *dict,
 {
   GVariant *result;
 
-  g_return_val_if_fail (ensure_valid_dict (dict), NULL);
+  return_val_if_invalid_dict (dict, NULL);
   g_return_val_if_fail (key != NULL, NULL);
 
   result = g_hash_table_lookup (GVSD(dict)->values, key);
@@ -4054,7 +4127,7 @@ gboolean
 g_variant_dict_contains (GVariantDict *dict,
                          const gchar  *key)
 {
-  g_return_val_if_fail (ensure_valid_dict (dict), FALSE);
+  return_val_if_invalid_dict (dict, FALSE);
   g_return_val_if_fail (key != NULL, FALSE);
 
   return g_hash_table_contains (GVSD(dict)->values, key);
@@ -4082,7 +4155,7 @@ g_variant_dict_insert (GVariantDict *dict,
 {
   va_list ap;
 
-  g_return_if_fail (ensure_valid_dict (dict));
+  return_if_invalid_dict (dict);
   g_return_if_fail (key != NULL);
   g_return_if_fail (format_string != NULL);
 
@@ -4108,7 +4181,7 @@ g_variant_dict_insert_value (GVariantDict *dict,
                              const gchar  *key,
                              GVariant     *value)
 {
-  g_return_if_fail (ensure_valid_dict (dict));
+  return_if_invalid_dict (dict);
   g_return_if_fail (key != NULL);
   g_return_if_fail (value != NULL);
 
@@ -4130,7 +4203,7 @@ gboolean
 g_variant_dict_remove (GVariantDict *dict,
                        const gchar  *key)
 {
-  g_return_val_if_fail (ensure_valid_dict (dict), FALSE);
+  return_val_if_invalid_dict (dict, FALSE);
   g_return_val_if_fail (key != NULL, FALSE);
 
   return g_hash_table_remove (GVSD(dict)->values, key);
@@ -4164,7 +4237,7 @@ g_variant_dict_clear (GVariantDict *dict)
     /* all-zeros case */
     return;
 
-  g_return_if_fail (ensure_valid_dict (dict));
+  return_if_invalid_dict (dict);
 
   g_hash_table_unref (GVSD(dict)->values);
   GVSD(dict)->values = NULL;
@@ -4195,7 +4268,7 @@ g_variant_dict_end (GVariantDict *dict)
   GHashTableIter iter;
   gpointer key, value;
 
-  g_return_val_if_fail (ensure_valid_dict (dict), NULL);
+  return_val_if_invalid_dict (dict, NULL);
 
   g_variant_builder_init (&builder, G_VARIANT_TYPE_VARDICT);
 
@@ -4290,7 +4363,7 @@ g_variant_format_string_scan (const gchar  *string,
                               const gchar  *limit,
                               const gchar **endptr)
 {
-#define next_char() (string == limit ? '\0' : *string++)
+#define next_char() (string == limit ? '\0' : *(string++))
 #define peek_char() (string == limit ? '\0' : *string)
   char c;
 
@@ -5794,30 +5867,94 @@ g_variant_iter_loop (GVariantIter *iter,
   return value != NULL;
 }
 
-/* Serialised data {{{1 */
+/* Serialized data {{{1 */
 static GVariant *
-g_variant_deep_copy (GVariant *value)
+g_variant_deep_copy (GVariant *value,
+                     gboolean  byteswap)
 {
   switch (g_variant_classify (value))
     {
     case G_VARIANT_CLASS_MAYBE:
-    case G_VARIANT_CLASS_ARRAY:
     case G_VARIANT_CLASS_TUPLE:
     case G_VARIANT_CLASS_DICT_ENTRY:
     case G_VARIANT_CLASS_VARIANT:
       {
         GVariantBuilder builder;
-        GVariantIter iter;
-        GVariant *child;
+        gsize i, n_children;
 
         g_variant_builder_init (&builder, g_variant_get_type (value));
-        g_variant_iter_init (&iter, value);
 
-        while ((child = g_variant_iter_next_value (&iter)))
+        for (i = 0, n_children = g_variant_n_children (value); i < n_children; i++)
           {
-            g_variant_builder_add_value (&builder, g_variant_deep_copy (child));
+            GVariant *child = g_variant_get_child_value (value, i);
+            g_variant_builder_add_value (&builder, g_variant_deep_copy (child, byteswap));
             g_variant_unref (child);
           }
+
+        return g_variant_builder_end (&builder);
+      }
+
+    case G_VARIANT_CLASS_ARRAY:
+      {
+        GVariantBuilder builder;
+        gsize i, n_children;
+        GVariant *first_invalid_child_deep_copy = NULL;
+
+        /* Arrays are in theory treated the same as maybes, tuples, dict entries
+         * and variants, and could be another case in the above block of code.
+         *
+         * However, they have the property that when dealing with non-normal
+         * data (which is the only time g_variant_deep_copy() is currently
+         * called) in a variable-sized array, the code above can easily end up
+         * creating many default child values in order to return an array which
+         * is of the right length and type, but without containing non-normal
+         * data. This can happen if the offset table for the array is malformed.
+         *
+         * In this case, the code above would end up allocating the same default
+         * value for each one of the child indexes beyond the first malformed
+         * entry in the offset table. This can end up being a lot of identical
+         * allocations of default values, particularly if the non-normal array
+         * is crafted maliciously.
+         *
+         * Avoid that problem by returning a new reference to the same default
+         * value for every child after the first invalid one. This results in
+         * returning an equivalent array, in normal form and trusted — but with
+         * significantly fewer memory allocations.
+         *
+         * See https://gitlab.gnome.org/GNOME/glib/-/issues/2540 */
+
+        g_variant_builder_init (&builder, g_variant_get_type (value));
+
+        for (i = 0, n_children = g_variant_n_children (value); i < n_children; i++)
+          {
+            /* Try maybe_get_child_value() first; if it returns NULL, this child
+             * is non-normal. get_child_value() would have constructed and
+             * returned a default value in that case. */
+            GVariant *child = g_variant_maybe_get_child_value (value, i);
+
+            if (child != NULL)
+              {
+                /* Non-normal children may not always be contiguous, as they may
+                 * be non-normal for reasons other than invalid offset table
+                 * entries. As they are all the same type, they will all have
+                 * the same default value though, so keep that around. */
+                g_variant_builder_add_value (&builder, g_variant_deep_copy (child, byteswap));
+              }
+            else if (child == NULL && first_invalid_child_deep_copy != NULL)
+              {
+                g_variant_builder_add_value (&builder, first_invalid_child_deep_copy);
+              }
+            else if (child == NULL)
+              {
+                child = g_variant_get_child_value (value, i);
+                first_invalid_child_deep_copy = g_variant_ref_sink (g_variant_deep_copy (child, byteswap));
+                g_variant_builder_add_value (&builder, first_invalid_child_deep_copy);
+              }
+
+            g_clear_pointer (&child, g_variant_unref);
+          }
+
+        g_clear_pointer (&first_invalid_child_deep_copy, g_variant_unref);
 
         return g_variant_builder_end (&builder);
       }
@@ -5829,28 +5966,63 @@ g_variant_deep_copy (GVariant *value)
       return g_variant_new_byte (g_variant_get_byte (value));
 
     case G_VARIANT_CLASS_INT16:
-      return g_variant_new_int16 (g_variant_get_int16 (value));
+      if (byteswap)
+        return g_variant_new_int16 (GUINT16_SWAP_LE_BE (g_variant_get_int16 (value)));
+      else
+        return g_variant_new_int16 (g_variant_get_int16 (value));
 
     case G_VARIANT_CLASS_UINT16:
-      return g_variant_new_uint16 (g_variant_get_uint16 (value));
+      if (byteswap)
+        return g_variant_new_uint16 (GUINT16_SWAP_LE_BE (g_variant_get_uint16 (value)));
+      else
+        return g_variant_new_uint16 (g_variant_get_uint16 (value));
 
     case G_VARIANT_CLASS_INT32:
-      return g_variant_new_int32 (g_variant_get_int32 (value));
+      if (byteswap)
+        return g_variant_new_int32 (GUINT32_SWAP_LE_BE (g_variant_get_int32 (value)));
+      else
+        return g_variant_new_int32 (g_variant_get_int32 (value));
 
     case G_VARIANT_CLASS_UINT32:
-      return g_variant_new_uint32 (g_variant_get_uint32 (value));
+      if (byteswap)
+        return g_variant_new_uint32 (GUINT32_SWAP_LE_BE (g_variant_get_uint32 (value)));
+      else
+        return g_variant_new_uint32 (g_variant_get_uint32 (value));
 
     case G_VARIANT_CLASS_INT64:
-      return g_variant_new_int64 (g_variant_get_int64 (value));
+      if (byteswap)
+        return g_variant_new_int64 (GUINT64_SWAP_LE_BE (g_variant_get_int64 (value)));
+      else
+        return g_variant_new_int64 (g_variant_get_int64 (value));
 
     case G_VARIANT_CLASS_UINT64:
-      return g_variant_new_uint64 (g_variant_get_uint64 (value));
+      if (byteswap)
+        return g_variant_new_uint64 (GUINT64_SWAP_LE_BE (g_variant_get_uint64 (value)));
+      else
+        return g_variant_new_uint64 (g_variant_get_uint64 (value));
 
     case G_VARIANT_CLASS_HANDLE:
-      return g_variant_new_handle (g_variant_get_handle (value));
+      if (byteswap)
+        return g_variant_new_handle (GUINT32_SWAP_LE_BE (g_variant_get_handle (value)));
+      else
+        return g_variant_new_handle (g_variant_get_handle (value));
 
     case G_VARIANT_CLASS_DOUBLE:
-      return g_variant_new_double (g_variant_get_double (value));
+      if (byteswap)
+        {
+          /* We have to convert the double to a uint64 here using a union,
+           * because a cast will round it numerically. */
+          union
+            {
+              guint64 u64;
+              gdouble dbl;
+            } u1, u2;
+          u1.dbl = g_variant_get_double (value);
+          u2.u64 = GUINT64_SWAP_LE_BE (u1.u64);
+          return g_variant_new_double (u2.dbl);
+        }
+      else
+        return g_variant_new_double (g_variant_get_double (value));
 
     case G_VARIANT_CLASS_STRING:
       return g_variant_new_string (g_variant_get_string (value, NULL));
@@ -5880,10 +6052,12 @@ g_variant_deep_copy (GVariant *value)
  * marked as trusted and a new reference to it is returned.
  *
  * If @value is found not to be in normal form then a new trusted
- * #GVariant is created with the same value as @value.
+ * #GVariant is created with the same value as @value. The non-normal parts of
+ * @value will be replaced with default values which are guaranteed to be in
+ * normal form.
  *
  * It makes sense to call this function if you've received #GVariant
- * data from untrusted sources and you want to ensure your serialised
+ * data from untrusted sources and you want to ensure your serialized
  * output is definitely in normal form.
  *
  * If @value is already in normal form, a new reference will be returned
@@ -5905,7 +6079,7 @@ g_variant_get_normal_form (GVariant *value)
   if (g_variant_is_normal_form (value))
     return g_variant_ref (value);
 
-  trusted = g_variant_deep_copy (value);
+  trusted = g_variant_deep_copy (value, FALSE);
   g_assert (g_variant_is_trusted (trusted));
 
   return g_variant_ref_sink (trusted);
@@ -5925,6 +6099,11 @@ g_variant_get_normal_form (GVariant *value)
  * contain multi-byte numeric data.  That include strings, booleans,
  * bytes and containers containing only these things (recursively).
  *
+ * While this function can safely handle untrusted, non-normal data, it is
+ * recommended to check whether the input is in normal form beforehand, using
+ * g_variant_is_normal_form(), and to reject non-normal inputs if your
+ * application can be strict about what inputs it rejects.
+ *
  * The returned value is always in normal form and is marked as trusted.
  *
  * Returns: (transfer full): the byteswapped form of @value
@@ -5942,44 +6121,50 @@ g_variant_byteswap (GVariant *value)
 
   g_variant_type_info_query (type_info, &alignment, NULL);
 
-  if (alignment)
-    /* (potentially) contains multi-byte numeric data */
+  if (alignment && g_variant_is_normal_form (value))
     {
-      GVariantSerialised serialised;
-      GVariant *trusted;
+      /* (potentially) contains multi-byte numeric data, but is also already in
+       * normal form so we can use a faster byteswapping codepath on the
+       * serialised data */
+      GVariantSerialised serialised = { 0, };
       GBytes *bytes;
 
-      trusted = g_variant_get_normal_form (value);
-      serialised.type_info = g_variant_get_type_info (trusted);
-      serialised.size = g_variant_get_size (trusted);
+      serialised.type_info = g_variant_get_type_info (value);
+      serialised.size = g_variant_get_size (value);
       serialised.data = g_malloc (serialised.size);
-      serialised.depth = g_variant_get_depth (trusted);
-      g_variant_store (trusted, serialised.data);
-      g_variant_unref (trusted);
+      serialised.depth = g_variant_get_depth (value);
+      serialised.ordered_offsets_up_to = G_MAXSIZE;  /* operating on the normal form */
+      serialised.checked_offsets_up_to = G_MAXSIZE;
+      g_variant_store (value, serialised.data);
 
       g_variant_serialised_byteswap (serialised);
 
       bytes = g_bytes_new_take (serialised.data, serialised.size);
-      new = g_variant_new_from_bytes (g_variant_get_type (value), bytes, TRUE);
+      new = g_variant_ref_sink (g_variant_new_from_bytes (g_variant_get_type (value), bytes, TRUE));
       g_bytes_unref (bytes);
     }
+  else if (alignment)
+    /* (potentially) contains multi-byte numeric data */
+    new = g_variant_ref_sink (g_variant_deep_copy (value, TRUE));
   else
     /* contains no multi-byte data */
-    new = value;
+    new = g_variant_get_normal_form (value);
 
-  return g_variant_ref_sink (new);
+  g_assert (g_variant_is_trusted (new));
+
+  return g_steal_pointer (&new);
 }
 
 /**
  * g_variant_new_from_data:
  * @type: a definite #GVariantType
- * @data: (array length=size) (element-type guint8): the serialised data
+ * @data: (array length=size) (element-type guint8): the serialized data
  * @size: the size of @data
  * @trusted: %TRUE if @data is definitely in normal form
  * @notify: (scope async): function to call when @data is no longer needed
  * @user_data: data for @notify
  *
- * Creates a new #GVariant instance from serialised data.
+ * Creates a new #GVariant instance from serialized data.
  *
  * @type is the type of #GVariant instance that will be constructed.
  * The interpretation of @data depends on knowing the type.
@@ -5989,8 +6174,8 @@ g_variant_byteswap (GVariant *value)
  * @user_data.  If the contents of @data change before that time then
  * the result is undefined.
  *
- * If @data is trusted to be serialised data in normal form then
- * @trusted should be %TRUE.  This applies to serialised data created
+ * If @data is trusted to be serialized data in normal form then
+ * @trusted should be %TRUE.  This applies to serialized data created
  * within this process or read from a trusted location on the disk (such
  * as a file installed in /usr/lib alongside your application).  You
  * should set trusted to %FALSE if @data is read from the network, a

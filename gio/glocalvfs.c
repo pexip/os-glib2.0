@@ -2,6 +2,8 @@
  * 
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -80,7 +82,10 @@ static GFile *
 g_local_vfs_get_file_for_path (GVfs       *vfs,
                                const char *path)
 {
-  return _g_local_file_new (path);
+  if (*path == '\0')
+    return _g_dummy_file_new (path);
+  else
+    return _g_local_file_new (path);
 }
 
 static GFile *

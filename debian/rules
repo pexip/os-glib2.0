@@ -9,7 +9,8 @@ DEB_LDFLAGS_MAINT_APPEND += -Wl,-z,defs
 
 # NB: do NOT use -Wl,--as-needed to build glib; for instance the link to
 # pthread is carefully crafted to allow dlopen()ing pthread-using libs; see
-# http://mid.gmane.org/1257999019.21780.15.camel@marzipan
+# https://marc.info/?i=1257999019.21780.15.camel@marzipan aka
+# https://mail.gnome.org/archives/gtk-devel-list/2009-November/msg00096.html
 DEB_LDFLAGS_MAINT_APPEND += -Wl,--no-as-needed
 
 # Make the linker work a bit harder so dynamic loading can be done faster
@@ -18,16 +19,23 @@ DEB_LDFLAGS_MAINT_APPEND += -Wl,-O1
 include /usr/share/dpkg/default.mk
 
 %:
-	dh $@ --with gnome,python3 --buildsystem=meson
+	dh $@
 
-override_dh_autoreconf:
-	@:
+DEB_CONFIGURE_EXTRA_FLAGS =
 
+ifneq ($(DEB_HOST_ARCH),$(DEB_BUILD_ARCH))
+# Properties of glibc. These are the same for all Debian architectures,
+# and are auto-detected when doing a native build.
+DEB_CONFIGURE_EXTRA_FLAGS += --cross-file=$(CURDIR)/debian/meson/libc-properties.ini
+
+# The direction of stack growth varies between architectures.
 ifneq ($(filter hppa,$(DEB_HOST_ARCH_CPU)),)
-stack_grows_up = true
+DEB_CONFIGURE_EXTRA_FLAGS += --cross-file=$(CURDIR)/debian/meson/stack-grows-up.ini
 else
-stack_grows_up = false
+DEB_CONFIGURE_EXTRA_FLAGS += --cross-file=$(CURDIR)/debian/meson/stack-grows-down.ini
 endif
+
+endif # cross-compiling
 
 ifneq ($(filter kfreebsd,$(DEB_HOST_ARCH_OS)),)
 have_non_stub_xattr = false
@@ -35,22 +43,20 @@ else
 have_non_stub_xattr = true
 endif
 
-export DH_MESON_CROSS_FILE = debian/cross.txt
+# This target can be run manually to verify that we have the source code
+# for these files. If all goes well, it should result in no diff.
+# This is not done automatically during the build, because it requires a
+# git checkout of GLib.
+maintainer-update-unicode-data:
+	rm -f glib/gscripttable.h
+	rm -f glib/gunibreak.h
+	rm -f glib/gunichartables.h
+	rm -f glib/gunidecomp.h
+	rm -f glib/tests/casefold.txt
+	rm -f glib/tests/casemap.txt
+	$(CURDIR)/tools/update-unicode-data.sh $(CURDIR)/unicode-data 15.0.0
 
-# We edit the debcrossgen output to work around unimplemented feature
-# request https://bugs.debian.org/912559
 override_dh_auto_configure:
-ifneq ($(DEB_HOST_ARCH),$(DEB_BUILD_ARCH))
-	/usr/share/meson/debcrossgen \
-		-o debian/cross.txt.in
-	debian/set-cross-properties \
-		have_c99_snprintf=true \
-		have_c99_vsnprintf=true \
-		have_strlcpy=false \
-		have_unix98_printf=true \
-		growing_stack=$(stack_grows_up) \
-		< debian/cross.txt.in > debian/cross.txt
-endif
 	dh_auto_configure \
 		--builddirectory=debian/build/deb \
 		-- \
@@ -68,14 +74,13 @@ endif
 
 override_dh_clean:
 	rm -rf $(CURDIR)/debian/build \
-	       $(CURDIR)/debian/install \
-	       $(CURDIR)/debian/tmp-xdg-runtime-dir
+	       $(CURDIR)/debian/install
 	dh_clean -Xorg.gtk.test.gschema.xml.orig -Xorg.gtk.test.gschema.override.orig
 
 
 override_dh_makeshlibs:
 	dh_makeshlibs -plibglib2.0-tests -n
-	dh_makeshlibs --remaining-packages --add-udeb=libglib2.0-udeb -Xlibgiofam.so -- -c4
+	dh_makeshlibs --remaining-packages --add-udeb=libglib2.0-udeb -- -c4
 
 # (Ubuntu-specific)
 # Don't strip translations from the installed tests; makes them environment dependent.
@@ -85,17 +90,6 @@ override_dh_translations:
 # Do not clutter $HOME with ~/.dbus-keyrings and avoid failure on the buildds
 # where creating /home/buildd/.dbus-keyrings fails
 export HOME=$(CURDIR)/debian/build
-
-# Put these back to their defaults if we are not running with a clean
-# environment, so that they are based on the temporary $HOME above.
-# Otherwise, some tests would try to write to the user's real XDG_DATA_HOME,
-# causing unwanted side-effects or FTBFS depending whether the user's
-# real HOME is available in the build chroot (if used)
-unexport XDG_CACHE_HOME
-unexport XDG_CONFIG_DIRS
-unexport XDG_CONFIG_HOME
-unexport XDG_DATA_HOME
-unexport XDG_DATA_DIRS
 
 # Make sure that everything that uses D-Bus is creating its own temporary
 # session rather than polluting the developer's (or failing, on buildds)
@@ -124,11 +118,48 @@ endif
 override_dh_auto_test-arch:
 ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 	# Remove LD_PRELOAD so we don't run with fakeroot, which makes dbus-related tests fail
+	# Remove LANGUAGE to avoid mismatches between expected and actual
+	# messages in non-English locales (mainly on reproducible-builds)
 	# First run the non-flaky tests, and fail the build if they fail (on linux)
-	env -u LD_PRELOAD \
+	env \
+		-u LANG \
+		-u LANGUAGE \
+		-u LD_PRELOAD \
 		DEB_BUILD_TIME_TESTS=1 \
 		LC_ALL=C.UTF-8 \
 		MESON_TESTTHREADS=1 \
+	debian/tests/run-with-locales \
+		--generate de_DE=ISO-8859-1 \
+		--generate de_DE.utf8 \
+		--generate de_DE@euro.utf8 \
+		--generate el_GR.utf8 \
+		--generate en_GB=ISO-8859-1 \
+		--generate en_GB.utf8 \
+		--generate en_US=ISO-8859-1 \
+		--generate en_US.utf8 \
+		--generate es_ES.utf8 \
+		--generate fa_IR=UTF-8 \
+		--generate fa_IR.utf8 \
+		--generate fr_FR.utf8 \
+		--generate hr_HR.utf8 \
+		--generate ja_JP.utf8 \
+		--generate ja_JP.EUC-JP \
+		--generate lt_LT.utf8 \
+		--generate pl_PL=ISO-8859-2 \
+		--generate pl_PL.ISO-8859-2 \
+		--generate pl_PL.utf8 \
+		--generate ru_RU=ISO-8859-5 \
+		--generate ru_RU.utf8 \
+		--generate sr_RS=UTF-8 \
+		--generate sr_RS@latin=UTF-8 \
+		--generate sv_SE=ISO-8859-1 \
+		--generate sv_SE.utf8 \
+		--generate tr_TR=ISO-8859-9 \
+		--generate tr_TR.utf8 \
+		--generate tt_RU=UTF-8 \
+		--generate tt_RU.utf8 \
+		--generate tt_RU@iqtelif=UTF-8 \
+		-- \
 	meson test -C debian/build/deb \
 		--no-rebuild \
 		--num-processes 1 \
@@ -137,7 +168,10 @@ ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 		--verbose \
 	|| $(handle_test_failure)
 	# and then run the flaky ones, but ignore them failing
-	env -u LD_PRELOAD \
+	env \
+		-u LANG \
+		-u LANGUAGE \
+		-u LD_PRELOAD \
 		DEB_BUILD_TIME_TESTS=1 \
 		LC_ALL=C.UTF-8 \
 		MESON_TESTTHREADS=1 \
@@ -163,8 +197,6 @@ override_dh_auto_test-indep:
 		gio-doc-check glib-doc-check gobject-doc-check \
 	|| $(handle_test_failure)
 
-# The tests assume this directory exists and is writable
-export XDG_RUNTIME_DIR=$(CURDIR)/debian/tmp-xdg-runtime-dir
 # Let's get failing tests' stdout and stderr so we have some information when
 # a build fails
 export VERBOSE=1
@@ -177,23 +209,13 @@ enable_libmount := disabled
 enable_selinux := disabled
 endif
 
-ifneq ($(filter hurd,$(DEB_HOST_ARCH_OS)),)
-use_fam := true
-else
-use_fam := false
-endif
-
-# configure flags
-DEB_CONFIGURE_EXTRA_FLAGS := \
-	-Dinternal_pcre=false \
-	$(NULL)
-
 DEB_CONFIGURE_FLAGS_deb := \
 	--default-library both \
-	-Dfam=$(use_fam) \
 	-Dinstalled_tests=true \
+	-Dlibelf=enabled \
 	-Dlibmount=$(enable_libmount) \
 	-Dman=true \
+	-Dmultiarch=true \
 	-Dselinux=$(enable_selinux) \
 	-Dsystemtap=true \
 	-Dxattr=$(have_non_stub_xattr) \
@@ -246,6 +268,7 @@ override_dh_install:
 ifneq ($(filter %-udeb,$(binaries)),)
 	# Unwanted bits from the .udeb build
 	rm -f debian/install/udeb/usr/lib/*/*.so
+	rm -fr debian/install/udeb/usr/libexec/gio-launch-desktop
 	rm -fr debian/install/udeb/usr/share/gdb
 	rm -fr debian/install/udeb/usr/share/gettext/its
 	rm -fr debian/install/udeb/usr/share/glib-2.0/codegen
@@ -254,15 +277,26 @@ ifneq ($(filter %-udeb,$(binaries)),)
 	rm -fr debian/install/udeb/usr/share/man
 	dh_install -plibglib2.0-udeb --sourcedir=debian/install/udeb
 endif
+ifneq ($(filter %-tests,$(binaries)),)
+	sed -i -e '/^#!.*/,1 d' debian/install/deb/usr/libexec/installed-tests/glib/taptestrunner.py
+endif
 	dh_install --remaining-packages --sourcedir=debian/install/deb
-	install -D -t debian/libglib2.0-0/usr/share/glib-2.0/ debian/clean-up-unmanaged-libraries
-	install -D -t debian/libglib2.0-0/usr/lib/${DEB_HOST_MULTIARCH}/glib-2.0/ debian/gio-launch-desktop
 
 override_dh_dwz:
 	dh_dwz -Nlibglib2.0-udeb
 
+# debhelper >= 13.4 makes all of /usr/libexec executable, which is not
+# quite right for installed-tests
+override_dh_fixperms:
+	dh_fixperms -Xusr/libexec/installed-tests
+ifneq ($(filter %-tests,$(binaries)),)
+	chmod --changes u=rw,og=r debian/libglib2.0-tests/usr/libexec/installed-tests/*/*.so
+	chmod --changes u=rw,og=r debian/libglib2.0-tests/usr/libexec/installed-tests/*/*/*.so
+	chmod --recursive --changes a+rX,u+w,og-w debian/libglib2.0-tests/usr/libexec/installed-tests
+endif
+
 override_dh_missing:
-	dh_missing --sourcedir=debian/install/deb --fail-missing
+	dh_missing --sourcedir=debian/install/deb
 ifneq ($(filter %-udeb,$(binaries)),)
-	dh_missing --sourcedir=debian/install/udeb --fail-missing
+	dh_missing --sourcedir=debian/install/udeb
 endif

@@ -1,6 +1,8 @@
 /*
  * Copyright 2018 Collabora Ltd.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -36,15 +38,37 @@ test_skip (void)
 }
 
 static void
+test_skip_printf (void)
+{
+  const char *beverage = "coffee";
+
+  g_test_skip_printf ("not enough %s", beverage);
+}
+
+static void
 test_fail (void)
 {
   g_test_fail ();
 }
 
 static void
+test_fail_printf (void)
+{
+  g_test_fail_printf ("this test intentionally left failing");
+}
+
+static void
 test_incomplete (void)
 {
   g_test_incomplete ("mind reading not implemented yet");
+}
+
+static void
+test_incomplete_printf (void)
+{
+  const char *operation = "telekinesis";
+
+  g_test_incomplete_printf ("%s not implemented yet", operation);
 }
 
 static void
@@ -80,6 +104,24 @@ main (int   argc,
   argc -= 1;
   argv[argc] = NULL;
 
+  if (g_strcmp0 (argv1, "init-null-argv0") == 0)
+    {
+      int test_argc = 0;
+      char *test_argva[1] = { NULL };
+      char **test_argv = test_argva;
+
+      /* Test that `g_test_init()` can handle being called with an empty argv
+       * and argc == 0. While this isn’t recommended, it is possible for another
+       * process to use execve() to call a gtest process this way, so we’d
+       * better handle it gracefully.
+       *
+       * This test can’t be run after `g_test_init()` has been called normally,
+       * as it isn’t allowed to be called more than once in a process. */
+      g_test_init (&test_argc, &test_argv, NULL);
+
+      return 0;
+    }
+
   g_test_init (&argc, &argv, NULL);
   g_test_set_nonfatal_assertions ();
 
@@ -91,13 +133,25 @@ main (int   argc,
     {
       g_test_add_func ("/skip", test_skip);
     }
+  else if (g_strcmp0 (argv1, "skip-printf") == 0)
+    {
+      g_test_add_func ("/skip-printf", test_skip_printf);
+    }
   else if (g_strcmp0 (argv1, "incomplete") == 0)
     {
       g_test_add_func ("/incomplete", test_incomplete);
     }
+  else if (g_strcmp0 (argv1, "incomplete-printf") == 0)
+    {
+      g_test_add_func ("/incomplete-printf", test_incomplete_printf);
+    }
   else if (g_strcmp0 (argv1, "fail") == 0)
     {
       g_test_add_func ("/fail", test_fail);
+    }
+  else if (g_strcmp0 (argv1, "fail-printf") == 0)
+    {
+      g_test_add_func ("/fail-printf", test_fail_printf);
     }
   else if (g_strcmp0 (argv1, "all-non-failures") == 0)
     {
@@ -115,10 +169,15 @@ main (int   argc,
   else if (g_strcmp0 (argv1, "skip-options") == 0)
     {
       /* The caller is expected to skip some of these with
-       * -p, -s and/or --GTestSkipCount */
+       * -p/-r, -s/-x and/or --GTestSkipCount */
       g_test_add_func ("/a", test_pass);
+      g_test_add_func ("/b", test_pass);
       g_test_add_func ("/b/a", test_pass);
       g_test_add_func ("/b/b", test_pass);
+      g_test_add_func ("/b/b/a", test_pass);
+      g_test_add_func ("/prefix/a", test_pass);
+      g_test_add_func ("/prefix/b/b", test_pass);
+      g_test_add_func ("/prefix-long/a", test_pass);
       g_test_add_func ("/c/a", test_pass);
       g_test_add_func ("/d/a", test_pass);
     }

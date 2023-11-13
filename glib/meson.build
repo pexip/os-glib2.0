@@ -1,36 +1,28 @@
-configure_file(input : 'glibconfig.h.in', output : 'glibconfig.h',
+glibconfig_h = configure_file(input : 'glibconfig.h.in', output : 'glibconfig.h',
   install_dir : join_paths(get_option('libdir'), 'glib-2.0/include'),
+  install_tag : 'devel',
   configuration : glibconfig_conf)
 
 subdir('libcharset')
-if not use_system_pcre
-  subdir('pcre')
-endif
 
 # libsysprof-capture support
-libsysprof_capture_dep = dependency('sysprof-capture-4',
+libsysprof_capture_dep = dependency('sysprof-capture-4', version: '>= 3.38.0',
   required: get_option('sysprof'),
   default_options: [
-    'enable_examples=false',
-    'enable_gtk=false',
-    'enable_tests=false',
-    'enable_tools=false',
+    'examples=false',
+    'gtk=false',
+    'tests=false',
+    'tools=false',
     'libsysprof=false',
-    'with_sysprofd=none',
+    'sysprofd=none',
     'help=false',
   ],
   fallback: ['sysprof', 'libsysprof_capture_dep'],
 )
 glib_conf.set('HAVE_SYSPROF', libsysprof_capture_dep.found())
 
-# TODO: gnulib_objects, pcre_objects and pcre_deps are a workaround for
-# <https://github.com/mesonbuild/meson/issues/3934> and
-# <https://github.com/mesonbuild/meson/issues/3937>. When we can depend
-# on a meson version where those are fixed, revert the commit that
-# introduced this workaround.
 if use_system_printf
   gnulib_lib = []
-  gnulib_objects = []
   gnulib_libm_dependency = []
   glib_conf.set ('gl_unused', '')
   glib_conf.set ('gl_extern_inline', '')
@@ -120,7 +112,6 @@ else
   endif
 
   subdir('gnulib')
-  gnulib_objects = [gnulib_lib.extract_all_objects()]
 endif
 
 glib_headers = files(
@@ -129,6 +120,10 @@ glib_headers = files(
   'glib-object.h',
 )
 install_headers(glib_headers, subdir : 'glib-2.0')
+
+# Expose as variable to be used by gobject-introspection
+# when it includes GLib as a subproject
+glib_unix_h = files('glib-unix.h')
 
 glib_deprecated_headers = files(
   'deprecated/gallocator.h',
@@ -142,6 +137,7 @@ install_headers(glib_deprecated_headers, subdir : 'glib-2.0/glib/deprecated')
 
 glib_sub_headers = files(
   'glib-autocleanups.h',
+  'glib-typeof.h',
   'galloca.h',
   'garray.h',
   'gasyncqueue.h',
@@ -198,6 +194,7 @@ glib_sub_headers = files(
   'gspawn.h',
   'gstdio.h',
   'gstrfuncs.h',
+  'gstrvbuilder.h',
   'gtestutils.h',
   'gstring.h',
   'gstringchunk.h',
@@ -284,9 +281,9 @@ glib_sources = files(
   'gslist.c',
   'gstdio.c',
   'gstrfuncs.c',
-  'gstrfuncsprivate.h',
   'gstring.c',
   'gstringchunk.c',
+  'gstrvbuilder.c',
   'gtestutils.c',
   'gthread.c',
   'gthreadpool.c',
@@ -318,14 +315,18 @@ glib_sources = files(
   'gprintf.c',
 )
 
+platform_deps = []
+
 if host_system == 'windows'
-  glib_win_rc = configure_file(
-    input: 'glib.rc.in',
-    output: 'glib.rc',
-    configuration: glibconfig_conf,
-  )
-  glib_win_res = windows.compile_resources(glib_win_rc)
-  glib_sources += [glib_win_res]
+  if get_option('default_library') == 'shared'
+    glib_win_rc = configure_file(
+      input: 'glib.rc.in',
+      output: 'glib.rc',
+      configuration: glibconfig_conf,
+    )
+    glib_win_res = windows.compile_resources(glib_win_rc)
+    glib_sources += [glib_win_res]
+  endif
   glib_sources += files('gwin32.c', 'gspawn-win32.c', 'giowin32.c')
   platform_deps = [winsock2, cc.find_library('winmm')]
   if cc.get_id() == 'msvc' or cc.get_id() == 'clang-cl'
@@ -336,8 +337,19 @@ else
   platform_deps = []
 endif
 
+if host_system == 'linux'
+  glib_sources += files('gjournal-private.c')
+endif
+
 if glib_have_cocoa
   glib_sources += files('gosxutils.m')
+  framework_dep = dependency('appleframeworks', modules : ['Foundation', 'CoreFoundation', 'AppKit'])
+  platform_deps += [framework_dep]
+endif
+
+if glib_have_carbon
+  framework_dep = dependency('appleframeworks', modules : 'Carbon')
+  platform_deps += [framework_dep]
 endif
 
 glib_sources += files('gthread-@0@.c'.format(threads_implementation))
@@ -350,25 +362,16 @@ else
   glib_dtrace_hdr = []
 endif
 
-pcre_static_args = []
+pcre2_static_args = []
 
-if use_pcre_static_flag
-  pcre_static_args = ['-DPCRE_STATIC']
+if use_pcre2_static_flag
+  pcre2_static_args = ['-DPCRE2_STATIC']
 endif
 
-if use_system_pcre
-  pcre_deps = [pcre]
-  pcre_objects = []
-else
-  pcre_deps = []
-  pcre_objects = [libpcre.extract_all_objects()]
-endif
-
-glib_c_args = ['-DG_LOG_DOMAIN="GLib"', '-DGLIB_COMPILATION'] + pcre_static_args + glib_hidden_visibility_args
+glib_c_args = ['-DG_LOG_DOMAIN="GLib"', '-DGLIB_COMPILATION'] + pcre2_static_args + glib_hidden_visibility_args
 libglib = library('glib-2.0',
   glib_dtrace_obj, glib_dtrace_hdr,
   sources : [deprecated_sources, glib_sources],
-  objects : [charset_lib.extract_all_objects()] + gnulib_objects + pcre_objects,
   version : library_version,
   soversion : soversion,
   darwin_versions : darwin_versions,
@@ -376,7 +379,8 @@ libglib = library('glib-2.0',
   # intl.lib is not compatible with SAFESEH
   link_args : [noseh_link_args, glib_link_flags, win32_ldflags],
   include_directories : configinc,
-  dependencies : pcre_deps + [thread_dep, librt] + libintl_deps + libiconv + platform_deps + gnulib_libm_dependency + [libsysprof_capture_dep],
+  link_with: [charset_lib, gnulib_lib],
+  dependencies : [pcre2, thread_dep, librt] + libintl_deps + libiconv + platform_deps + [gnulib_libm_dependency, libm] + [libsysprof_capture_dep],
   c_args : glib_c_args,
   objc_args : glib_c_args,
 )
@@ -389,7 +393,7 @@ libglib_dep = declare_dependency(
 
 pkg.generate(libglib,
   libraries : [libintl_deps],
-  libraries_private : [osx_ldflags, win32_ldflags],
+  libraries_private : [win32_ldflags],
   subdirs : ['glib-2.0'],
   extra_cflags : ['-I${libdir}/glib-2.0/include'] + win32_cflags,
   variables : ['bindir=' + join_paths('${prefix}', get_option('bindir')),
@@ -402,17 +406,14 @@ pkg.generate(libglib,
   name : 'GLib',
   description : 'C Utility Library',
 )
-
-if meson.version().version_compare('>=0.54.0')
-  meson.override_dependency('glib-2.0', libglib_dep)
-endif
+meson.override_dependency('glib-2.0', libglib_dep)
 
 # On Windows, glib needs a spawn helper for g_spawn* API
 if host_system == 'windows'
   if host_machine.cpu_family() == 'x86'
     executable('gspawn-win32-helper', 'gspawn-win32-helper.c',
       install : true,
-      gui_app : true,
+      win_subsystem : 'windows',
       include_directories : configinc,
       dependencies : [libglib_dep])
     executable('gspawn-win32-helper-console', 'gspawn-win32-helper.c',
@@ -423,7 +424,7 @@ if host_system == 'windows'
   else
     executable('gspawn-win64-helper', 'gspawn-win32-helper.c',
       install : true,
-      gui_app : true,
+      win_subsystem : 'windows',
       include_directories : configinc,
       dependencies : [libglib_dep])
     executable('gspawn-win64-helper-console', 'gspawn-win32-helper.c',
@@ -435,6 +436,7 @@ if host_system == 'windows'
 else
   gtester = executable('gtester', 'gtester.c',
     install : true,
+    install_tag : 'bin-devel',
     c_args : ['-UG_DISABLE_ASSERT'],
     include_directories : configinc,
     dependencies : [libglib_dep])
@@ -447,29 +449,43 @@ configure_file(
   input: 'gtester-report.in',
   output: 'gtester-report',
   install_dir: get_option('bindir'),
+  install_tag : 'bin-devel',
   configuration: report_conf,
   install_mode: 'rwxr-xr-x'
 )
 
-install_data('glib_gdb.py', install_dir : join_paths(glib_pkgdatadir, 'gdb'))
+install_data('glib_gdb.py',
+  install_dir : glib_pkgdatadir / 'gdb',
+  install_tag : 'devel',
+)
+
+# This is needed to make gdb find glib_gdb.py
+env = environment()
+env.prepend('PYTHONPATH', meson.current_source_dir())
+meson.add_devenv(env)
 
 gdb_conf = configuration_data()
 gdb_conf.set('datadir', glib_datadir)
 # This is also used in gobject/meson.build
 if host_system != 'windows'
-  # XXX: We add a leading './' because glib_libdir is an absolute path and we
-  # need it to be a relative path so that join_paths appends it to the end.
-  gdb_install_dir = join_paths(glib_datadir, 'gdb', 'auto-load', './' + glib_libdir)
+  gdb_install = true
 else
   # FIXME: Cannot install on Windows because the path will contain a drive
   # letter and colons are not allowed in paths.
-  gdb_install_dir = false
+  gdb_install = false
 endif
+
+# XXX: We add a leading './' because glib_libdir is an absolute path and we
+# need it to be a relative path so that join_paths appends it to the end.
+gdb_install_dir = join_paths(glib_datadir, 'gdb', 'auto-load', './' + glib_libdir)
+
 configure_file(
   input: 'libglib-gdb.py.in',
   output: 'libglib-2.0.so.@0@-gdb.py'.format(library_version),
   configuration: gdb_conf,
   install_dir: gdb_install_dir,
+  install_tag: 'devel',
+  install: gdb_install,
 )
 
 if enable_systemtap
@@ -477,6 +493,7 @@ if enable_systemtap
     output : '@0@.stp'.format(libglib.full_path().split('/').get(-1)),
     configuration : stp_cdata,
     install_dir : tapset_install_dir,
+    install_tag : 'systemtap',
   )
 endif
 

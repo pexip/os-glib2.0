@@ -1,6 +1,8 @@
 /*
  * Copyright © 2011 Canonical Ltd.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -162,7 +164,7 @@ g_menu_insert_item (GMenu     *menu,
   g_return_if_fail (G_IS_MENU (menu));
   g_return_if_fail (G_IS_MENU_ITEM (item));
 
-  if (position < 0 || position > menu->items->len)
+  if (position < 0 || (guint) position > menu->items->len)
     position = menu->items->len;
 
   new_item.attributes = g_hash_table_ref (item->attributes);
@@ -480,7 +482,7 @@ g_menu_remove (GMenu *menu,
                gint   position)
 {
   g_return_if_fail (G_IS_MENU (menu));
-  g_return_if_fail (0 <= position && position < menu->items->len);
+  g_return_if_fail (0 <= position && (guint) position < menu->items->len);
 
   g_menu_clear_item (&g_array_index (menu->items, struct item, position));
   g_array_remove_index (menu->items, position);
@@ -781,7 +783,7 @@ g_menu_item_set_link (GMenuItem   *menu_item,
  * type, %NULL is returned.  %NULL is also returned if the attribute
  * simply does not exist.
  *
- * Returns: (transfer full): the attribute value, or %NULL
+ * Returns: (nullable) (transfer full): the attribute value, or %NULL
  *
  * Since: 2.34
  */
@@ -865,7 +867,7 @@ g_menu_item_get_attribute (GMenuItem   *menu_item,
  *
  * Queries the named @link on @menu_item.
  *
- * Returns: (transfer full): the link, or %NULL
+ * Returns: (nullable) (transfer full): the link, or %NULL
  *
  * Since: 2.34
  */

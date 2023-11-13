@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -197,6 +199,8 @@ GLIB_AVAILABLE_IN_ALL
 const gchar *         g_get_user_config_dir    (void);
 GLIB_AVAILABLE_IN_ALL
 const gchar *         g_get_user_cache_dir     (void);
+GLIB_AVAILABLE_IN_2_72
+const gchar *         g_get_user_state_dir     (void);
 GLIB_AVAILABLE_IN_ALL
 const gchar * const * g_get_system_data_dirs   (void);
 
@@ -305,7 +309,9 @@ typedef enum
   G_FORMAT_SIZE_DEFAULT     = 0,
   G_FORMAT_SIZE_LONG_FORMAT = 1 << 0,
   G_FORMAT_SIZE_IEC_UNITS   = 1 << 1,
-  G_FORMAT_SIZE_BITS        = 1 << 2
+  G_FORMAT_SIZE_BITS        = 1 << 2,
+  G_FORMAT_SIZE_ONLY_VALUE GLIB_AVAILABLE_ENUMERATOR_IN_2_74 = 1 << 3,
+  G_FORMAT_SIZE_ONLY_UNIT GLIB_AVAILABLE_ENUMERATOR_IN_2_74 = 1 << 4
 } GFormatSizeFlags;
 
 GLIB_AVAILABLE_IN_2_30
@@ -434,7 +440,7 @@ g_bit_storage_impl (gulong number)
 #  define g_abort() abort ()
 #else
 GLIB_AVAILABLE_IN_2_50
-void g_abort (void) G_GNUC_NORETURN G_ANALYZER_NORETURN;
+G_NORETURN void g_abort (void) G_ANALYZER_NORETURN;
 #endif
 #endif
 

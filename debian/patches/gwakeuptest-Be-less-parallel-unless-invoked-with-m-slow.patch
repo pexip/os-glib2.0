@@ -18,7 +18,7 @@ Forwarded: no
  1 file changed, 13 insertions(+), 4 deletions(-)
 
 diff --git a/glib/tests/gwakeuptest.c b/glib/tests/gwakeuptest.c
-index 461a7d3..2c3eccd 100644
+index b37fb43..a9bef21 100644
 --- a/glib/tests/gwakeuptest.c
 +++ b/glib/tests/gwakeuptest.c
 @@ -89,6 +89,9 @@ struct context

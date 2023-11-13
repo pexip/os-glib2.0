@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -49,7 +51,7 @@ static const TestData cases[] = {
       { "true",     NULL,     EXPLICITLY_TRUE,  REMOTE },
       { "false",    NULL,     EXPLICITLY_FALSE, REMOTE },
       { "we-close", "662100", EXPLICITLY_TRUE,  LOCAL  },
-      { NULL }
+      { NULL, NULL, 0, 0 }
 };
 
 static gboolean
@@ -57,7 +59,7 @@ quit_later_cb (gpointer data G_GNUC_UNUSED)
 {
   g_main_loop_quit (loop);
 
-  return FALSE;
+  return G_SOURCE_REMOVE;
 }
 
 static void

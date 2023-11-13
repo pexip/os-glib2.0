@@ -4,6 +4,8 @@
  * 
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -956,6 +958,23 @@ _g_get_unix_mounts (void)
   return return_list;
 }
 
+/* QNX {{{2 */
+#elif defined (HAVE_QNX)
+
+static char *
+get_mtab_monitor_file (void)
+{
+  /* TODO: Not implemented */
+  return NULL;
+}
+
+static GList *
+_g_get_unix_mounts (void)
+{
+  /* TODO: Not implemented */
+  return NULL;
+}
+
 /* Common code {{{2 */
 #else
 #error No _g_get_unix_mounts() implementation for system
@@ -1045,7 +1064,6 @@ _g_get_unix_mount_points (void)
           if ((mount_fstype != NULL && g_strcmp0 ("supermount", mount_fstype) == 0) ||
               ((userspace_flags & MNT_MS_USER) &&
                (g_strstr_len (mount_options, -1, "user_xattr") == NULL)) ||
-              (g_strstr_len (mount_options, -1, "pamconsole") == NULL) ||
               (userspace_flags & MNT_MS_USERS) ||
               (userspace_flags & MNT_MS_OWNER))
             {
@@ -1141,7 +1159,6 @@ _g_get_unix_mount_points (void)
 #ifdef HAVE_HASMNTOPT
 	  || (hasmntopt (mntent, "user") != NULL
 	      && hasmntopt (mntent, "user") != hasmntopt (mntent, "user_xattr"))
-	  || hasmntopt (mntent, "pamconsole") != NULL
 	  || hasmntopt (mntent, "users") != NULL
 	  || hasmntopt (mntent, "owner") != NULL
 #endif
@@ -1214,7 +1231,6 @@ _g_get_unix_mount_points (void)
 #ifdef HAVE_HASMNTOPT
 	  || (hasmntopt (&mntent, "user") != NULL
 	      && hasmntopt (&mntent, "user") != hasmntopt (&mntent, "user_xattr"))
-	  || hasmntopt (&mntent, "pamconsole") != NULL
 	  || hasmntopt (&mntent, "users") != NULL
 	  || hasmntopt (&mntent, "owner") != NULL
 #endif
@@ -1394,17 +1410,14 @@ _g_get_unix_mount_points (void)
 {
   struct fstab *fstab = NULL;
   GUnixMountPoint *mount_point;
-  GList *return_list;
+  GList *return_list = NULL;
+  G_LOCK_DEFINE_STATIC (fsent);
 #ifdef HAVE_SYS_SYSCTL_H
+  uid_t uid = getuid ();
   int usermnt = 0;
   struct stat sb;
 #endif
-  
-  if (!setfsent ())
-    return NULL;
 
-  return_list = NULL;
-  
 #ifdef HAVE_SYS_SYSCTL_H
 #if defined(HAVE_SYSCTLBYNAME)
   {
@@ -1432,7 +1445,14 @@ _g_get_unix_mount_points (void)
   }
 #endif
 #endif
-  
+
+  G_LOCK (fsent);
+  if (!setfsent ())
+    {
+      G_UNLOCK (fsent);
+      return NULL;
+    }
+
   while ((fstab = getfsent ()) != NULL)
     {
       gboolean is_read_only = FALSE;
@@ -1446,14 +1466,13 @@ _g_get_unix_mount_points (void)
 
 #ifdef HAVE_SYS_SYSCTL_H
       if (usermnt != 0)
-	{
-	  uid_t uid = getuid ();
-	  if (stat (fstab->fs_file, &sb) == 0)
-	    {
-	      if (uid == 0 || sb.st_uid == uid)
-		is_user_mountable = TRUE;
-	    }
-	}
+        {
+          if (uid == 0 ||
+              (stat (fstab->fs_file, &sb) == 0 && sb.st_uid == uid))
+            {
+              is_user_mountable = TRUE;
+            }
+        }
 #endif
 
       mount_point = create_unix_mount_point (fstab->fs_spec,
@@ -1466,13 +1485,22 @@ _g_get_unix_mount_points (void)
 
       return_list = g_list_prepend (return_list, mount_point);
     }
-  
+
   endfsent ();
-  
+  G_UNLOCK (fsent);
+
   return g_list_reverse (return_list);
 }
 /* Interix {{{2 */
 #elif defined(__INTERIX)
+static GList *
+_g_get_unix_mount_points (void)
+{
+  return _g_get_unix_mounts ();
+}
+
+/* QNX {{{2 */
+#elif defined (HAVE_QNX)
 static GList *
 _g_get_unix_mount_points (void)
 {
@@ -1568,7 +1596,9 @@ g_unix_mounts_get (guint64 *time_read)
  * If more mounts have the same mount path, the last matching mount
  * is returned.
  *
- * Returns: (transfer full): a #GUnixMountEntry.
+ * This will return %NULL if there is no mount point at @mount_path.
+ *
+ * Returns: (transfer full) (nullable): a #GUnixMountEntry.
  **/
 GUnixMountEntry *
 g_unix_mount_at (const char *mount_path,
@@ -1611,7 +1641,10 @@ g_unix_mount_at (const char *mount_path,
  * If more mounts have the same mount path, the last matching mount
  * is returned.
  *
- * Returns: (transfer full): a #GUnixMountEntry.
+ * This will return %NULL if looking up the mount entry fails, if
+ * @file_path doesn’t exist or there is an I/O error.
+ *
+ * Returns: (transfer full)  (nullable): a #GUnixMountEntry.
  *
  * Since: 2.52
  **/
@@ -1639,6 +1672,14 @@ g_unix_mount_for (const char *file_path,
   return entry;
 }
 
+static gpointer
+copy_mount_point_cb (gconstpointer src,
+                     gpointer      data)
+{
+  GUnixMountPoint *src_mount_point = (GUnixMountPoint *) src;
+  return g_unix_mount_point_copy (src_mount_point);
+}
+
 /**
  * g_unix_mount_points_get:
  * @time_read: (out) (optional): guint64 to contain a timestamp.
@@ -1654,10 +1695,29 @@ g_unix_mount_for (const char *file_path,
 GList *
 g_unix_mount_points_get (guint64 *time_read)
 {
-  if (time_read)
-    *time_read = get_mount_points_timestamp ();
+  static GList *mnt_pts_last = NULL;
+  static guint64 time_read_last = 0;
+  GList *mnt_pts = NULL;
+  guint64 time_read_now;
+  G_LOCK_DEFINE_STATIC (unix_mount_points);
 
-  return _g_get_unix_mount_points ();
+  G_LOCK (unix_mount_points);
+
+  time_read_now = get_mount_points_timestamp ();
+  if (time_read_now != time_read_last || mnt_pts_last == NULL)
+    {
+      time_read_last = time_read_now;
+      g_list_free_full (mnt_pts_last, (GDestroyNotify) g_unix_mount_point_free);
+      mnt_pts_last = _g_get_unix_mount_points ();
+    }
+  mnt_pts = g_list_copy_deep (mnt_pts_last, copy_mount_point_cb, NULL);
+
+  G_UNLOCK (unix_mount_points);
+
+  if (time_read)
+    *time_read = time_read_now;
+
+  return mnt_pts;
 }
 
 /**
@@ -1824,7 +1884,7 @@ mtab_file_changed (GFileMonitor      *monitor,
   source = g_idle_source_new ();
   g_source_set_priority (source, G_PRIORITY_DEFAULT);
   g_source_set_callback (source, mtab_file_changed_cb, NULL, NULL);
-  g_source_set_name (source, "[gio] mtab_file_changed_cb");
+  g_source_set_static_name (source, "[gio] mtab_file_changed_cb");
   g_source_attach (source, context);
   g_source_unref (source);
 }
@@ -2491,7 +2551,7 @@ g_unix_mount_point_get_fs_type (GUnixMountPoint *mount_point)
  * 
  * Gets the options for the mount point.
  * 
- * Returns: a string containing the options.
+ * Returns: (nullable): a string containing the options.
  *
  * Since: 2.32
  */

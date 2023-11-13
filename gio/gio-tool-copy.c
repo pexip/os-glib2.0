@@ -1,6 +1,8 @@
 /*
  * Copyright 2015 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -47,7 +49,7 @@ static const GOptionEntry entries[] = {
   { "backup", 'b', 0, G_OPTION_ARG_NONE, &backup, N_("Backup existing destination files"), NULL },
   { "no-dereference", 'P', 0, G_OPTION_ARG_NONE, &no_dereference, N_("Never follow symbolic links"), NULL },
   { "default-permissions", 0, 0, G_OPTION_ARG_NONE, &default_permissions, N_("Use default permissions for the destination"), NULL },
-  { NULL }
+  G_OPTION_ENTRY_NULL
 };
 
 static gint64 start_time;

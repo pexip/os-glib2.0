@@ -35,11 +35,10 @@ test_platform_argv0 (void)
   gboolean arg;
   GOptionEntry entries [] =
     { { "test", 't', 0, G_OPTION_ARG_STRING, &arg, NULL, NULL },
-      { NULL } };
+      G_OPTION_ENTRY_NULL };
   const gchar * const expected_prgnames[] =
     {
       "option-argv0",
-      "lt-option-argv0",
 #ifdef G_OS_WIN32
       "option-argv0.exe",
 #endif

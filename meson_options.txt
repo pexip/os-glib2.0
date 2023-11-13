@@ -7,7 +7,7 @@ option('iconv',
        type : 'combo',
        choices : ['auto', 'libc', 'external'],
        value : 'auto',
-       description : 'iconv implementation to use (\'libc\' = \'Part of the C library\'; \'external\' = \'External libiconv\'; \'auto\' = \'Auto-detect which iconv is available\')')
+       deprecated: true,)
 
 option('charsetalias_dir',
        type : 'string',
@@ -33,11 +33,6 @@ option('libmount',
        type : 'feature',
        value : 'auto',
        description : 'build with libmount support')
-
-option('internal_pcre',
-       type : 'boolean',
-       value : false,
-       description : 'whether to use internal PCRE')
 
 option('man',
        type : 'boolean',
@@ -79,10 +74,10 @@ option('force_posix_threads',
        value : false,
        description : 'Also use posix threads in case the platform defaults to another implementation (on Windows for example)')
 
-option('fam',
+option('tests',
        type : 'boolean',
-       value : false,
-       description : 'Use fam for file system monitoring')
+       value : true,
+       description : 'build tests')
 
 option('installed_tests',
        type : 'boolean',
@@ -100,6 +95,12 @@ option('oss_fuzz',
        value : 'disabled',
        description : 'Indicate oss-fuzz build environment')
 
+option('glib_debug',
+       type : 'feature',
+       value : 'auto',
+       yield : true,
+       description : 'Enable GLib debug infrastructure (see docs/macros.txt)')
+
 option('glib_assert',
        type : 'boolean',
        value : true,
@@ -111,3 +112,13 @@ option('glib_checks',
        value : true,
        yield : true,
        description : 'Enable GLib checks such as API guards (see docs/macros.txt)')
+
+option('libelf',
+       type : 'feature',
+       value : 'auto',
+       description : 'Enable support for listing and extracting from ELF resource files with gresource tool')
+
+option('multiarch',
+       type : 'boolean',
+       value : false,
+       description : 'Install some helper executables in per-architecture locations')

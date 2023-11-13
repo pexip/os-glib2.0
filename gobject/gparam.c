@@ -1,6 +1,8 @@
 /* GObject - GLib Type, Object, Parameter and Signal Library
  * Copyright (C) 1997-1999, 2000-2001 Tim Janik and Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -203,11 +205,11 @@ g_param_spec_finalize (GParamSpec *pspec)
 
 /**
  * g_param_spec_ref: (skip)
- * @pspec: a valid #GParamSpec
+ * @pspec: (transfer none) (not nullable): a valid #GParamSpec
  *
  * Increments the reference count of @pspec.
  *
- * Returns: the #GParamSpec that was passed into this function
+ * Returns: (transfer full) (not nullable): the #GParamSpec that was passed into this function
  */
 GParamSpec*
 g_param_spec_ref (GParamSpec *pspec)
@@ -270,7 +272,7 @@ g_param_spec_sink (GParamSpec *pspec)
  * Convenience function to ref and sink a #GParamSpec.
  *
  * Since: 2.10
- * Returns: the #GParamSpec that was passed into this function
+ * Returns: (transfer full) (not nullable): the #GParamSpec that was passed into this function
  */
 GParamSpec*
 g_param_spec_ref_sink (GParamSpec *pspec)
@@ -337,7 +339,7 @@ g_param_spec_get_nick (GParamSpec *pspec)
  *
  * Get the short description of a #GParamSpec.
  *
- * Returns: the short description of @pspec.
+ * Returns: (nullable): the short description of @pspec.
  */
 const gchar *
 g_param_spec_get_blurb (GParamSpec *pspec)
@@ -421,10 +423,10 @@ g_param_spec_is_valid_name (const gchar *name)
 
 /**
  * g_param_spec_internal: (skip)
- * @param_type: the #GType for the property; must be derived from #G_TYPE_PARAM
+ * @param_type: the #GType for the property; must be derived from %G_TYPE_PARAM
  * @name: the canonical name of the property
- * @nick: the nickname of the property
- * @blurb: a short description of the property
+ * @nick: (nullable): the nickname of the property
+ * @blurb: (nullable): a short description of the property
  * @flags: a combination of #GParamFlags
  *
  * Creates a new #GParamSpec instance.
@@ -433,13 +435,15 @@ g_param_spec_is_valid_name (const gchar *name)
  * the rules for @name. Names which violate these rules lead to undefined
  * behaviour.
  *
- * Beyond the name, #GParamSpecs have two more descriptive
- * strings associated with them, the @nick, which should be suitable
- * for use as a label for the property in a property editor, and the
- * @blurb, which should be a somewhat longer description, suitable for
- * e.g. a tooltip. The @nick and @blurb should ideally be localized.
+ * Beyond the name, #GParamSpecs have two more descriptive strings, the
+ * @nick and @blurb, which may be used as a localized label and description.
+ * For GTK and related libraries these are considered deprecated and may be
+ * omitted, while for other libraries such as GStreamer and its plugins they
+ * are essential. When in doubt, follow the conventions used in the
+ * surrounding code and supporting libraries.
  *
- * Returns: (type GObject.ParamSpec): a newly allocated #GParamSpec instance
+ * Returns: (type GObject.ParamSpec): (transfer floating): a newly allocated
+ *     #GParamSpec instance, which is initially floating
  */
 gpointer
 g_param_spec_internal (GType        param_type,
@@ -503,7 +507,7 @@ g_param_spec_internal (GType        param_type,
  *
  * Gets back user data pointers stored via g_param_spec_set_qdata().
  *
- * Returns: (transfer none): the user data pointer set, or %NULL
+ * Returns: (transfer none) (nullable): the user data pointer set, or %NULL
  */
 gpointer
 g_param_spec_get_qdata (GParamSpec *pspec,
@@ -518,7 +522,7 @@ g_param_spec_get_qdata (GParamSpec *pspec,
  * g_param_spec_set_qdata:
  * @pspec: the #GParamSpec to set store a user data pointer
  * @quark: a #GQuark, naming the user data pointer
- * @data: an opaque user data pointer
+ * @data: (nullable): an opaque user data pointer
  *
  * Sets an opaque, named pointer on a #GParamSpec. The name is
  * specified through a #GQuark (retrieved e.g. via
@@ -542,8 +546,8 @@ g_param_spec_set_qdata (GParamSpec *pspec,
  * g_param_spec_set_qdata_full: (skip)
  * @pspec: the #GParamSpec to set store a user data pointer
  * @quark: a #GQuark, naming the user data pointer
- * @data: an opaque user data pointer
- * @destroy: function to invoke with @data as argument, when @data needs to
+ * @data: (nullable): an opaque user data pointer
+ * @destroy: (nullable): function to invoke with @data as argument, when @data needs to
  *  be freed
  *
  * This function works like g_param_spec_set_qdata(), but in addition,
@@ -574,7 +578,7 @@ g_param_spec_set_qdata_full (GParamSpec    *pspec,
  * function (if any was set).  Usually, calling this function is only
  * required to update user data pointers with a destroy notifier.
  *
- * Returns: (transfer none): the user data pointer set, or %NULL
+ * Returns: (transfer none) (nullable): the user data pointer set, or %NULL
  */
 gpointer
 g_param_spec_steal_qdata (GParamSpec *pspec,
@@ -600,7 +604,7 @@ g_param_spec_steal_qdata (GParamSpec *pspec,
  *
  * Since: 2.4
  *
- * Returns: (transfer none): paramspec to which requests on this
+ * Returns: (transfer none) (nullable): paramspec to which requests on this
  *          paramspec should be redirected, or %NULL if none.
  */
 GParamSpec*
@@ -702,6 +706,51 @@ g_param_value_validate (GParamSpec *pspec,
     }
 
   return FALSE;
+}
+
+/**
+ * g_param_value_is_valid:
+ * @pspec: a valid #GParamSpec
+ * @value: a #GValue of correct type for @pspec
+ *
+ * Return whether the contents of @value comply with the specifications
+ * set out by @pspec.
+ *
+ * Returns: whether the contents of @value comply with the specifications
+ *   set out by @pspec.
+ *
+ * Since: 2.74
+ */
+gboolean
+g_param_value_is_valid (GParamSpec *pspec,
+                        const GValue *value)
+{
+  GParamSpecClass *class;
+
+  g_return_val_if_fail (G_IS_PARAM_SPEC (pspec), TRUE);
+  g_return_val_if_fail (G_IS_VALUE (value), TRUE);
+  g_return_val_if_fail (PSPEC_APPLIES_TO_VALUE (pspec, value), TRUE);
+
+  class = G_PARAM_SPEC_GET_CLASS (pspec);
+
+  if (class->value_is_valid)
+    return class->value_is_valid (pspec, value);
+  else if (class->value_validate)
+    {
+      GValue val = G_VALUE_INIT;
+      gboolean changed;
+
+      g_value_init (&val, G_VALUE_TYPE (value));
+      g_value_copy (value, &val);
+
+      changed = class->value_validate (pspec, &val);
+
+      g_value_unset (&val);
+
+      return !changed;
+    }
+
+  return TRUE;
 }
 
 /**
@@ -889,9 +938,10 @@ value_param_lcopy_value (const GValue *value,
  * GParamSpecPool:
  *
  * A #GParamSpecPool maintains a collection of #GParamSpecs which can be
- * quickly accessed by owner and name. The implementation of the #GObject property
- * system uses such a pool to store the #GParamSpecs of the properties all object
- * types.
+ * quickly accessed by owner and name.
+ *
+ * The implementation of the #GObject property system uses such a pool to
+ * store the #GParamSpecs of the properties all object types.
  */
 struct _GParamSpecPool
 {
@@ -921,7 +971,8 @@ param_spec_pool_equals (gconstpointer key_spec_1,
   const GParamSpec *key2 = key_spec_2;
 
   return (key1->owner_type == key2->owner_type &&
-	  strcmp (key1->name, key2->name) == 0);
+          (key1->name == key2->name ||
+	   strcmp (key1->name, key2->name) == 0));
 }
 
 /**
@@ -935,7 +986,7 @@ param_spec_pool_equals (gconstpointer key_spec_1,
  * property name, like "GtkContainer:border-width". This feature is
  * deprecated, so you should always set @type_prefixing to %FALSE.
  *
- * Returns: (transfer none): a newly allocated #GParamSpecPool.
+ * Returns: (transfer full): a newly allocated #GParamSpecPool.
  */
 GParamSpecPool*
 g_param_spec_pool_new (gboolean type_prefixing)
@@ -953,7 +1004,7 @@ g_param_spec_pool_new (gboolean type_prefixing)
 /**
  * g_param_spec_pool_insert:
  * @pool: a #GParamSpecPool.
- * @pspec: the #GParamSpec to insert
+ * @pspec: (transfer none) (not nullable): the #GParamSpec to insert
  * @owner_type: a #GType identifying the owner of @pspec
  *
  * Inserts a #GParamSpec in the pool.
@@ -993,7 +1044,7 @@ g_param_spec_pool_insert (GParamSpecPool *pool,
 /**
  * g_param_spec_pool_remove:
  * @pool: a #GParamSpecPool
- * @pspec: the #GParamSpec to remove
+ * @pspec: (transfer none) (not nullable): the #GParamSpec to remove
  *
  * Removes a #GParamSpec from the pool.
  */
@@ -1081,7 +1132,7 @@ param_spec_ht_lookup (GHashTable  *hash_table,
  *
  * Looks up a #GParamSpec in the pool.
  *
- * Returns: (transfer none): The found #GParamSpec, or %NULL if no
+ * Returns: (transfer none) (nullable): The found #GParamSpec, or %NULL if no
  * matching #GParamSpec was found.
  */
 GParamSpec*
@@ -1091,53 +1142,57 @@ g_param_spec_pool_lookup (GParamSpecPool *pool,
 			  gboolean        walk_ancestors)
 {
   GParamSpec *pspec;
-  gchar *delim;
 
   g_return_val_if_fail (pool != NULL, NULL);
   g_return_val_if_fail (param_name != NULL, NULL);
 
   g_mutex_lock (&pool->mutex);
 
-  delim = pool->type_prefixing ? strchr (param_name, ':') : NULL;
-
   /* try quick and away, i.e. without prefix */
-  if (!delim)
+  pspec = param_spec_ht_lookup (pool->hash_table, param_name, owner_type, walk_ancestors);
+  if (pspec)
     {
-      pspec = param_spec_ht_lookup (pool->hash_table, param_name, owner_type, walk_ancestors);
       g_mutex_unlock (&pool->mutex);
-
       return pspec;
     }
 
-  /* strip type prefix */
-  if (pool->type_prefixing && delim[1] == ':')
+  if (pool->type_prefixing)
     {
-      guint l = delim - param_name;
-      gchar stack_buffer[32], *buffer = l < 32 ? stack_buffer : g_new (gchar, l + 1);
-      GType type;
-      
-      strncpy (buffer, param_name, delim - param_name);
-      buffer[l] = 0;
-      type = g_type_from_name (buffer);
-      if (l >= 32)
-	g_free (buffer);
-      if (type)		/* type==0 isn't a valid type pefix */
-	{
-	  /* sanity check, these cases don't make a whole lot of sense */
-	  if ((!walk_ancestors && type != owner_type) || !g_type_is_a (owner_type, type))
-	    {
-	      g_mutex_unlock (&pool->mutex);
+      char *delim;
 
-	      return NULL;
-	    }
-	  owner_type = type;
-	  param_name += l + 2;
-	  pspec = param_spec_ht_lookup (pool->hash_table, param_name, owner_type, walk_ancestors);
-	  g_mutex_unlock (&pool->mutex);
+      delim = strchr (param_name, ':');
 
-	  return pspec;
-	}
+      /* strip type prefix */
+      if (delim && delim[1] == ':')
+        {
+          guint l = delim - param_name;
+          gchar stack_buffer[32], *buffer = l < 32 ? stack_buffer : g_new (gchar, l + 1);
+          GType type;
+
+          strncpy (buffer, param_name, delim - param_name);
+          buffer[l] = 0;
+          type = g_type_from_name (buffer);
+          if (l >= 32)
+            g_free (buffer);
+          if (type)         /* type==0 isn't a valid type pefix */
+            {
+              /* sanity check, these cases don't make a whole lot of sense */
+              if ((!walk_ancestors && type != owner_type) || !g_type_is_a (owner_type, type))
+                {
+                  g_mutex_unlock (&pool->mutex);
+
+                  return NULL;
+                }
+              owner_type = type;
+              param_name += l + 2;
+              pspec = param_spec_ht_lookup (pool->hash_table, param_name, owner_type, walk_ancestors);
+              g_mutex_unlock (&pool->mutex);
+
+              return pspec;
+            }
+        }
     }
+
   /* malformed param_name */
 
   g_mutex_unlock (&pool->mutex);
@@ -1203,52 +1258,30 @@ pspec_compare_id (gconstpointer a,
   return strcmp (pspec1->name, pspec2->name);
 }
 
-static inline GSList*
-pspec_list_remove_overridden_and_redirected (GSList     *plist,
-					     GHashTable *ht,
-					     GType       owner_type,
-					     guint      *n_p)
+static inline gboolean
+should_list_pspec (GParamSpec *pspec,
+                   GType      owner_type,
+                   GHashTable *ht)
 {
-  GSList *rlist = NULL;
+  GParamSpec *found;
 
-  while (plist)
+  /* Remove paramspecs that are redirected, and also paramspecs
+   * that have are overridden by non-redirected properties.
+   * The idea is to get the single paramspec for each name that
+   * best corresponds to what the application sees.
+   */
+  if (g_param_spec_get_redirect_target (pspec))
+    return FALSE;
+
+  found = param_spec_ht_lookup (ht, pspec->name, owner_type, TRUE);
+  if (found != pspec)
     {
-      GSList *tmp = plist->next;
-      GParamSpec *pspec = plist->data;
-      GParamSpec *found;
-      gboolean remove = FALSE;
-
-      /* Remove paramspecs that are redirected, and also paramspecs
-       * that have are overridden by non-redirected properties.
-       * The idea is to get the single paramspec for each name that
-       * best corresponds to what the application sees.
-       */
-      if (g_param_spec_get_redirect_target (pspec))
-	remove = TRUE;
-      else
-	{
-	  found = param_spec_ht_lookup (ht, pspec->name, owner_type, TRUE);
-	  if (found != pspec)
-	    {
-	      GParamSpec *redirect = g_param_spec_get_redirect_target (found);
-	      if (redirect != pspec)
-		remove = TRUE;
-	    }
-	}
-
-      if (remove)
-	{
-	  g_slist_free_1 (plist);
-	}
-      else
-	{
-	  plist->next = rlist;
-	  rlist = plist;
-	  *n_p += 1;
-	}
-      plist = tmp;
+      GParamSpec *redirect = g_param_spec_get_redirect_target (found);
+      if (redirect != pspec)
+        return FALSE;
     }
-  return rlist;
+
+  return TRUE;
 }
 
 static void
@@ -1260,18 +1293,23 @@ pool_depth_list (gpointer key,
   gpointer *data = user_data;
   GSList **slists = data[0];
   GType owner_type = (GType) data[1];
+  GHashTable *ht = data[2];
+  int *count = data[3];
 
-  if (g_type_is_a (owner_type, pspec->owner_type))
+  if (g_type_is_a (owner_type, pspec->owner_type) &&
+      should_list_pspec (pspec, owner_type, ht))
     {
       if (G_TYPE_IS_INTERFACE (pspec->owner_type))
 	{
 	  slists[0] = g_slist_prepend (slists[0], pspec);
+          *count = *count + 1;
 	}
       else
 	{
-	  guint d = g_type_depth (pspec->owner_type);
+          guint d = g_type_depth (pspec->owner_type);
 
-	  slists[d - 1] = g_slist_prepend (slists[d - 1], pspec);
+          slists[d - 1] = g_slist_prepend (slists[d - 1], pspec);
+          *count = *count + 1;
 	}
     }
 }
@@ -1294,9 +1332,15 @@ pool_depth_list_for_interface (gpointer key,
   gpointer *data = user_data;
   GSList **slists = data[0];
   GType owner_type = (GType) data[1];
+  GHashTable *ht = data[2];
+  int *count = data[3];
 
-  if (pspec->owner_type == owner_type)
-    slists[0] = g_slist_prepend (slists[0], pspec);
+  if (pspec->owner_type == owner_type &&
+      should_list_pspec (pspec, owner_type, ht))
+    {
+      slists[0] = g_slist_prepend (slists[0], pspec);
+      *count = *count + 1;
+    }
 }
 
 /**
@@ -1319,29 +1363,29 @@ g_param_spec_pool_list (GParamSpecPool *pool,
 {
   GParamSpec **pspecs, **p;
   GSList **slists, *node;
-  gpointer data[2];
+  gpointer data[4];
   guint d, i;
+  int n_pspecs = 0;
 
   g_return_val_if_fail (pool != NULL, NULL);
   g_return_val_if_fail (owner_type > 0, NULL);
   g_return_val_if_fail (n_pspecs_p != NULL, NULL);
   
   g_mutex_lock (&pool->mutex);
-  *n_pspecs_p = 0;
   d = g_type_depth (owner_type);
   slists = g_new0 (GSList*, d);
   data[0] = slists;
   data[1] = (gpointer) owner_type;
+  data[2] = pool->hash_table;
+  data[3] = &n_pspecs;
 
   g_hash_table_foreach (pool->hash_table,
-			G_TYPE_IS_INTERFACE (owner_type) ?
-			   pool_depth_list_for_interface :
-			   pool_depth_list,
-			&data);
-  
-  for (i = 0; i < d; i++)
-    slists[i] = pspec_list_remove_overridden_and_redirected (slists[i], pool->hash_table, owner_type, n_pspecs_p);
-  pspecs = g_new (GParamSpec*, *n_pspecs_p + 1);
+                        G_TYPE_IS_INTERFACE (owner_type) ?
+                          pool_depth_list_for_interface :
+                          pool_depth_list,
+                        &data);
+
+  pspecs = g_new (GParamSpec*, n_pspecs + 1);
   p = pspecs;
   for (i = 0; i < d; i++)
     {
@@ -1354,9 +1398,10 @@ g_param_spec_pool_list (GParamSpecPool *pool,
   g_free (slists);
   g_mutex_unlock (&pool->mutex);
 
+  *n_pspecs_p = n_pspecs;
+
   return pspecs;
 }
-
 
 /* --- auxiliary functions --- */
 typedef struct
@@ -1410,10 +1455,12 @@ default_values_cmp (GParamSpec   *pspec,
  * @name: 0-terminated string used as the name of the new #GParamSpec type.
  * @pspec_info: The #GParamSpecTypeInfo for this #GParamSpec type.
  *
- * Registers @name as the name of a new static type derived from
- * #G_TYPE_PARAM. The type system uses the information contained in
- * the #GParamSpecTypeInfo structure pointed to by @info to manage the
- * #GParamSpec type and its instances.
+ * Registers @name as the name of a new static type derived
+ * from %G_TYPE_PARAM.
+ *
+ * The type system uses the information contained in the #GParamSpecTypeInfo
+ * structure pointed to by @info to manage the #GParamSpec type and its
+ * instances.
  *
  * Returns: The new type identifier.
  */
@@ -1431,6 +1478,7 @@ g_param_type_register_static (const gchar              *name,
     0,                             /* instance_size */
     16,                            /* n_preallocs */
     NULL,                          /* instance_init */
+    NULL,                          /* value_table */
   };
   ParamSpecClassInfo *cinfo;
 
@@ -1542,8 +1590,8 @@ g_value_get_param (const GValue *value)
  * Get the contents of a %G_TYPE_PARAM #GValue, increasing its
  * reference count.
  *
- * Returns: #GParamSpec content of @value, should be unreferenced when
- *          no longer needed.
+ * Returns: (transfer full): #GParamSpec content of @value, should be
+ *     unreferenced when no longer needed.
  */
 GParamSpec*
 g_value_dup_param (const GValue *value)

@@ -2,6 +2,8 @@
  * Copyright © 2008 Ryan Lortie
  * Copyright © 2010 Codethink Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -32,7 +34,7 @@
  * GVariantTypeInfo:
  *
  * This structure contains the necessary information to facilitate the
- * serialisation and fast deserialisation of a given type of GVariant
+ * serialization and fast deserialization of a given type of GVariant
  * value.  A GVariant instance holds a pointer to one of these
  * structures to provide for efficient operation.
  *
@@ -93,7 +95,7 @@ typedef struct
 } ArrayInfo;
 
 /* For 'tuple' and 'dict entry' types, we store extra information for
- * each member -- its type and how to find it inside the serialised data
+ * each member -- its type and how to find it inside the serialized data
  * in O(1) time using 4 variables -- 'i', 'a', 'b', and 'c'.  See the
  * comment on GVariantMemberInfo in gvarianttypeinfo.h.
  */
@@ -245,8 +247,6 @@ g_variant_type_info_query (GVariantTypeInfo *info,
                            guint            *alignment,
                            gsize            *fixed_size)
 {
-  g_variant_type_info_check (info, 0);
-
   if (alignment)
     *alignment = info->alignment;
 

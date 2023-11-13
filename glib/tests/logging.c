@@ -124,6 +124,68 @@ test_default_handler_debug (void)
   g_log ("foo", G_LOG_LEVEL_DEBUG, "6");
   g_log ("bar", G_LOG_LEVEL_DEBUG, "6");
   g_log ("baz", G_LOG_LEVEL_DEBUG, "6");
+
+  exit (0);
+}
+
+static void
+test_default_handler_debug_stderr (void)
+{
+  g_log_writer_default_set_use_stderr (TRUE);
+  g_log_set_default_handler (g_log_default_handler, NULL);
+
+  g_setenv ("G_MESSAGES_DEBUG", "all", TRUE);
+
+  g_log ("foo", G_LOG_LEVEL_DEBUG, "6");
+  g_log ("bar", G_LOG_LEVEL_DEBUG, "6");
+  g_log ("baz", G_LOG_LEVEL_DEBUG, "6");
+
+  exit (0);
+}
+
+static void
+test_default_handler_would_drop (void)
+{
+  g_unsetenv ("G_MESSAGES_DEBUG");
+
+  g_assert_false (g_log_writer_default_would_drop (G_LOG_LEVEL_ERROR, "foo"));
+  g_assert_false (g_log_writer_default_would_drop (G_LOG_LEVEL_CRITICAL, "foo"));
+  g_assert_false (g_log_writer_default_would_drop (G_LOG_LEVEL_WARNING, "foo"));
+  g_assert_false (g_log_writer_default_would_drop (G_LOG_LEVEL_MESSAGE, "foo"));
+  g_assert_true (g_log_writer_default_would_drop (G_LOG_LEVEL_INFO, "foo"));
+  g_assert_true (g_log_writer_default_would_drop (G_LOG_LEVEL_DEBUG, "foo"));
+  g_assert_false (g_log_writer_default_would_drop (1<<G_LOG_LEVEL_USER_SHIFT, "foo"));
+
+  g_setenv ("G_MESSAGES_DEBUG", "bar baz", TRUE);
+
+  g_assert_false (g_log_writer_default_would_drop (G_LOG_LEVEL_ERROR, "foo"));
+  g_assert_false (g_log_writer_default_would_drop (G_LOG_LEVEL_CRITICAL, "foo"));
+  g_assert_false (g_log_writer_default_would_drop (G_LOG_LEVEL_WARNING, "foo"));
+  g_assert_false (g_log_writer_default_would_drop (G_LOG_LEVEL_MESSAGE, "foo"));
+  g_assert_true (g_log_writer_default_would_drop (G_LOG_LEVEL_INFO, "foo"));
+  g_assert_true (g_log_writer_default_would_drop (G_LOG_LEVEL_DEBUG, "foo"));
+  g_assert_false (g_log_writer_default_would_drop (1<<G_LOG_LEVEL_USER_SHIFT, "foo"));
+
+  g_setenv ("G_MESSAGES_DEBUG", "foo bar", TRUE);
+
+  g_assert_false (g_log_writer_default_would_drop (G_LOG_LEVEL_ERROR, "foo"));
+  g_assert_false (g_log_writer_default_would_drop (G_LOG_LEVEL_CRITICAL, "foo"));
+  g_assert_false (g_log_writer_default_would_drop (G_LOG_LEVEL_WARNING, "foo"));
+  g_assert_false (g_log_writer_default_would_drop (G_LOG_LEVEL_MESSAGE, "foo"));
+  g_assert_false (g_log_writer_default_would_drop (G_LOG_LEVEL_INFO, "foo"));
+  g_assert_false (g_log_writer_default_would_drop (G_LOG_LEVEL_DEBUG, "foo"));
+  g_assert_false (g_log_writer_default_would_drop (1<<G_LOG_LEVEL_USER_SHIFT, "foo"));
+
+  g_setenv ("G_MESSAGES_DEBUG", "all", TRUE);
+
+  g_assert_false (g_log_writer_default_would_drop (G_LOG_LEVEL_ERROR, "foo"));
+  g_assert_false (g_log_writer_default_would_drop (G_LOG_LEVEL_CRITICAL, "foo"));
+  g_assert_false (g_log_writer_default_would_drop (G_LOG_LEVEL_WARNING, "foo"));
+  g_assert_false (g_log_writer_default_would_drop (G_LOG_LEVEL_MESSAGE, "foo"));
+  g_assert_false (g_log_writer_default_would_drop (G_LOG_LEVEL_INFO, "foo"));
+  g_assert_false (g_log_writer_default_would_drop (G_LOG_LEVEL_DEBUG, "foo"));
+  g_assert_false (g_log_writer_default_would_drop (1<<G_LOG_LEVEL_USER_SHIFT, "foo"));
+
   exit (0);
 }
 
@@ -138,41 +200,60 @@ test_default_handler_0x400 (void)
 static void
 test_default_handler (void)
 {
-  g_test_trap_subprocess ("/logging/default-handler/subprocess/error", 0, 0);
+  g_test_trap_subprocess ("/logging/default-handler/subprocess/error", 0,
+                          G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
   g_test_trap_assert_stderr ("*ERROR*message1*");
 
-  g_test_trap_subprocess ("/logging/default-handler/subprocess/critical", 0, 0);
+  g_test_trap_subprocess ("/logging/default-handler/subprocess/critical", 0,
+                          G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
   g_test_trap_assert_stderr ("*CRITICAL*message2*");
 
-  g_test_trap_subprocess ("/logging/default-handler/subprocess/warning", 0, 0);
+  g_test_trap_subprocess ("/logging/default-handler/subprocess/warning", 0,
+                          G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
   g_test_trap_assert_stderr ("*WARNING*message3*");
 
-  g_test_trap_subprocess ("/logging/default-handler/subprocess/message", 0, 0);
+  g_test_trap_subprocess ("/logging/default-handler/subprocess/message", 0,
+                          G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
   g_test_trap_assert_stderr ("*Message*message4*");
 
-  g_test_trap_subprocess ("/logging/default-handler/subprocess/info", 0, 0);
+  g_test_trap_subprocess ("/logging/default-handler/subprocess/info", 0,
+                          G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
   g_test_trap_assert_stdout_unmatched ("*INFO*message5*");
 
-  g_test_trap_subprocess ("/logging/default-handler/subprocess/bar-info", 0, 0);
+  g_test_trap_subprocess ("/logging/default-handler/subprocess/bar-info", 0,
+                          G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
   g_test_trap_assert_stdout ("*INFO*message5*");
 
-  g_test_trap_subprocess ("/logging/default-handler/subprocess/baz-debug", 0, 0);
+  g_test_trap_subprocess ("/logging/default-handler/subprocess/baz-debug", 0,
+                          G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
   g_test_trap_assert_stdout ("*DEBUG*message6*");
 
-  g_test_trap_subprocess ("/logging/default-handler/subprocess/debug", 0, 0);
+  g_test_trap_subprocess ("/logging/default-handler/subprocess/debug", 0,
+                          G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
   g_test_trap_assert_stdout ("*DEBUG*6*6*6*");
 
-  g_test_trap_subprocess ("/logging/default-handler/subprocess/0x400", 0, 0);
+  g_test_trap_subprocess ("/logging/default-handler/subprocess/debug-stderr", 0,
+                          G_TEST_SUBPROCESS_DEFAULT);
+  g_test_trap_assert_passed ();
+  g_test_trap_assert_stdout_unmatched ("DEBUG");
+  g_test_trap_assert_stderr ("*DEBUG*6*6*6*");
+
+  g_test_trap_subprocess ("/logging/default-handler/subprocess/0x400", 0,
+                          G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
   g_test_trap_assert_stdout ("*LOG-0x400*message7*");
+
+  g_test_trap_subprocess ("/logging/default-handler/subprocess/would-drop", 0,
+                          G_TEST_SUBPROCESS_DEFAULT);
+  g_test_trap_assert_passed ();
 }
 
 static void
@@ -184,7 +265,7 @@ test_fatal_log_mask (void)
       g_log ("bu", G_LOG_LEVEL_INFO, "fatal");
       return;
     }
-  g_test_trap_subprocess (NULL, 0, 0);
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
   /* G_LOG_LEVEL_INFO isn't printed by default */
   g_test_trap_assert_stdout_unmatched ("*fatal*");
@@ -270,7 +351,7 @@ test_handler (const gchar    *log_domain,
 static void
 bug653052 (void)
 {
-  g_test_bug ("653052");
+  g_test_bug ("https://bugzilla.gnome.org/show_bug.cgi?id=653052");
 
   g_test_log_set_fatal_handler (good_failure_handler, fail_str);
   g_log_set_default_handler (test_handler, log_str);
@@ -291,7 +372,7 @@ test_gibberish (void)
       g_warning ("bla bla \236\237\190");
       return;
     }
-  g_test_trap_subprocess (NULL, 0, 0);
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
   g_test_trap_assert_stderr ("*bla bla \\x9e\\x9f\\u000190*");
 }
@@ -328,7 +409,7 @@ compare_field (const GLogField *f1, const GLogField *f2)
 static gboolean
 compare_fields (const GLogField *f1, gsize n1, const GLogField *f2, gsize n2)
 {
-  int i, j;
+  gsize i, j;
 
   for (i = 0; i < n1; i++)
     {
@@ -365,9 +446,8 @@ expect_log_writer (GLogLevelFlags   log_level,
       char *str;
 
       str = g_log_writer_format_fields (log_level, fields, n_fields, FALSE);
-      g_test_message ("Unexpected message: %s", str);
+      g_test_fail_printf ("Unexpected message: %s", str);
       g_free (str);
-      g_test_fail ();
     }
 
   return G_LOG_WRITER_HANDLED;
@@ -376,137 +456,196 @@ expect_log_writer (GLogLevelFlags   log_level,
 static void
 test_structured_logging_no_state (void)
 {
-  gpointer some_pointer = GUINT_TO_POINTER (0x100);
-  guint some_integer = 123;
+  /* Test has to run in a subprocess as it calls g_log_set_writer_func(), which
+   * can only be called once per process. */
+  if (g_test_subprocess ())
+    {
+      gpointer some_pointer = GUINT_TO_POINTER (0x100);
+      guint some_integer = 123;
 
-  log_count = 0;
-  g_log_set_writer_func (null_log_writer, NULL, NULL);
+      log_count = 0;
+      g_log_set_writer_func (null_log_writer, NULL, NULL);
 
-  g_log_structured ("some-domain", G_LOG_LEVEL_MESSAGE,
-                    "MESSAGE_ID", "06d4df59e6c24647bfe69d2c27ef0b4e",
-                    "MY_APPLICATION_CUSTOM_FIELD", "some debug string",
-                    "MESSAGE", "This is a debug message about pointer %p and integer %u.",
-                    some_pointer, some_integer);
+      g_log_structured ("some-domain", G_LOG_LEVEL_MESSAGE,
+                        "MESSAGE_ID", "06d4df59e6c24647bfe69d2c27ef0b4e",
+                        "MY_APPLICATION_CUSTOM_FIELD", "some debug string",
+                        "MESSAGE", "This is a debug message about pointer %p and integer %u.",
+                        some_pointer, some_integer);
 
-  g_assert_cmpint (log_count, ==, 1);
+      g_assert_cmpint (log_count, ==, 1);
+    }
+  else
+    {
+      g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
+      g_test_trap_assert_passed ();
+    }
 }
 
 static void
 test_structured_logging_some_state (void)
 {
-  gpointer state_object = NULL;  /* this must not be dereferenced */
-  const GLogField fields[] = {
-    { "MESSAGE", "This is a debug message.", -1 },
-    { "MESSAGE_ID", "fcfb2e1e65c3494386b74878f1abf893", -1 },
-    { "MY_APPLICATION_CUSTOM_FIELD", "some debug string", -1 },
-    { "MY_APPLICATION_STATE", state_object, 0 },
-  };
+  /* Test has to run in a subprocess as it calls g_log_set_writer_func(), which
+   * can only be called once per process. */
+  if (g_test_subprocess ())
+    {
+      gpointer state_object = NULL;  /* this must not be dereferenced */
+      const GLogField fields[] = {
+        { "MESSAGE", "This is a debug message.", -1 },
+        { "MESSAGE_ID", "fcfb2e1e65c3494386b74878f1abf893", -1 },
+        { "MY_APPLICATION_CUSTOM_FIELD", "some debug string", -1 },
+        { "MY_APPLICATION_STATE", state_object, 0 },
+      };
 
-  log_count = 0;
-  g_log_set_writer_func (null_log_writer, NULL, NULL);
+      log_count = 0;
+      g_log_set_writer_func (null_log_writer, NULL, NULL);
 
-  g_log_structured_array (G_LOG_LEVEL_DEBUG, fields, G_N_ELEMENTS (fields));
+      g_log_structured_array (G_LOG_LEVEL_DEBUG, fields, G_N_ELEMENTS (fields));
 
-  g_assert_cmpint (log_count, ==, 1);
+      g_assert_cmpint (log_count, ==, 1);
+    }
+  else
+    {
+      g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
+      g_test_trap_assert_passed ();
+    }
 }
 
 static void
 test_structured_logging_robustness (void)
 {
-  log_count = 0;
-  g_log_set_writer_func (null_log_writer, NULL, NULL);
+  /* Test has to run in a subprocess as it calls g_log_set_writer_func(), which
+   * can only be called once per process. */
+  if (g_test_subprocess ())
+    {
+      log_count = 0;
+      g_log_set_writer_func (null_log_writer, NULL, NULL);
 
-  /* NULL log_domain shouldn't crash */
-  g_log (NULL, G_LOG_LEVEL_MESSAGE, "Test");
-  g_log_structured (NULL, G_LOG_LEVEL_MESSAGE, "MESSAGE", "Test");
+      /* NULL log_domain shouldn't crash */
+      g_log (NULL, G_LOG_LEVEL_MESSAGE, "Test");
+      g_log_structured (NULL, G_LOG_LEVEL_MESSAGE, "MESSAGE", "Test");
 
-  g_assert_cmpint (log_count, ==, 1);
+      g_assert_cmpint (log_count, ==, 2);
+    }
+  else
+    {
+      g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
+      g_test_trap_assert_passed ();
+    }
 }
 
 static void
 test_structured_logging_roundtrip1 (void)
 {
-  gpointer some_pointer = GUINT_TO_POINTER (0x100);
-  gint some_integer = 123;
-  gchar message[200];
-  GLogField fields[] = {
-    { "GLIB_DOMAIN", "some-domain", -1 },
-    { "PRIORITY", "5", -1 },
-    { "MESSAGE", "String assigned using g_snprintf() below", -1 },
-    { "MESSAGE_ID", "fcfb2e1e65c3494386b74878f1abf893", -1 },
-    { "MY_APPLICATION_CUSTOM_FIELD", "some debug string", -1 }
-  };
-  ExpectedMessage expected = { fields, 5 };
-
-  /* %p format is implementation defined and depends on the platform */
-  g_snprintf (message, sizeof (message),
-              "This is a debug message about pointer %p and integer %u.",
-              some_pointer, some_integer);
-  fields[2].value = message;
-
-  expected_messages = g_slist_append (NULL, &expected);
-  g_log_set_writer_func (expect_log_writer, NULL, NULL);
-
-  g_log_structured ("some-domain", G_LOG_LEVEL_MESSAGE,
-                    "MESSAGE_ID", "fcfb2e1e65c3494386b74878f1abf893",
-                    "MY_APPLICATION_CUSTOM_FIELD", "some debug string",
-                    "MESSAGE", "This is a debug message about pointer %p and integer %u.",
-                    some_pointer, some_integer);
-
-  if (expected_messages != NULL)
+  /* Test has to run in a subprocess as it calls g_log_set_writer_func(), which
+   * can only be called once per process. */
+  if (g_test_subprocess ())
     {
-      char *str;
-      ExpectedMessage *expected = expected_messages->data;
+      gpointer some_pointer = GUINT_TO_POINTER (0x100);
+      gint some_integer = 123;
+      gchar message[200];
+      GLogField fields[] = {
+        { "GLIB_DOMAIN", "some-domain", -1 },
+        { "PRIORITY", "5", -1 },
+        { "MESSAGE", "String assigned using g_snprintf() below", -1 },
+        { "MESSAGE_ID", "fcfb2e1e65c3494386b74878f1abf893", -1 },
+        { "MY_APPLICATION_CUSTOM_FIELD", "some debug string", -1 }
+      };
+      ExpectedMessage expected = { fields, 5 };
 
-      str = g_log_writer_format_fields (0, expected->fields, expected->n_fields, FALSE);
-      g_test_message ("Unexpected message: %s", str);
-      g_free (str);
-      g_test_fail ();
+      /* %p format is implementation defined and depends on the platform */
+      g_snprintf (message, sizeof (message),
+                  "This is a debug message about pointer %p and integer %u.",
+                  some_pointer, some_integer);
+      fields[2].value = message;
+
+      expected_messages = g_slist_append (NULL, &expected);
+      g_log_set_writer_func (expect_log_writer, NULL, NULL);
+
+      g_log_structured ("some-domain", G_LOG_LEVEL_MESSAGE,
+                        "MESSAGE_ID", "fcfb2e1e65c3494386b74878f1abf893",
+                        "MY_APPLICATION_CUSTOM_FIELD", "some debug string",
+                        "MESSAGE", "This is a debug message about pointer %p and integer %u.",
+                        some_pointer, some_integer);
+
+      if (expected_messages != NULL)
+        {
+          char *str;
+          ExpectedMessage *msg = expected_messages->data;
+
+          str = g_log_writer_format_fields (0, msg->fields, msg->n_fields, FALSE);
+          g_test_fail_printf ("Unexpected message: %s", str);
+          g_free (str);
+        }
+    }
+  else
+    {
+      g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
+      g_test_trap_assert_passed ();
     }
 }
 
 static void
 test_structured_logging_roundtrip2 (void)
 {
-  const gchar *some_string = "abc";
-  const GLogField fields[] = {
-    { "GLIB_DOMAIN", "some-domain", -1 },
-    { "PRIORITY", "5", -1 },
-    { "MESSAGE", "This is a debug message about string 'abc'.", -1 },
-    { "MESSAGE_ID", "fcfb2e1e65c3494386b74878f1abf893", -1 },
-    { "MY_APPLICATION_CUSTOM_FIELD", "some debug string", -1 }
-  };
-  ExpectedMessage expected = { fields, 5 };
+  /* Test has to run in a subprocess as it calls g_log_set_writer_func(), which
+   * can only be called once per process. */
+  if (g_test_subprocess ())
+    {
+      const gchar *some_string = "abc";
+      const GLogField fields[] = {
+        { "GLIB_DOMAIN", "some-domain", -1 },
+        { "PRIORITY", "5", -1 },
+        { "MESSAGE", "This is a debug message about string 'abc'.", -1 },
+        { "MESSAGE_ID", "fcfb2e1e65c3494386b74878f1abf893", -1 },
+        { "MY_APPLICATION_CUSTOM_FIELD", "some debug string", -1 }
+      };
+      ExpectedMessage expected = { fields, 5 };
 
-  expected_messages = g_slist_append (NULL, &expected);
-  g_log_set_writer_func (expect_log_writer, NULL, NULL);
+      expected_messages = g_slist_append (NULL, &expected);
+      g_log_set_writer_func (expect_log_writer, NULL, NULL);
 
-  g_log_structured ("some-domain", G_LOG_LEVEL_MESSAGE,
-                    "MESSAGE_ID", "fcfb2e1e65c3494386b74878f1abf893",
-                    "MY_APPLICATION_CUSTOM_FIELD", "some debug string",
-                    "MESSAGE", "This is a debug message about string '%s'.",
-                    some_string);
+      g_log_structured ("some-domain", G_LOG_LEVEL_MESSAGE,
+                        "MESSAGE_ID", "fcfb2e1e65c3494386b74878f1abf893",
+                        "MY_APPLICATION_CUSTOM_FIELD", "some debug string",
+                        "MESSAGE", "This is a debug message about string '%s'.",
+                        some_string);
 
-  g_assert (expected_messages == NULL);
+      g_assert (expected_messages == NULL);
+    }
+  else
+    {
+      g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
+      g_test_trap_assert_passed ();
+    }
 }
 
 static void
 test_structured_logging_roundtrip3 (void)
 {
-  const GLogField fields[] = {
-    { "GLIB_DOMAIN", "some-domain", -1 },
-    { "PRIORITY", "4", -1 },
-    { "MESSAGE", "Test test test.", -1 }
-  };
-  ExpectedMessage expected = { fields, 3 };
+  /* Test has to run in a subprocess as it calls g_log_set_writer_func(), which
+   * can only be called once per process. */
+  if (g_test_subprocess ())
+    {
+      const GLogField fields[] = {
+        { "GLIB_DOMAIN", "some-domain", -1 },
+        { "PRIORITY", "4", -1 },
+        { "MESSAGE", "Test test test.", -1 }
+      };
+      ExpectedMessage expected = { fields, 3 };
 
-  expected_messages = g_slist_append (NULL, &expected);
-  g_log_set_writer_func (expect_log_writer, NULL, NULL);
+      expected_messages = g_slist_append (NULL, &expected);
+      g_log_set_writer_func (expect_log_writer, NULL, NULL);
 
-  g_log_structured ("some-domain", G_LOG_LEVEL_WARNING,
-                    "MESSAGE", "Test test test.");
+      g_log_structured ("some-domain", G_LOG_LEVEL_WARNING,
+                        "MESSAGE", "Test test test.");
 
-  g_assert (expected_messages == NULL);
+      g_assert (expected_messages == NULL);
+    }
+  else
+    {
+      g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
+      g_test_trap_assert_passed ();
+    }
 }
 
 static GVariant *
@@ -529,36 +668,73 @@ create_variant_fields (void)
 static void
 test_structured_logging_variant1 (void)
 {
-  GVariant *v = create_variant_fields ();
+  /* Test has to run in a subprocess as it calls g_log_set_writer_func(), which
+   * can only be called once per process. */
+  if (g_test_subprocess ())
+    {
+      GVariant *v = create_variant_fields ();
 
-  log_count = 0;
-  g_log_set_writer_func (null_log_writer, NULL, NULL);
+      log_count = 0;
+      g_log_set_writer_func (null_log_writer, NULL, NULL);
 
-  g_log_variant ("some-domain", G_LOG_LEVEL_MESSAGE, v);
-  g_variant_unref (v);
-  g_assert_cmpint (log_count, ==, 1);
+      g_log_variant ("some-domain", G_LOG_LEVEL_MESSAGE, v);
+      g_variant_unref (v);
+      g_assert_cmpint (log_count, ==, 1);
+    }
+  else
+    {
+      g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
+      g_test_trap_assert_passed ();
+    }
 }
 
 static void
 test_structured_logging_variant2 (void)
 {
-  const GLogField fields[] = {
-    { "GLIB_DOMAIN", "some-domain", -1 },
-    { "PRIORITY", "5", -1 },
-    { "MESSAGE", "This is a debug message", -1 },
-    { "MESSAGE_ID", "06d4df59e6c24647bfe69d2c27ef0b4e", -1 },
-    { "MY_APPLICATION_CUSTOM_FIELD", "some debug string", -1 },
-    { "MY_APPLICATION_CUSTOM_FIELD_BINARY", binary_field, sizeof (binary_field) }
-  };
-  ExpectedMessage expected = { fields, 6 };
-  GVariant *v = create_variant_fields ();
+  /* Test has to run in a subprocess as it calls g_log_set_writer_func(), which
+   * can only be called once per process. */
+  if (g_test_subprocess ())
+    {
+      const GLogField fields[] = {
+        { "GLIB_DOMAIN", "some-domain", -1 },
+        { "PRIORITY", "5", -1 },
+        { "MESSAGE", "This is a debug message", -1 },
+        { "MESSAGE_ID", "06d4df59e6c24647bfe69d2c27ef0b4e", -1 },
+        { "MY_APPLICATION_CUSTOM_FIELD", "some debug string", -1 },
+        { "MY_APPLICATION_CUSTOM_FIELD_BINARY", binary_field, sizeof (binary_field) }
+      };
+      ExpectedMessage expected = { fields, 6 };
+      GVariant *v = create_variant_fields ();
 
-  expected_messages = g_slist_append (NULL, &expected);
-  g_log_set_writer_func (expect_log_writer, NULL, NULL);
+      expected_messages = g_slist_append (NULL, &expected);
+      g_log_set_writer_func (expect_log_writer, NULL, NULL);
 
-  g_log_variant ("some-domain", G_LOG_LEVEL_MESSAGE, v);
-  g_variant_unref (v);
-  g_assert (expected_messages == NULL);
+      g_log_variant ("some-domain", G_LOG_LEVEL_MESSAGE, v);
+      g_variant_unref (v);
+      g_assert (expected_messages == NULL);
+    }
+  else
+    {
+      g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
+      g_test_trap_assert_passed ();
+    }
+}
+
+static void
+test_structured_logging_set_writer_func_twice (void)
+{
+  /* Test has to run in a subprocess as it calls g_log_set_writer_func() and
+   * causes an error. */
+  if (g_test_subprocess ())
+    {
+      g_log_set_writer_func (null_log_writer, NULL, NULL);
+      g_log_set_writer_func (expect_log_writer, NULL, NULL);
+    }
+  else
+    {
+      g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
+      g_test_trap_assert_failed ();
+    }
 }
 
 int
@@ -567,7 +743,6 @@ main (int argc, char *argv[])
   g_unsetenv ("G_MESSAGES_DEBUG");
 
   g_test_init (&argc, &argv, NULL);
-  g_test_bug_base ("http://bugzilla.gnome.org/");
 
   g_test_add_func ("/logging/default-handler", test_default_handler);
   g_test_add_func ("/logging/default-handler/subprocess/error", test_default_handler_error);
@@ -578,7 +753,9 @@ main (int argc, char *argv[])
   g_test_add_func ("/logging/default-handler/subprocess/bar-info", test_default_handler_bar_info);
   g_test_add_func ("/logging/default-handler/subprocess/baz-debug", test_default_handler_baz_debug);
   g_test_add_func ("/logging/default-handler/subprocess/debug", test_default_handler_debug);
+  g_test_add_func ("/logging/default-handler/subprocess/debug-stderr", test_default_handler_debug_stderr);
   g_test_add_func ("/logging/default-handler/subprocess/0x400", test_default_handler_0x400);
+  g_test_add_func ("/logging/default-handler/subprocess/would-drop", test_default_handler_would_drop);
   g_test_add_func ("/logging/warnings", test_warnings);
   g_test_add_func ("/logging/fatal-log-mask", test_fatal_log_mask);
   g_test_add_func ("/logging/set-handler", test_set_handler);
@@ -594,6 +771,7 @@ main (int argc, char *argv[])
   g_test_add_func ("/structured-logging/roundtrip3", test_structured_logging_roundtrip3);
   g_test_add_func ("/structured-logging/variant1", test_structured_logging_variant1);
   g_test_add_func ("/structured-logging/variant2", test_structured_logging_variant2);
+  g_test_add_func ("/structured-logging/set-writer-func-twice", test_structured_logging_set_writer_func_twice);
 
   return g_test_run ();
 }

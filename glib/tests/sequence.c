@@ -16,6 +16,7 @@ struct _GSequence
 struct _GSequenceNode
 {
   gint                  n_nodes;
+  guint32               priority;
   GSequenceNode *       parent;
   GSequenceNode *       left;
   GSequenceNode *       right;
@@ -25,15 +26,9 @@ struct _GSequenceNode
 static guint
 get_priority (GSequenceNode *node)
 {
-  guint key = GPOINTER_TO_UINT (node);
+  guint key = node->priority;
 
-  key = (key << 15) - key - 1;
-  key = key ^ (key >> 12);
-  key = key + (key << 2);
-  key = key ^ (key >> 4);
-  key = key + (key << 3) + (key << 11);
-  key = key ^ (key >> 16);
-
+  /* We rely on 0 being less than all other priorities */
   return key? key : 1;
 }
 
@@ -99,7 +94,7 @@ typedef struct SequenceInfo
 {
   GQueue *      queue;
   GSequence *   sequence;
-  int           n_items;
+  guint         n_items;
 } SequenceInfo;
 
 typedef struct
@@ -137,7 +132,7 @@ check_integrity (SequenceInfo *info)
              g_sequence_get_length (info->sequence), info->n_items);
 #endif
   g_assert (info->n_items == g_queue_get_length (info->queue));
-  g_assert (g_sequence_get_length (info->sequence) == info->n_items);
+  g_assert ((guint) g_sequence_get_length (info->sequence) == info->n_items);
 
   iter = g_sequence_get_begin_iter (info->sequence);
   list = info->queue->head;
@@ -155,7 +150,7 @@ check_integrity (SequenceInfo *info)
     }
 
   g_assert (info->n_items == g_queue_get_length (info->queue));
-  g_assert (g_sequence_get_length (info->sequence) == info->n_items);
+  g_assert ((guint) g_sequence_get_length (info->sequence) == info->n_items);
 }
 
 static gpointer
@@ -549,9 +544,7 @@ run_random_tests (gconstpointer d)
           break;
         case GET_ITER_AT_POS:
           {
-            int i;
-
-            g_assert (g_queue_get_length (seq->queue) == g_sequence_get_length (seq->sequence));
+            g_assert (g_queue_get_length (seq->queue) == (guint) g_sequence_get_length (seq->sequence));
 
             for (i = 0; i < 10; ++i)
               {
@@ -665,7 +658,6 @@ run_random_tests (gconstpointer d)
           break;
         case INSERT_SORTED:
           {
-            int i;
             dump_info (seq);
 
             g_sequence_sort (seq->sequence, compare_items, NULL);
@@ -688,7 +680,6 @@ run_random_tests (gconstpointer d)
           break;
         case INSERT_SORTED_ITER:
           {
-            int i;
             dump_info (seq);
 
             g_sequence_sort (seq->sequence, compare_items, NULL);
@@ -715,8 +706,6 @@ run_random_tests (gconstpointer d)
           break;
         case SORT_CHANGED:
           {
-            int i;
-
             g_sequence_sort (seq->sequence, compare_items, NULL);
             g_queue_sort (seq->queue, compare_iters, NULL);
 
@@ -742,8 +731,6 @@ run_random_tests (gconstpointer d)
           break;
         case SORT_CHANGED_ITER:
           {
-            int i;
-
             g_sequence_sort (seq->sequence, compare_items, NULL);
             g_queue_sort (seq->queue, compare_iters, NULL);
 
@@ -770,8 +757,6 @@ run_random_tests (gconstpointer d)
           break;
         case REMOVE:
           {
-            int i;
-
             for (i = 0; i < N_TIMES; ++i)
               {
                 GList *link;
@@ -963,7 +948,6 @@ run_random_tests (gconstpointer d)
             if (!g_sequence_iter_is_end (iter))
               {
                 Item *item;
-                int i;
 
                 check_integrity (seq);
 
@@ -1387,7 +1371,7 @@ int
 main (int argc,
       char **argv)
 {
-  gint i;
+  gsize i;
   guint32 seed;
   gchar *path;
 

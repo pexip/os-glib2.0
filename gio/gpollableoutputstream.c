@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -214,7 +216,7 @@ g_pollable_output_stream_default_writev_nonblocking (GPollableOutputStream  *str
 
       _bytes_written += res;
       /* if we had a short write break the loop here */
-      if (res < vectors[i].size)
+      if ((gsize) res < vectors[i].size)
         break;
     }
 

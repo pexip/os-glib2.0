@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2009 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -41,7 +43,7 @@ enum {
 };
 
 /**
- * SECTION:gzcompressor
+ * SECTION:gzlibcompressor
  * @short_description: Zlib compressor
  * @include: gio/gio.h
  *
@@ -296,7 +298,7 @@ g_zlib_compressor_new (GZlibCompressorFormat format,
  *
  * Returns the #GZlibCompressor:file-info property.
  *
- * Returns: (transfer none): a #GFileInfo, or %NULL
+ * Returns: (nullable) (transfer none): a #GFileInfo, or %NULL
  *
  * Since: 2.26
  */

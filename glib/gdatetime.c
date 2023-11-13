@@ -6,6 +6,8 @@
  * Copyright © 2010 Codethink Limited
  * Copyright © 2018 Tomasz Miąsko
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as
  * published by the Free Software Foundation; either version 2.1 of the
@@ -60,22 +62,22 @@
 #include <langinfo.h>
 #endif
 
-#include "gdatetime.h"
-
-#include "gslice.h"
 #include "gatomic.h"
 #include "gcharset.h"
+#include "gcharsetprivate.h"
 #include "gconvert.h"
+#include "gconvertprivate.h"
+#include "gdatetime.h"
 #include "gfileutils.h"
 #include "ghash.h"
+#include "glibintl.h"
 #include "gmain.h"
 #include "gmappedfile.h"
+#include "gslice.h"
 #include "gstrfuncs.h"
 #include "gtestutils.h"
 #include "gthread.h"
 #include "gtimezone.h"
-
-#include "glibintl.h"
 
 #ifndef G_OS_WIN32
 #include <sys/time.h>
@@ -132,7 +134,7 @@ struct _GDateTime
   /* 1 is 0001-01-01 in Proleptic Gregorian */
   gint32 days;
 
-  volatile gint ref_count;
+  gint ref_count;  /* (atomic) */
 };
 
 /* Time conversion {{{1 */
@@ -622,7 +624,7 @@ g_date_time_get_week_number (GDateTime *datetime,
                              gint      *day_of_week,
                              gint      *day_of_year)
 {
-  gint a, b, c, d, e, f, g, n, s, month, day, year;
+  gint a, b, c, d, e, f, g, n, s, month = -1, day = -1, year = -1;
 
   g_date_time_get_ymd (datetime, &year, &month, &day);
 
@@ -893,8 +895,9 @@ static GDateTime *
 g_date_time_new_from_timeval (GTimeZone      *tz,
                               const GTimeVal *tv)
 {
-  if ((gint64) tv->tv_sec > G_MAXINT64 - 1 ||
-      !UNIX_TO_INSTANT_IS_VALID ((gint64) tv->tv_sec + 1))
+  gint64 tv_sec = tv->tv_sec;
+
+  if (tv_sec > G_MAXINT64 - 1 || !UNIX_TO_INSTANT_IS_VALID (tv_sec + 1))
     return NULL;
 
   return g_date_time_from_instant (tz, tv->tv_usec +
@@ -955,6 +958,8 @@ GDateTime *
 g_date_time_new_now (GTimeZone *tz)
 {
   gint64 now_us;
+
+  g_return_val_if_fail (tz != NULL, NULL);
 
   now_us = g_get_real_time ();
 
@@ -1391,15 +1396,15 @@ parse_iso8601_timezone (const gchar *text, gsize length, gssize *tz_offset)
     return NULL;
 
   *tz_offset = i;
-  tz = g_time_zone_new (text + i);
+  tz = g_time_zone_new_identifier (text + i);
 
   /* Double-check that the GTimeZone matches our interpretation of the timezone.
    * This can fail because our interpretation is less strict than (for example)
    * parse_time() in gtimezone.c, which restricts the range of the parsed
    * integers. */
-  if (g_time_zone_get_offset (tz, 0) != offset_sign * (offset_hours * 3600 + offset_minutes * 60))
+  if (tz == NULL || g_time_zone_get_offset (tz, 0) != offset_sign * (offset_hours * 3600 + offset_minutes * 60))
     {
-      g_time_zone_unref (tz);
+      g_clear_pointer (&tz, g_time_zone_unref);
       return NULL;
     }
 
@@ -2027,8 +2032,8 @@ g_date_time_add_full (GDateTime *datetime,
 /* Compare, difference, hash, equal {{{1 */
 /**
  * g_date_time_compare:
- * @dt1: (not nullable): first #GDateTime to compare
- * @dt2: (not nullable): second #GDateTime to compare
+ * @dt1: (type GDateTime) (not nullable): first #GDateTime to compare
+ * @dt2: (type GDateTime) (not nullable): second #GDateTime to compare
  *
  * A comparison function for #GDateTimes that is suitable
  * as a #GCompareFunc. Both #GDateTimes must be non-%NULL.
@@ -2083,7 +2088,7 @@ g_date_time_difference (GDateTime *end,
 
 /**
  * g_date_time_hash:
- * @datetime: (not nullable): a #GDateTime
+ * @datetime: (type GDateTime) (not nullable): a #GDateTime
  *
  * Hashes @datetime into a #guint, suitable for use within #GHashTable.
  *
@@ -2101,8 +2106,8 @@ g_date_time_hash (gconstpointer datetime)
 
 /**
  * g_date_time_equal:
- * @dt1: (not nullable): a #GDateTime
- * @dt2: (not nullable): a #GDateTime
+ * @dt1: (type GDateTime) (not nullable): a #GDateTime
+ * @dt2: (type GDateTime) (not nullable): a #GDateTime
  *
  * Checks to see if @dt1 and @dt2 are equal.
  *
@@ -2278,19 +2283,19 @@ g_date_time_get_day_of_month (GDateTime *datetime)
 {
   gint           day_of_year,
                  i;
-  const guint16 *days;
+  guint          is_leap;
   guint16        last = 0;
 
   g_return_val_if_fail (datetime != NULL, 0);
 
-  days = days_in_year[GREGORIAN_LEAP (g_date_time_get_year (datetime)) ? 1 : 0];
+  is_leap = GREGORIAN_LEAP (g_date_time_get_year (datetime)) ? 1 : 0;
   g_date_time_get_week_number (datetime, NULL, NULL, &day_of_year);
 
   for (i = 1; i <= 12; i++)
     {
-      if (days [i] >= day_of_year)
+      if (days_in_year[is_leap][i] >= day_of_year)
         return day_of_year - last;
-      last = days [i];
+      last = days_in_year[is_leap][i];
     }
 
   g_warn_if_reached ();
@@ -2341,7 +2346,7 @@ g_date_time_get_day_of_month (GDateTime *datetime)
 gint
 g_date_time_get_week_numbering_year (GDateTime *datetime)
 {
-  gint year, month, day, weekday;
+  gint year = -1, month = -1, day = -1, weekday;
 
   g_date_time_get_ymd (datetime, &year, &month, &day);
   weekday = g_date_time_get_day_of_week (datetime);
@@ -2871,7 +2876,7 @@ initialize_alt_digits (void)
       if (g_strcmp0 (locale_digit, "") == 0)
         return NULL;
 
-      digit = g_locale_to_utf8 (locale_digit, -1, NULL, &digit_len, NULL);
+      digit = _g_ctype_locale_to_utf8 (locale_digit, -1, NULL, &digit_len, NULL);
       if (digit == NULL)
         return NULL;
 
@@ -2995,7 +3000,7 @@ g_date_time_format_locale (GDateTime   *datetime,
   if (locale_is_utf8)
     return g_date_time_format_utf8 (datetime, locale_format, outstr, locale_is_utf8);
 
-  utf8_format = g_locale_to_utf8 (locale_format, -1, NULL, NULL, NULL);
+  utf8_format = _g_time_locale_to_utf8 (locale_format, -1, NULL, NULL, NULL);
   if (utf8_format == NULL)
     return FALSE;
 
@@ -3019,7 +3024,7 @@ string_append (GString     *string,
     }
   else
     {
-      utf8 = g_locale_to_utf8 (s, -1, NULL, &utf8_len, NULL);
+      utf8 = _g_time_locale_to_utf8 (s, -1, NULL, &utf8_len, NULL);
       if (utf8 == NULL)
         return FALSE;
       g_string_append_len (string, utf8, utf8_len);
@@ -3140,7 +3145,7 @@ g_date_time_format_utf8 (GDateTime   *datetime,
 			 g_date_time_get_day_of_month (datetime));
 	  break;
 	case 'e':
-	  format_number (outstr, alt_digits, pad_set ? pad : " ", 2,
+	  format_number (outstr, alt_digits, pad_set ? pad : "\u2007", 2,
 			 g_date_time_get_day_of_month (datetime));
 	  break;
 	case 'f':
@@ -3188,11 +3193,11 @@ g_date_time_format_utf8 (GDateTime   *datetime,
 			 g_date_time_get_day_of_year (datetime));
 	  break;
 	case 'k':
-	  format_number (outstr, alt_digits, pad_set ? pad : " ", 2,
+	  format_number (outstr, alt_digits, pad_set ? pad : "\u2007", 2,
 			 g_date_time_get_hour (datetime));
 	  break;
 	case 'l':
-	  format_number (outstr, alt_digits, pad_set ? pad : " ", 2,
+	  format_number (outstr, alt_digits, pad_set ? pad : "\u2007", 2,
 			 (g_date_time_get_hour (datetime) + 11) % 12 + 1);
 	  break;
 	case 'm':
@@ -3354,7 +3359,8 @@ g_date_time_format_utf8 (GDateTime   *datetime,
  * - \%c: the preferred date and time representation for the current locale
  * - \%C: the century number (year/100) as a 2-digit integer (00-99)
  * - \%d: the day of the month as a decimal number (range 01 to 31)
- * - \%e: the day of the month as a decimal number (range  1 to 31)
+ * - \%e: the day of the month as a decimal number (range 1 to 31);
+ *   single digits are preceded by a figure space
  * - \%F: equivalent to `%Y-%m-%d` (the ISO 8601 date format)
  * - \%g: the last two digits of the ISO 8601 week-based year as a
  *   decimal number (00-99). This works well with \%V and \%u.
@@ -3365,9 +3371,9 @@ g_date_time_format_utf8 (GDateTime   *datetime,
  * - \%I: the hour as a decimal number using a 12-hour clock (range 01 to 12)
  * - \%j: the day of the year as a decimal number (range 001 to 366)
  * - \%k: the hour (24-hour clock) as a decimal number (range 0 to 23);
- *   single digits are preceded by a blank
+ *   single digits are preceded by a figure space
  * - \%l: the hour (12-hour clock) as a decimal number (range 1 to 12);
- *   single digits are preceded by a blank
+ *   single digits are preceded by a figure space
  * - \%m: the month as a decimal number (range 01 to 12)
  * - \%M: the minute as a decimal number (range 00 to 59)
  * - \%f: the microsecond as a decimal number (range 000000 to 999999)
@@ -3445,10 +3451,11 @@ g_date_time_format (GDateTime   *datetime,
 {
   GString  *outstr;
   const gchar *charset;
-  /* Avoid conversions from locale charset to UTF-8 if charset is compatible
+  /* Avoid conversions from locale (for LC_TIME and not for LC_MESSAGES unless
+   * specified otherwise) charset to UTF-8 if charset is compatible
    * with UTF-8 already. Check for UTF-8 and synonymous canonical names of
    * ASCII. */
-  gboolean locale_is_utf8_compatible = g_get_charset (&charset) ||
+  gboolean time_is_utf8_compatible = _g_get_time_charset (&charset) ||
     g_strcmp0 ("ASCII", charset) == 0 ||
     g_strcmp0 ("ANSI_X3.4-1968", charset) == 0;
 
@@ -3459,7 +3466,7 @@ g_date_time_format (GDateTime   *datetime,
   outstr = g_string_sized_new (strlen (format) * 2);
 
   if (!g_date_time_format_utf8 (datetime, format, outstr,
-                                locale_is_utf8_compatible))
+                                time_is_utf8_compatible))
     {
       g_string_free (outstr, TRUE);
       return NULL;
@@ -3490,12 +3497,14 @@ g_date_time_format_iso8601 (GDateTime *datetime)
   GString *outstr = NULL;
   gchar *main_date = NULL;
   gint64 offset;
-  gchar *format = "%Y-%m-%dT%H:%M:%S";
+  gchar *format = "%C%y-%m-%dT%H:%M:%S";
+
+  g_return_val_if_fail (datetime != NULL, NULL);
 
   /* if datetime has sub-second non-zero values below the second precision we
    * should print them as well */
   if (datetime->usec % G_TIME_SPAN_SECOND != 0)
-    format = "%Y-%m-%dT%H:%M:%S.%f";
+    format = "%C%y-%m-%dT%H:%M:%S.%f";
 
   /* Main date and time. */
   main_date = g_date_time_format (datetime, format);

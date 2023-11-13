@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -40,12 +42,12 @@
 #include "gdbusprivate.h"
 #include "gstdio.h"
 
-#ifdef G_OS_UNIX
+#ifdef HAVE_UNISTD_H
 #include <unistd.h>
+#endif
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <gio/gunixsocketaddress.h>
-#endif
 
 #ifdef G_OS_WIN32
 #include <windows.h>
@@ -66,6 +68,9 @@
  *
  * TCP D-Bus connections are supported, but accessing them via a proxy is
  * currently not supported.
+ *
+ * Since GLib 2.72, `unix:` addresses are supported on Windows with `AF_UNIX`
+ * support (Windows 10).
  */
 
 static gchar *get_session_address_platform_specific (GError **error);
@@ -571,11 +576,7 @@ g_dbus_address_connect (const gchar   *address_entry,
   ret = NULL;
   nonce_file = NULL;
 
-  if (FALSE)
-    {
-    }
-#ifdef G_OS_UNIX
-  else if (g_strcmp0 (transport_name, "unix") == 0)
+  if (g_strcmp0 (transport_name, "unix") == 0)
     {
       const gchar *path;
       const gchar *abstract;
@@ -605,7 +606,6 @@ g_dbus_address_connect (const gchar   *address_entry,
           g_assert_not_reached ();
         }
     }
-#endif
   else if (g_strcmp0 (transport_name, "tcp") == 0 || g_strcmp0 (transport_name, "nonce-tcp") == 0)
     {
       const gchar *s;
@@ -904,10 +904,13 @@ g_dbus_address_get_stream (const gchar         *address,
 /**
  * g_dbus_address_get_stream_finish:
  * @res: A #GAsyncResult obtained from the GAsyncReadyCallback passed to g_dbus_address_get_stream().
- * @out_guid: (optional) (out): %NULL or return location to store the GUID extracted from @address, if any.
+ * @out_guid: (optional) (out) (nullable): %NULL or return location to store the GUID extracted from @address, if any.
  * @error: Return location for error or %NULL.
  *
  * Finishes an operation started with g_dbus_address_get_stream().
+ *
+ * A server is not required to set a GUID, so @out_guid may be set to %NULL
+ * even on success.
  *
  * Returns: (transfer full): A #GIOStream or %NULL if @error is set.
  *
@@ -941,7 +944,7 @@ g_dbus_address_get_stream_finish (GAsyncResult        *res,
 /**
  * g_dbus_address_get_stream_sync:
  * @address: A valid D-Bus address.
- * @out_guid: (optional) (out): %NULL or return location to store the GUID extracted from @address, if any.
+ * @out_guid: (optional) (out) (nullable): %NULL or return location to store the GUID extracted from @address, if any.
  * @cancellable: (nullable): A #GCancellable or %NULL.
  * @error: Return location for error or %NULL.
  *
@@ -949,6 +952,9 @@ g_dbus_address_get_stream_finish (GAsyncResult        *res,
  * sets up the connection so it is in a state to run the client-side
  * of the D-Bus authentication conversation. @address must be in the
  * [D-Bus address format](https://dbus.freedesktop.org/doc/dbus-specification.html#addresses).
+ *
+ * A server is not required to set a GUID, so @out_guid may be set to %NULL
+ * even on success.
  *
  * This is a synchronous failable function. See
  * g_dbus_address_get_stream() for the asynchronous version.
@@ -1076,7 +1082,7 @@ get_session_address_dbus_launch (GError **error)
   gchar *command_line;
   gchar *launch_stdout;
   gchar *launch_stderr;
-  gint exit_status;
+  gint wait_status;
   gchar *old_dbus_verbose;
   gboolean restore_dbus_verbose;
 
@@ -1092,7 +1098,7 @@ get_session_address_dbus_launch (GError **error)
   if (GLIB_PRIVATE_CALL (g_check_setuid) ())
     {
       g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
-		   _("Cannot spawn a message bus when setuid"));
+                   _("Cannot spawn a message bus when AT_SECURE is set"));
       goto out;
     }
 
@@ -1140,13 +1146,13 @@ get_session_address_dbus_launch (GError **error)
   if (!g_spawn_command_line_sync (command_line,
                                   &launch_stdout,
                                   &launch_stderr,
-                                  &exit_status,
+                                  &wait_status,
                                   error))
     {
       goto out;
     }
 
-  if (!g_spawn_check_exit_status (exit_status, error))
+  if (!g_spawn_check_wait_status (wait_status, error))
     {
       g_prefix_error (error, _("Error spawning command line “%s”: "), command_line);
       goto out;
@@ -1337,31 +1343,9 @@ g_dbus_address_get_for_bus_sync (GBusType       bus_type,
 
     case G_BUS_TYPE_SESSION:
       if (has_elevated_privileges)
-        {
-#ifdef G_OS_UNIX
-          if (geteuid () == getuid ())
-            {
-              /* Ideally we shouldn't do this, because setgid and
-               * filesystem capabilities are also elevated privileges
-               * with which we should not be trusting environment variables
-               * from the caller. Unfortunately, there are programs with
-               * elevated privileges that rely on the session bus being
-               * available. We already prevent the really dangerous
-               * transports like autolaunch: and unixexec: when our
-               * privileges are elevated, so this can only make us connect
-               * to the wrong AF_UNIX or TCP socket. */
-              ret = g_strdup (g_getenv ("DBUS_SESSION_BUS_ADDRESS"));
-            }
-          else
-#endif
-            {
-              ret = NULL;
-            }
-        }
+        ret = NULL;
       else
-        {
-          ret = g_strdup (g_getenv ("DBUS_SESSION_BUS_ADDRESS"));
-        }
+        ret = g_strdup (g_getenv ("DBUS_SESSION_BUS_ADDRESS"));
 
       if (ret == NULL)
         {

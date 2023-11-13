@@ -1,6 +1,8 @@
 /*
  * Copyright © 2011 Canonical Ltd.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -541,7 +543,7 @@ g_menu_model_iterate_item_attributes (GMenuModel *model,
  * If the attribute does not exist, or does not match the expected type
  * then %NULL is returned.
  *
- * Returns: (transfer full): the value of the attribute
+ * Returns: (nullable) (transfer full): the value of the attribute
  *
  * Since: 2.32
  */
@@ -648,7 +650,7 @@ g_menu_model_iterate_item_links (GMenuModel *model,
  * If the link exists, the linked #GMenuModel is returned.  If the link
  * does not exist, %NULL is returned.
  *
- * Returns: (transfer full): the linked #GMenuModel, or %NULL
+ * Returns: (nullable) (transfer full): the linked #GMenuModel, or %NULL
  *
  * Since: 2.32
  */

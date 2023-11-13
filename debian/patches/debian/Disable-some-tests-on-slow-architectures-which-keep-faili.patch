@@ -10,15 +10,16 @@ environment variable]
 Co-authored-by: Simon McVittie <smcv@debian.org>
 Forwarded: no
 ---
- glib/tests/mainloop.c | 16 ++++++++++++++++
- glib/tests/timeout.c  |  9 +++++++++
- 2 files changed, 25 insertions(+)
+ glib/tests/mainloop.c       | 16 ++++++++++++++++
+ glib/tests/timeout.c        |  9 +++++++++
+ gobject/tests/threadtests.c |  8 ++++++++
+ 3 files changed, 33 insertions(+)
 
 diff --git a/glib/tests/mainloop.c b/glib/tests/mainloop.c
-index a46e79c..b0de640 100644
+index c18da94..2aec6ff 100644
 --- a/glib/tests/mainloop.c
 +++ b/glib/tests/mainloop.c
-@@ -461,6 +461,14 @@ test_child_sources (void)
+@@ -520,6 +520,14 @@ test_child_sources (void)
    GMainLoop *loop;
    GSource *parent, *child_b, *child_c, *end;
  
@@ -33,7 +34,7 @@ index a46e79c..b0de640 100644
    ctx = g_main_context_new ();
    loop = g_main_loop_new (ctx, FALSE);
  
-@@ -539,6 +547,14 @@ test_recursive_child_sources (void)
+@@ -598,6 +606,14 @@ test_recursive_child_sources (void)
    GMainLoop *loop;
    GSource *parent, *child_b, *child_c, *end;
  
@@ -49,10 +50,10 @@ index a46e79c..b0de640 100644
    loop = g_main_loop_new (ctx, FALSE);
  
 diff --git a/glib/tests/timeout.c b/glib/tests/timeout.c
-index 47f00ba..d6fad36 100644
+index acbb8f3..60cc5f2 100644
 --- a/glib/tests/timeout.c
 +++ b/glib/tests/timeout.c
-@@ -175,6 +175,15 @@ test_func (gpointer data)
+@@ -177,6 +177,15 @@ test_func (gpointer data)
  static void
  test_rounding (void)
  {
@@ -68,3 +69,22 @@ index 47f00ba..d6fad36 100644
    loop = g_main_loop_new (NULL, FALSE);
  
    last_time = g_get_monotonic_time ();
+diff --git a/gobject/tests/threadtests.c b/gobject/tests/threadtests.c
+index 3b485eb..6ea9a48 100644
+--- a/gobject/tests/threadtests.c
++++ b/gobject/tests/threadtests.c
+@@ -484,6 +484,14 @@ test_threaded_toggle_notify (void)
+                   "safely from another (the main) thread without causing the "
+                   "notifying thread to abort");
+ 
++#if defined(__arm__)
++  if (g_getenv ("DEB_ALLOW_FLAKY_TESTS") == NULL)
++    {
++      g_test_skip ("Intermittently takes more than 5 minutes on 32-bit ARM (Debian#1023652)");
++      return;
++    }
++#endif
++
+   g_object_add_toggle_ref (object, on_toggle_notify, &data);
+   g_object_unref (object);
+ 

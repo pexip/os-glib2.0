@@ -71,6 +71,7 @@
     <arg choice="plain">--method <replaceable>org.project.InterfaceName.MethodName</replaceable></arg>
     <group>
       <arg choice="plain">--timeout <replaceable>seconds</replaceable></arg>
+      <arg choice="plain">--interactive</arg>
     </group>
     <arg choice="plain">ARG1</arg>
     <arg choice="plain" rep="repeat">ARG2</arg>
@@ -320,6 +321,18 @@ $ gdbus call --session \
              {} \
              5000
 (uint32 12,)
+</programlisting>
+<para>
+  Call a method with file handle argument:
+</para>
+<programlisting>
+$ gdbus call --session \
+             --dest org.example.foo \
+             --object-path /org/example/foo \
+             --method SendFDs \
+             1 \
+             10 \
+             10&lt;file.foo
 </programlisting>
 <para>
   Monitoring all objects on a service:

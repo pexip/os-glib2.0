@@ -1,6 +1,8 @@
 /*
  * Copyright (C) 2018 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as
  * published by the Free Software Foundation; either version 2.1 of the
@@ -58,7 +60,7 @@ test_network_monitor (void)
 {
   guint ii;
 
-  g_test_bug ("793727");
+  g_test_bug ("https://bugzilla.gnome.org/show_bug.cgi?id=793727");
 
   if (g_test_subprocess ())
     {
@@ -86,7 +88,6 @@ int
 main (int argc, char *argv[])
 {
   g_test_init (&argc, &argv, NULL);
-  g_test_bug_base ("https://bugzilla.gnome.org/show_bug.cgi?id=");
 
   g_test_add_func ("/network-monitor/create-in-thread",
                    test_network_monitor);

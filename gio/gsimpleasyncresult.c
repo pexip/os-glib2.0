@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -705,7 +707,7 @@ g_simple_async_result_take_error (GSimpleAsyncResult *simple,
 /**
  * g_simple_async_result_set_error_va: (skip)
  * @simple: a #GSimpleAsyncResult.
- * @domain: a #GQuark (usually #G_IO_ERROR).
+ * @domain: a #GQuark (usually %G_IO_ERROR).
  * @code: an error code.
  * @format: a formatted error reporting string.
  * @args: va_list of arguments.
@@ -735,7 +737,7 @@ g_simple_async_result_set_error_va (GSimpleAsyncResult *simple,
 /**
  * g_simple_async_result_set_error: (skip)
  * @simple: a #GSimpleAsyncResult.
- * @domain: a #GQuark (usually #G_IO_ERROR).
+ * @domain: a #GQuark (usually %G_IO_ERROR).
  * @code: an error code.
  * @format: a formatted error reporting string.
  * @...: a list of variables to fill in @format.
@@ -842,7 +844,7 @@ g_simple_async_result_complete_in_idle (GSimpleAsyncResult *simple)
   source = g_idle_source_new ();
   g_source_set_priority (source, G_PRIORITY_DEFAULT);
   g_source_set_callback (source, complete_in_idle_cb, simple, g_object_unref);
-  g_source_set_name (source, "[gio] complete_in_idle_cb");
+  g_source_set_static_name (source, "[gio] complete_in_idle_cb");
 
   g_source_attach (source, simple->context);
   g_source_unref (source);
@@ -903,7 +905,7 @@ run_in_thread (GIOSchedulerJob *job,
   source = g_idle_source_new ();
   g_source_set_priority (source, G_PRIORITY_DEFAULT);
   g_source_set_callback (source, complete_in_idle_cb_for_thread, data, NULL);
-  g_source_set_name (source, "[gio] complete_in_idle_cb_for_thread");
+  g_source_set_static_name (source, "[gio] complete_in_idle_cb_for_thread");
 
   g_source_attach (source, simple->context);
   g_source_unref (source);
@@ -1007,7 +1009,7 @@ g_simple_async_result_is_valid (GAsyncResult *result,
  * @object: (nullable): a #GObject, or %NULL.
  * @callback: a #GAsyncReadyCallback.
  * @user_data: user data passed to @callback.
- * @domain: a #GQuark containing the error domain (usually #G_IO_ERROR).
+ * @domain: a #GQuark containing the error domain (usually %G_IO_ERROR).
  * @code: a specific error code.
  * @format: a formatted error reporting string.
  * @...: a list of variables to fill in @format.

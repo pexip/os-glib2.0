@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2014 Руслан Ижбулатов <lrn1986@gmail.com>
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -191,12 +193,12 @@ gboolean         g_win32_registry_subkey_iter_next           (GWin32RegistrySubk
                                                               GError                        **error);
 GLIB_AVAILABLE_IN_2_46
 gboolean         g_win32_registry_subkey_iter_get_name       (GWin32RegistrySubkeyIter        *iter,
-                                                              gchar                          **subkey_name,
+                                                              const gchar                    **subkey_name,
                                                               gsize                           *subkey_name_len,
                                                               GError                         **error);
 GLIB_AVAILABLE_IN_2_46
 gboolean         g_win32_registry_subkey_iter_get_name_w     (GWin32RegistrySubkeyIter        *iter,
-                                                              gunichar2                      **subkey_name,
+                                                              const gunichar2                **subkey_name,
                                                               gsize                           *subkey_name_len,
                                                               GError                         **error);
 

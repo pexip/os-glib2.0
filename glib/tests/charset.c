@@ -1,6 +1,8 @@
 /*
  * Copyright 2018 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -75,8 +77,6 @@ int
 main (int argc, char *argv[])
 {
   g_test_init (&argc, &argv, NULL);
-
-  g_test_bug_base ("http://bugs.gnome.org/");
 
   g_test_add_func ("/charset/language_names_with_category", test_language_names_with_category);
   g_test_add_func ("/charset/language_names_with_category_async", test_language_names_with_category_async);

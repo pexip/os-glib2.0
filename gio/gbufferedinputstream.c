@@ -3,6 +3,8 @@
  * Copyright (C) 2006-2007 Red Hat, Inc.
  * Copyright (C) 2007 Jürg Billeter
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -661,10 +663,10 @@ g_buffered_input_stream_real_fill (GBufferedInputStream  *stream,
   in_buffer = priv->end - priv->pos;
 
   /* Never fill more than can fit in the buffer */
-  count = MIN (count, priv->len - in_buffer);
+  count = MIN ((gsize) count, priv->len - in_buffer);
 
   /* If requested length does not fit at end, compact */
-  if (priv->len - priv->end < count)
+  if (priv->len - priv->end < (gsize) count)
     compact_buffer (stream);
 
   base_stream = G_FILTER_INPUT_STREAM (stream)->base_stream;
@@ -896,7 +898,8 @@ g_buffered_input_stream_seek (GSeekable     *seekable,
   
   if (type == G_SEEK_CUR)
     {
-      if (offset <= priv->end - priv->pos && offset >= -priv->pos)
+      if (offset <= (goffset) (priv->end - priv->pos) &&
+          offset >= (goffset) -priv->pos)
 	{
 	  priv->pos += offset;
 	  return TRUE;
@@ -1072,10 +1075,10 @@ g_buffered_input_stream_real_fill_async (GBufferedInputStream *stream,
   in_buffer = priv->end - priv->pos;
 
   /* Never fill more than can fit in the buffer */
-  count = MIN (count, priv->len - in_buffer);
+  count = MIN ((gsize) count, priv->len - in_buffer);
 
   /* If requested length does not fit at end, compact */
-  if (priv->len - priv->end < count)
+  if (priv->len - priv->end < (gsize) count)
     compact_buffer (stream);
 
   task = g_task_new (stream, cancellable, callback, user_data);
@@ -1103,8 +1106,8 @@ g_buffered_input_stream_real_fill_finish (GBufferedInputStream *stream,
 
 typedef struct
 {
-  gssize bytes_skipped;
-  gssize count;
+  gsize bytes_skipped;
+  gsize count;
 } SkipAsyncData;
 
 static void
@@ -1185,6 +1188,7 @@ skip_fill_buffer_callback (GObject      *source_object,
 	  priv->pos += data->count;
 	}
 
+      g_assert (data->bytes_skipped <= G_MAXSSIZE);
       g_task_return_int (task, data->bytes_skipped);
     }
 
@@ -1242,9 +1246,12 @@ g_buffered_input_stream_skip_async (GInputStream        *stream,
   if (count > priv->len)
     {
       /* Large request, shortcut buffer */
-
       base_stream = G_FILTER_INPUT_STREAM (stream)->base_stream;
 
+      /* If 'count > G_MAXSSIZE then 'g_input_stream_skip_async()'
+       * will return an error anyway before calling this.
+       * Assert that this is never called for too big `count` for clarity. */
+      g_assert ((gssize) count >= 0);
       g_input_stream_skip_async (base_stream,
                                  count,
                                  io_priority, cancellable,

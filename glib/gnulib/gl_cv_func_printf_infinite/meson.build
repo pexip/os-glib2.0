@@ -77,12 +77,12 @@ int main ()
 }
 '''
 
-if not meson.is_cross_build() or meson.has_exe_wrapper()
+if meson.can_run_host_binaries()
   run_result = cc.run(printf_infinite_double_test,
       name : 'printf supports infinite \'double\' arguments')
   gl_cv_func_printf_infinite = run_result.compiled() and run_result.returncode() == 0
 else
-  if host_system == 'linux'
+  if host_system in ['linux', 'android']
     gl_cv_func_printf_infinite = true
   elif (host_system.startswith ('freebsd1') or
         host_system.startswith ('freebsd2') or

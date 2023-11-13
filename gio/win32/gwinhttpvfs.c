@@ -39,20 +39,20 @@ static void
 lookup_funcs (void)
 {
   HMODULE winhttp = NULL;
-  char winhttp_dll[MAX_PATH + 100];
+  WCHAR winhttp_dll[MAX_PATH + 100];
   int n;
 
   if (lookup_done)
     return;
 
-  n = GetSystemDirectory (winhttp_dll, MAX_PATH);
+  n = GetSystemDirectoryW (winhttp_dll, MAX_PATH);
   if (n > 0 && n < MAX_PATH)
     {
-        if (winhttp_dll[n-1] != '\\' &&
-            winhttp_dll[n-1] != '/')
-            strcat (winhttp_dll, "\\");
-        strcat (winhttp_dll, "winhttp.dll");
-        winhttp = LoadLibrary (winhttp_dll);
+        if (winhttp_dll[n-1] != L'\\' &&
+            winhttp_dll[n-1] != L'/')
+            wcscat (winhttp_dll, L"\\");
+        wcscat (winhttp_dll, L"winhttp.dll");
+        winhttp = LoadLibraryW (winhttp_dll);
     }
 
   if (winhttp != NULL)
@@ -165,7 +165,7 @@ g_winhttp_vfs_get_file_for_uri (GVfs       *vfs,
                                 const char *uri)
 {
   GWinHttpVfs *winhttp_vfs = G_WINHTTP_VFS (vfs);
-  int i;
+  gsize i;
   GFile *ret = NULL;
 
   /* If it matches one of "our" schemes, handle it */
@@ -192,7 +192,7 @@ g_winhttp_vfs_get_supported_uri_schemes (GVfs *vfs)
 {
   GWinHttpVfs *winhttp_vfs = G_WINHTTP_VFS (vfs);
   const gchar * const *wrapped_vfs_uri_schemes = g_vfs_get_supported_uri_schemes (winhttp_vfs->wrapped_vfs);
-  int i, n;
+  gsize i, n;
   const gchar **retval;
 
   n = 0;

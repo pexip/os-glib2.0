@@ -22,8 +22,9 @@
  */
 
 #include <glib.h>
+#include "../gvalgrind.h"
 
-#if GLIB_SIZEOF_VOID_P > 4
+#if GLIB_SIZEOF_VOID_P > 4 && !defined(ENABLE_VALGRIND)
 #define THREADS 1000
 #else
 #define THREADS 100
@@ -47,12 +48,12 @@ test_once_single_threaded (void)
 
   g_test_summary ("Test g_once() usage from a single thread");
 
-  g_assert (once.status == G_ONCE_STATUS_NOTCALLED);
+  g_assert_cmpint (once.status, ==, G_ONCE_STATUS_NOTCALLED);
 
   res = g_once (&once, do_once, NULL);
   g_assert_cmpint (GPOINTER_TO_INT (res), ==, 1);
 
-  g_assert (once.status == G_ONCE_STATUS_READY);
+  g_assert_cmpint (once.status, ==, G_ONCE_STATUS_READY);
 
   res = g_once (&once, do_once, NULL);
   g_assert_cmpint (GPOINTER_TO_INT (res), ==, 1);
@@ -173,7 +174,7 @@ thread_func (gpointer data)
 static void
 test_once_init_multi_threaded (void)
 {
-  gint i;
+  gsize i;
   GThread *threads[THREADS];
 
   g_test_summary ("Test g_once_init_{enter,leave}() usage from multiple threads");
@@ -192,7 +193,7 @@ test_once_init_multi_threaded (void)
 static void
 test_once_init_string (void)
 {
-  static const gchar *val;
+  static gchar *val;
 
   g_test_summary ("Test g_once_init_{enter,leave}() usage with a string");
 

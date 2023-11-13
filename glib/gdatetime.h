@@ -2,6 +2,8 @@
  * Copyright (C) 2009-2010 Christian Hergert <chris@dronelabs.com>
  * Copyright © 2010 Codethink Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as
  * published by the Free Software Foundation; either version 2.1 of the
@@ -89,8 +91,7 @@ typedef gint64 GTimeSpan;
 /**
  * GDateTime:
  *
- * `GDateTime` is an opaque structure whose members
- * cannot be accessed directly.
+ * An opaque structure that represents a date and time, including a time zone.
  *
  * Since: 2.26
  */

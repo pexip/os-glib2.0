@@ -1,6 +1,8 @@
 /*
  * Copyright 2015 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -45,8 +47,9 @@ static const GOptionEntry entries[] = {
       N_("Report moves and renames as simple deleted/created events"), NULL },
   { "mounts", 'm', 0, G_OPTION_ARG_NONE, &mounts,
       N_("Watch for mount events"), NULL },
-  { G_OPTION_REMAINING, 0, 0, G_OPTION_ARG_FILENAME_ARRAY, &watch_default },
-  { NULL }
+  { G_OPTION_REMAINING, 0, 0, G_OPTION_ARG_FILENAME_ARRAY, &watch_default,
+      NULL, NULL },
+  G_OPTION_ENTRY_NULL
 };
 
 static void

@@ -95,7 +95,8 @@ they are imported into GLib and marked as stable.
 
 Each feature should also come fully documented, and with tests which approach
 full branch coverage of the new code. GLib’s CI system generates code coverage
-reports which are viewable for each merge request.
+reports which are viewable for each merge request. See
+[the testing policy](./docs/testing.md) for more details.
 
 If proposing a large feature or change, it’s better to discuss it (on the
 `#gtk` IRC channel or on [Discourse](https://discourse.gnome.org) before
@@ -256,7 +257,7 @@ to avoid unnecessary breakage, and to take advantage of the knowledge about GLib
 that has been built up over the years, we’d like to ask people contributing to
 GLib to follow a few rules:
 
-0. Never push to the `master` branch, or any stable branches, directly; you
+0. Never push to the `main` branch, or any stable branches, directly; you
    should always go through a merge request, to ensure that the code is
    tested on the CI infrastructure at the very least. A merge request is
    also the proper place to get a comprehensive code review from the core

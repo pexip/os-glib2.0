@@ -2,6 +2,8 @@
  *
  * Copyright 2014 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -99,7 +101,7 @@ test_start_stop (void)
 
 GMutex mutex_712570;
 GCond cond_712570;
-volatile gboolean finalized;
+gboolean finalized;  /* (atomic) */
 
 GType test_threaded_socket_service_get_type (void);
 typedef GThreadedSocketService TestThreadedSocketService;
@@ -120,7 +122,7 @@ test_threaded_socket_service_finalize (GObject *object)
   /* Signal the main thread that finalization completed successfully
    * rather than hanging.
    */
-  finalized = TRUE;
+  g_atomic_int_set (&finalized, TRUE);
   g_cond_signal (&cond_712570);
   g_mutex_unlock (&mutex_712570);
 }
@@ -182,7 +184,7 @@ test_threaded_712570 (void)
   GSocketClient *client;
   GError *error = NULL;
 
-  g_test_bug ("712570");
+  g_test_bug ("https://bugzilla.gnome.org/show_bug.cgi?id=712570");
 
   g_mutex_lock (&mutex_712570);
 
@@ -235,7 +237,7 @@ test_threaded_712570 (void)
    */
   g_object_unref (service);
 
-  while (!finalized)
+  while (!g_atomic_int_get (&finalized))
     g_cond_wait (&cond_712570, &mutex_712570);
   g_mutex_unlock (&mutex_712570);
 }
@@ -342,6 +344,7 @@ writtenv_read_write_async_cb (GOutputStream *ostream,
 
   conn = data->conn;
   g_free (data->data);
+  g_free (data->vectors);
   g_free (data);
 
   res = g_output_stream_writev_all_finish (ostream, result, &bytes_written, &error);
@@ -555,8 +558,6 @@ main (int   argc,
       char *argv[])
 {
   g_test_init (&argc, &argv, NULL);
-
-  g_test_bug_base ("http://bugzilla.gnome.org/");
 
   g_test_add_func ("/socket-service/start-stop", test_start_stop);
   g_test_add_func ("/socket-service/threaded/712570", test_threaded_712570);

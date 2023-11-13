@@ -25,7 +25,7 @@ test_slice_nodebug (void)
       g_slice_debug_tree_statistics ();
       return;
     }
-  g_test_trap_subprocess (NULL, 1000000, 0);
+  g_test_trap_subprocess (NULL, 1000000, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
   g_test_trap_assert_stderr ("*GSlice: MemChecker: root=NULL*");
 
@@ -53,7 +53,7 @@ test_slice_debug (void)
       g_slice_debug_tree_statistics ();
       return;
     }
-  g_test_trap_subprocess (NULL, 1000000, 0);
+  g_test_trap_subprocess (NULL, 1000000, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
   g_test_trap_assert_stderr ("*GSlice: MemChecker: * trunks, * branches, * old branches*");
 
@@ -107,7 +107,7 @@ thread_allocate (gpointer data)
   gint b;
   gint size;
   gpointer p;
-  volatile gpointer *loc;
+  gpointer *loc;  /* (atomic) */
 
   for (i = 0; i < 10000; i++)
     {
@@ -137,7 +137,7 @@ test_allocate (void)
 {
   GThread *threads[30];
   gint size;
-  gint i;
+  gsize i;
 
   for (i = 0; i < 30; i++)
     for (size = 1; size <= 4096; size++)

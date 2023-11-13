@@ -1,6 +1,8 @@
 /* GObject - GLib Type, Object, Parameter and Signal Library
  * Copyright (C) 1998-1999, 2000-2001 Tim Janik and Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -392,7 +394,7 @@ g_flags_class_init (GFlagsClass *class,
  *
  * Looks up a #GEnumValue by name.
  *
- * Returns: (transfer none): the #GEnumValue with name @name,
+ * Returns: (transfer none) (nullable): the #GEnumValue with name @name,
  *          or %NULL if the enumeration doesn't have a member
  *          with that name
  */
@@ -422,7 +424,7 @@ g_enum_get_value_by_name (GEnumClass  *enum_class,
  *
  * Looks up a #GFlagsValue by name.
  *
- * Returns: (transfer none): the #GFlagsValue with name @name,
+ * Returns: (transfer none) (nullable): the #GFlagsValue with name @name,
  *          or %NULL if there is no flag with that name
  */
 GFlagsValue*
@@ -451,7 +453,7 @@ g_flags_get_value_by_name (GFlagsClass *flags_class,
  *
  * Looks up a #GEnumValue by nickname.
  *
- * Returns: (transfer none): the #GEnumValue with nickname @nick,
+ * Returns: (transfer none) (nullable): the #GEnumValue with nickname @nick,
  *          or %NULL if the enumeration doesn't have a member
  *          with that nickname
  */
@@ -481,7 +483,7 @@ g_enum_get_value_by_nick (GEnumClass  *enum_class,
  *
  * Looks up a #GFlagsValue by nickname.
  *
- * Returns: (transfer none): the #GFlagsValue with nickname @nick,
+ * Returns: (transfer none) (nullable): the #GFlagsValue with nickname @nick,
  *          or %NULL if there is no flag with that nickname
  */
 GFlagsValue*
@@ -510,7 +512,7 @@ g_flags_get_value_by_nick (GFlagsClass *flags_class,
  *
  * Returns the #GEnumValue for a value.
  *
- * Returns: (transfer none): the #GEnumValue for @value, or %NULL
+ * Returns: (transfer none) (nullable): the #GEnumValue for @value, or %NULL
  *          if @value is not a member of the enumeration
  */
 GEnumValue*
@@ -538,7 +540,7 @@ g_enum_get_value (GEnumClass *enum_class,
  *
  * Returns the first #GFlagsValue which is set in @value.
  *
- * Returns: (transfer none): the first #GFlagsValue which is set in
+ * Returns: (transfer none) (nullable): the first #GFlagsValue which is set in
  *          @value, or %NULL if none is set
  */
 GFlagsValue*

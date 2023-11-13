@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -23,27 +25,28 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "giotypes.h"
-#include "gioenumtypes.h"
-#include "gsocket.h"
 #include "gdbusauthobserver.h"
-#include "gdbusprivate.h"
-#include "gdbusmessage.h"
 #include "gdbusconnection.h"
-#include "gdbusproxy.h"
+#include "gdbusdaemon.h"
 #include "gdbuserror.h"
 #include "gdbusintrospection.h"
-#include "gdbusdaemon.h"
-#include "giomodule-priv.h"
-#include "gtask.h"
+#include "gdbusmessage.h"
+#include "gdbusprivate.h"
+#include "gdbusproxy.h"
 #include "ginputstream.h"
-#include "gmemoryinputstream.h"
+#include "gioenumtypes.h"
+#include "giomodule-priv.h"
 #include "giostream.h"
+#include "giotypes.h"
+#include "glib-private.h"
 #include "glib/gstdio.h"
+#include "gmemoryinputstream.h"
+#include "gsocket.h"
 #include "gsocketaddress.h"
-#include "gsocketcontrolmessage.h"
 #include "gsocketconnection.h"
+#include "gsocketcontrolmessage.h"
 #include "gsocketoutputstream.h"
+#include "gtask.h"
 
 #ifdef G_OS_UNIX
 #include "gunixfdmessage.h"
@@ -55,6 +58,7 @@
 #include <windows.h>
 #include <io.h>
 #include <conio.h>
+#include "gwin32sid.h"
 #endif
 
 #include "glibintl.h"
@@ -265,7 +269,7 @@ ensure_required_types (void)
 
 typedef struct
 {
-  volatile gint refcount;
+  gint refcount;  /* (atomic) */
   GThread *thread;
   GMainContext *context;
   GMainLoop *loop;
@@ -341,12 +345,12 @@ typedef enum {
 
 struct GDBusWorker
 {
-  volatile gint                       ref_count;
+  gint                                ref_count;  /* (atomic) */
 
   SharedThreadData                   *shared_thread_data;
 
   /* really a boolean, but GLib 2.28 lacks atomic boolean ops */
-  volatile gint                       stopped;
+  gint                                stopped;  /* (atomic) */
 
   /* TODO: frozen (e.g. G_DBUS_CONNECTION_FLAGS_DELAY_MESSAGE_PROCESSING) currently
    * only affects messages received from the other peer (since GDBusServer is the
@@ -554,7 +558,7 @@ _g_dbus_worker_unfreeze (GDBusWorker *worker)
                          unfreeze_in_idle_cb,
                          _g_dbus_worker_ref (worker),
                          (GDestroyNotify) _g_dbus_worker_unref);
-  g_source_set_name (idle_source, "[gio] unfreeze_in_idle_cb");
+  g_source_set_static_name (idle_source, "[gio] unfreeze_in_idle_cb");
   g_source_attach (idle_source, worker->shared_thread_data->context);
   g_source_unref (idle_source);
 }
@@ -1601,7 +1605,7 @@ schedule_writing_unlocked (GDBusWorker        *worker,
                              continue_writing_in_idle_cb,
                              _g_dbus_worker_ref (worker),
                              (GDestroyNotify) _g_dbus_worker_unref);
-      g_source_set_name (idle_source, "[gio] continue_writing_in_idle_cb");
+      g_source_set_static_name (idle_source, "[gio] continue_writing_in_idle_cb");
       g_source_attach (idle_source, worker->shared_thread_data->context);
       g_source_unref (idle_source);
     }
@@ -1696,7 +1700,7 @@ _g_dbus_worker_new (GIOStream                              *stream,
                          _g_dbus_worker_do_initial_read,
                          _g_dbus_worker_ref (worker),
                          (GDestroyNotify) _g_dbus_worker_unref);
-  g_source_set_name (idle_source, "[gio] _g_dbus_worker_do_initial_read");
+  g_source_set_static_name (idle_source, "[gio] _g_dbus_worker_do_initial_read");
   g_source_attach (idle_source, worker->shared_thread_data->context);
   g_source_unref (idle_source);
 
@@ -1941,15 +1945,14 @@ _g_dbus_debug_print_unlock (void)
 void
 _g_dbus_initialize (void)
 {
-  static volatile gsize initialized = 0;
+  static gsize initialized = 0;
 
   if (g_once_init_enter (&initialized))
     {
-      volatile GQuark g_dbus_error_domain;
       const gchar *debug;
 
-      g_dbus_error_domain = G_DBUS_ERROR;
-      (g_dbus_error_domain); /* To avoid -Wunused-but-set-variable */
+      /* Ensure the domain is registered. */
+      g_dbus_error_quark ();
 
       debug = g_getenv ("G_DBUS_DEBUG");
       if (debug != NULL)
@@ -2010,69 +2013,6 @@ _g_dbus_compute_complete_signature (GDBusArgInfo **args)
 /* ---------------------------------------------------------------------------------------------------- */
 
 #ifdef G_OS_WIN32
-
-extern BOOL WINAPI ConvertSidToStringSidA (PSID Sid, LPSTR *StringSid);
-
-gchar *
-_g_dbus_win32_get_user_sid (void)
-{
-  HANDLE h;
-  TOKEN_USER *user;
-  DWORD token_information_len;
-  PSID psid;
-  gchar *sid;
-  gchar *ret;
-
-  ret = NULL;
-  user = NULL;
-  h = INVALID_HANDLE_VALUE;
-
-  if (!OpenProcessToken (GetCurrentProcess (), TOKEN_QUERY, &h))
-    {
-      g_warning ("OpenProcessToken failed with error code %d", (gint) GetLastError ());
-      goto out;
-    }
-
-  /* Get length of buffer */
-  token_information_len = 0;
-  if (!GetTokenInformation (h, TokenUser, NULL, 0, &token_information_len))
-    {
-      if (GetLastError () != ERROR_INSUFFICIENT_BUFFER)
-        {
-          g_warning ("GetTokenInformation() failed with error code %d", (gint) GetLastError ());
-          goto out;
-        }
-    }
-  user = g_malloc (token_information_len);
-  if (!GetTokenInformation (h, TokenUser, user, token_information_len, &token_information_len))
-    {
-      g_warning ("GetTokenInformation() failed with error code %d", (gint) GetLastError ());
-      goto out;
-    }
-
-  psid = user->User.Sid;
-  if (!IsValidSid (psid))
-    {
-      g_warning ("Invalid SID");
-      goto out;
-    }
-
-  if (!ConvertSidToStringSidA (psid, &sid))
-    {
-      g_warning ("Invalid SID");
-      goto out;
-    }
-
-  ret = g_strdup (sid);
-  LocalFree (sid);
-
-out:
-  g_free (user);
-  if (h != INVALID_HANDLE_VALUE)
-    CloseHandle (h);
-  return ret;
-}
-
 
 #define DBUS_DAEMON_ADDRESS_INFO "DBusDaemonAddressInfo"
 #define DBUS_DAEMON_MUTEX "DBusDaemonMutex"
@@ -2293,7 +2233,7 @@ turn_off_the_starting_cursor (void)
     }
 }
 
-__declspec(dllexport) void __stdcall
+void __stdcall
 g_win32_run_session_bus (void* hwnd, void* hinst, const char* cmdline, int cmdshow)
 {
   GDBusDaemon *daemon;
@@ -2338,6 +2278,26 @@ g_win32_run_session_bus (void* hwnd, void* hinst, const char* cmdline, int cmdsh
 
 static gboolean autolaunch_binary_absent = FALSE;
 
+static wchar_t *
+find_dbus_process_path (void)
+{
+  wchar_t *dbus_path;
+  gchar *exe_path = GLIB_PRIVATE_CALL (g_win32_find_helper_executable_path) ("gdbus.exe", _g_io_win32_get_module ());
+  dbus_path = g_utf8_to_utf16 (exe_path, -1, NULL, NULL, NULL);
+  g_free (exe_path);
+
+  if (dbus_path == NULL)
+    return NULL;
+
+  if (GetFileAttributesW (dbus_path) == INVALID_FILE_ATTRIBUTES)
+    {
+      g_free (dbus_path);
+      return NULL;
+    }
+
+  return dbus_path;
+}
+
 gchar *
 _g_dbus_win32_get_session_address_dbus_launch (GError **error)
 {
@@ -2355,61 +2315,53 @@ _g_dbus_win32_get_session_address_dbus_launch (GError **error)
 
   if (address == NULL && !autolaunch_binary_absent)
     {
-      wchar_t gio_path[MAX_PATH + 2] = { 0 };
-      int gio_path_len = GetModuleFileNameW (_g_io_win32_get_module (), gio_path, MAX_PATH + 1);
+      wchar_t *dbus_path = find_dbus_process_path ();
+      if (dbus_path == NULL)
+        {
+          /* warning won't be raised another time
+           * since autolaunch_binary_absent would be already set.
+           */
+          autolaunch_binary_absent = TRUE;
+          g_warning ("win32 session dbus binary not found");
+        }
+      else
+        {
+          PROCESS_INFORMATION pi = { 0 };
+          STARTUPINFOW si = { 0 };
+          BOOL res = FALSE;
+          wchar_t args[MAX_PATH * 2 + 100] = { 0 };
+          wchar_t working_dir[MAX_PATH + 2] = { 0 };
+          wchar_t *p;
 
-      /* The <= MAX_PATH check prevents truncated path usage */
-      if (gio_path_len > 0 && gio_path_len <= MAX_PATH)
-	{
-	  PROCESS_INFORMATION pi = { 0 };
-	  STARTUPINFOW si = { 0 };
-	  BOOL res = FALSE;
-	  wchar_t exe_path[MAX_PATH + 100] = { 0 };
-	  /* calculate index of first char of dll file name inside full path */
-	  int gio_name_index = gio_path_len;
-	  for (; gio_name_index > 0; --gio_name_index)
-	  {
-	    wchar_t prev_char = gio_path[gio_name_index - 1];
-	    if (prev_char == L'\\' || prev_char == L'/')
-	      break;
-	  }
-	  gio_path[gio_name_index] = L'\0';
-	  wcscpy (exe_path, gio_path);
-	  wcscat (exe_path, L"\\gdbus.exe");
+          wcscpy (working_dir, dbus_path);
+          p = wcsrchr (working_dir, L'\\');
+          if (p != NULL)
+            *p = L'\0';
 
-	  if (GetFileAttributesW (exe_path) == INVALID_FILE_ATTRIBUTES)
-	    {
-	      /* warning won't be raised another time
-	       * since autolaunch_binary_absent would be already set.
-	       */
-	      autolaunch_binary_absent = TRUE;
-	      g_warning ("win32 session dbus binary not found: %S", exe_path );
-	    }
-	  else
-	    {
-	      wchar_t args[MAX_PATH*2 + 100] = { 0 };
-	      wcscpy (args, L"\"");
-	      wcscat (args, exe_path);
-	      wcscat (args, L"\" ");
+          wcscpy (args, L"\"");
+          wcscat (args, dbus_path);
+          wcscat (args, L"\" ");
 #define _L_PREFIX_FOR_EXPANDED(arg) L##arg
 #define _L_PREFIX(arg) _L_PREFIX_FOR_EXPANDED (arg)
-	      wcscat (args, _L_PREFIX (_GDBUS_ARG_WIN32_RUN_SESSION_BUS));
+          wcscat (args, _L_PREFIX (_GDBUS_ARG_WIN32_RUN_SESSION_BUS));
 #undef _L_PREFIX
 #undef _L_PREFIX_FOR_EXPANDED
 
-	      res = CreateProcessW (exe_path, args,
-				    0, 0, FALSE,
-				    NORMAL_PRIORITY_CLASS | CREATE_NO_WINDOW | DETACHED_PROCESS,
-				    0, gio_path,
-				    &si, &pi);
-	    }
-	  if (res)
-	    {
-	      address = read_shm (DBUS_DAEMON_ADDRESS_INFO);
-	      if (address == NULL)
-		g_warning ("%S dbus binary failed to launch bus, maybe incompatible version", exe_path );
-	    }
-	}
+          res = CreateProcessW (dbus_path, args,
+                                0, 0, FALSE,
+                                NORMAL_PRIORITY_CLASS | CREATE_NO_WINDOW | DETACHED_PROCESS,
+                                0, working_dir,
+                                &si, &pi);
+
+          if (res)
+            {
+              address = read_shm (DBUS_DAEMON_ADDRESS_INFO);
+              if (address == NULL)
+                g_warning ("%S dbus binary failed to launch bus, maybe incompatible version", dbus_path);
+            }
+
+          g_free (dbus_path);
+        }
     }
 
   release_mutex (autolaunch_mutex);
@@ -2471,31 +2423,63 @@ _g_dbus_get_machine_id (GError **error)
 
   return res;
 #else
-  gchar *ret;
-  GError *first_error;
-  /* TODO: use PACKAGE_LOCALSTATEDIR ? */
-  ret = NULL;
-  first_error = NULL;
-  if (!g_file_get_contents ("/var/lib/dbus/machine-id",
+  gchar *ret = NULL;
+  GError *first_error = NULL;
+  gsize i;
+  gboolean non_zero = FALSE;
+
+  /* Copy what dbus.git does: allow the /var/lib path to be configurable at
+   * build time, but hard-code the system-wide machine ID path in /etc. */
+  const gchar *var_lib_path = LOCALSTATEDIR "/lib/dbus/machine-id";
+  const gchar *etc_path = "/etc/machine-id";
+
+  if (!g_file_get_contents (var_lib_path,
                             &ret,
                             NULL,
                             &first_error) &&
-      !g_file_get_contents ("/etc/machine-id",
+      !g_file_get_contents (etc_path,
                             &ret,
                             NULL,
                             NULL))
     {
-      g_propagate_prefixed_error (error, first_error,
-                                  _("Unable to load /var/lib/dbus/machine-id or /etc/machine-id: "));
+      g_propagate_prefixed_error (error, g_steal_pointer (&first_error),
+                                  /* Translators: Both placeholders are file paths */
+                                  _("Unable to load %s or %s: "),
+                                  var_lib_path, etc_path);
+      return NULL;
     }
-  else
+
+  /* ignore the error from the first try, if any */
+  g_clear_error (&first_error);
+
+  /* Validate the machine ID. From `man 5 machine-id`:
+   * > The machine ID is a single newline-terminated, hexadecimal, 32-character,
+   * > lowercase ID. When decoded from hexadecimal, this corresponds to a
+   * > 16-byte/128-bit value. This ID may not be all zeros.
+   */
+  for (i = 0; ret[i] != '\0' && ret[i] != '\n'; i++)
     {
-      /* ignore the error from the first try, if any */
-      g_clear_error (&first_error);
-      /* TODO: validate value */
-      g_strstrip (ret);
+      /* Break early if it’s invalid. */
+      if (!g_ascii_isxdigit (ret[i]) || g_ascii_isupper (ret[i]))
+        break;
+
+      if (ret[i] != '0')
+        non_zero = TRUE;
     }
-  return ret;
+
+  if (i != 32 || ret[i] != '\n' || ret[i + 1] != '\0' || !non_zero)
+    {
+      g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                   "Invalid machine ID in %s or %s",
+                   var_lib_path, etc_path);
+      g_free (ret);
+      return NULL;
+    }
+
+  /* Strip trailing newline. */
+  ret[32] = '\0';
+
+  return g_steal_pointer (&ret);
 #endif
 }
 

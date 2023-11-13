@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -51,15 +53,14 @@
 #include <io.h>
 #endif
 
-#ifdef G_OS_UNIX
 #include "gunixsocketaddress.h"
-#endif
 
 #include "glibintl.h"
 
 #define G_DBUS_SERVER_FLAGS_ALL \
   (G_DBUS_SERVER_FLAGS_RUN_IN_THREAD | \
-   G_DBUS_SERVER_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS)
+   G_DBUS_SERVER_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS | \
+   G_DBUS_SERVER_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER)
 
 /**
  * SECTION:gdbusserver
@@ -75,13 +76,15 @@
  * To just export an object on a well-known name on a message bus, such as the
  * session or system bus, you should instead use g_bus_own_name().
  *
- * An example of peer-to-peer communication with G-DBus can be found
- * in [gdbus-example-peer.c](https://git.gnome.org/browse/glib/tree/gio/tests/gdbus-example-peer.c).
+ * An example of peer-to-peer communication with GDBus can be found
+ * in [gdbus-example-peer.c](https://gitlab.gnome.org/GNOME/glib/-/blob/HEAD/gio/tests/gdbus-example-peer.c).
  *
  * Note that a minimal #GDBusServer will accept connections from any
  * peer. In many use-cases it will be necessary to add a #GDBusAuthObserver
  * that only accepts connections that have successfully authenticated
- * as the same user that is running the #GDBusServer.
+ * as the same user that is running the #GDBusServer. Since GLib 2.68 this can
+ * be achieved more simply by passing the
+ * %G_DBUS_SERVER_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER flag to the server.
  */
 
 /**
@@ -317,7 +320,9 @@ g_dbus_server_class_init (GDBusServerClass *klass)
   /**
    * GDBusServer:guid:
    *
-   * The guid of the server.
+   * The GUID of the server.
+   *
+   * See #GDBusConnection:guid for more details.
    *
    * Since: 2.26
    */
@@ -539,7 +544,9 @@ g_dbus_server_new_sync (const gchar        *address,
  * [D-Bus address](https://dbus.freedesktop.org/doc/dbus-specification.html#addresses)
  * string that can be used by clients to connect to @server.
  *
- * Returns: A D-Bus address string. Do not free, the string is owned
+ * This is valid and non-empty if initializing the #GDBusServer succeeded.
+ *
+ * Returns: (not nullable): A D-Bus address string. Do not free, the string is owned
  * by @server.
  *
  * Since: 2.26
@@ -555,9 +562,9 @@ g_dbus_server_get_client_address (GDBusServer *server)
  * g_dbus_server_get_guid:
  * @server: A #GDBusServer.
  *
- * Gets the GUID for @server.
+ * Gets the GUID for @server, as provided to g_dbus_server_new_sync().
  *
- * Returns: A D-Bus GUID. Do not free this string, it is owned by @server.
+ * Returns: (not nullable): A D-Bus GUID. Do not free this string, it is owned by @server.
  *
  * Since: 2.26
  */
@@ -623,7 +630,7 @@ g_dbus_server_start (GDBusServer *server)
                                                          G_CALLBACK (on_run),
                                                          g_object_ref (server),
                                                          (GClosureNotify) g_object_unref,
-                                                         0  /* flags */);
+                                                         G_CONNECT_DEFAULT);
   g_socket_service_start (G_SOCKET_SERVICE (server->listener));
   server->active = TRUE;
   g_object_notify (G_OBJECT (server), "active");
@@ -665,8 +672,6 @@ g_dbus_server_stop (GDBusServer *server)
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
-
-#ifdef G_OS_UNIX
 
 static gint
 random_ascii (void)
@@ -816,7 +821,6 @@ try_unix (GDBusServer  *server,
     }
   return ret;
 }
-#endif
 
 /* ---------------------------------------------------------------------------------------------------- */
 
@@ -920,12 +924,12 @@ try_tcp (GDBusServer  *server,
       bytes_remaining = 16;
       while (bytes_remaining > 0)
         {
-          gssize ret;
+          gssize size;
           int errsv;
 
-          ret = write (fd, server->nonce + bytes_written, bytes_remaining);
+          size = write (fd, server->nonce + bytes_written, bytes_remaining);
           errsv = errno;
-          if (ret == -1)
+          if (size == -1)
             {
               if (errsv == EINTR)
                 goto again;
@@ -937,8 +941,8 @@ try_tcp (GDBusServer  *server,
                            g_strerror (errsv));
               goto out;
             }
-          bytes_written += ret;
-          bytes_remaining -= ret;
+          bytes_written += size;
+          bytes_remaining -= size;
         }
       if (!g_close (fd, error))
         goto out;
@@ -1037,6 +1041,8 @@ on_run (GSocketService    *service,
     G_DBUS_CONNECTION_FLAGS_DELAY_MESSAGE_PROCESSING;
   if (server->flags & G_DBUS_SERVER_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS)
     connection_flags |= G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS;
+  if (server->flags & G_DBUS_SERVER_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER)
+    connection_flags |= G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER;
 
   connection = g_dbus_connection_new_sync (G_IO_STREAM (socket_connection),
                                            server->guid,
@@ -1076,7 +1082,7 @@ on_run (GSocketService    *service,
                              emit_new_connection_in_idle,
                              data,
                              (GDestroyNotify) emit_idle_data_free);
-      g_source_set_name (idle_source, "[gio] emit_new_connection_in_idle");
+      g_source_set_static_name (idle_source, "[gio] emit_new_connection_in_idle");
       g_source_attach (idle_source, server->main_context_at_construction);
       g_source_unref (idle_source);
     }
@@ -1133,10 +1139,8 @@ initable_init (GInitable     *initable,
           if (FALSE)
             {
             }
-#ifdef G_OS_UNIX
           else if (g_strcmp0 (transport_name, "unix") == 0)
             ret = try_unix (server, address_entry, key_value_pairs, &this_error);
-#endif
           else if (g_strcmp0 (transport_name, "tcp") == 0)
             ret = try_tcp (server, address_entry, key_value_pairs, FALSE, &this_error);
           else if (g_strcmp0 (transport_name, "nonce-tcp") == 0)

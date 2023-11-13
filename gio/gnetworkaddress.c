@@ -5,6 +5,8 @@
  * Copyright (C) 2008 Red Hat, Inc.
  * Copyright (C) 2018 Igalia S.L.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -611,7 +613,7 @@ g_network_address_get_port (GNetworkAddress *addr)
  *
  * Gets @addr's scheme
  *
- * Returns: @addr's scheme (%NULL if not built from URI)
+ * Returns: (nullable): @addr's scheme (%NULL if not built from URI)
  *
  * Since: 2.26
  */
