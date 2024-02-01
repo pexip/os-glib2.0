@@ -1,3 +1,9 @@
+glib2.0 (2.74.6-2+pexip24u4) pexip-bookworm; urgency=medium
+
+  * New versioning scheme
+
+ -- Mark Hymers <mark.hymers@pexip.com>  Thu, 01 Feb 2024 15:59:09 +0000
+
 glib2.0 (2.74.6-2pexip3) pexip-bookworm; urgency=medium
 
   * Rebuild for override changes.
