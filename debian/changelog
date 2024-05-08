@@ -1,3 +1,29 @@
+glib2.0 (2.74.6-2+deb12u2) bookworm-security; urgency=high
+
+  * d/p/CVE-2024-34397/gdbusconnection-Allow-name-owners-to-have-the-syntax-of-a.patch:
+    Relax name owner checks to avoid a regression in ibus.
+    Fixing CVE-2024-34397 caused a regression in ibus affecting text entry
+    with non-trivial input methods.
+    (Closes: #1070730, #1070736, #1070743, #1070745, #1070749, #1070752)
+
+ -- Simon McVittie <smcv@debian.org>  Wed, 08 May 2024 12:35:38 +0100
+
+glib2.0 (2.74.6-2+deb12u1) bookworm-security; urgency=high
+
+  * d/patches: Backport GDBus fixes from 2.80.1
+    - If local users send signals on the D-Bus system bus that spoof a
+      trusted sender, do not deliver them to signal subscriptions for the
+      trusted sender's well-known bus name (CVE-2024-34397)
+    - Fix a use-after-free when subscribing to signals with an arg0
+      match rule, originally from 2.79.0 and necessary to make the test
+      for CVE-2024-34397 pass reliably
+    - Add a local backport of g_set_str(), required by the above
+    - Add proposed fix for a race condition that can cause a unit test
+      to regress after the above
+  * d/gbp.conf, d/control.in: Use debian/bookworm branch for Debian 12
+
+ -- Simon McVittie <smcv@debian.org>  Mon, 06 May 2024 21:28:59 +0100
+
 glib2.0 (2.74.6-2) unstable; urgency=medium
 
   * d/patches: Update to upstream 2.74.x branch commit
