@@ -42,3 +42,4 @@ CVE-2024-34397/tests-Add-a-test-for-signal-filtering-by-well-known-name.patch
 CVE-2024-34397/tests-Ensure-that-unsubscribing-with-GetNameOwner-in-flig.patch
 CVE-2024-34397/gdbus-proxy-test-Wait-before-asserting-name-owner-has-gon.patch
 CVE-2024-34397/gdbusconnection-Allow-name-owners-to-have-the-syntax-of-a.patch
+gdbusmessage-Clean-the-cached-arg0-when-setting-the-messa.patch
