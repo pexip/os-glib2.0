@@ -1,3 +1,9 @@
+glib2.0 (2.74.6-2+pexip24u6+deb12u3) pexip; urgency=medium
+
+  * New upstream release
+
+ -- Mark Hymers <mark.hymers@pexip.com>  Mon, 01 Jul 2024 08:57:06 +0000
+
 glib2.0 (2.74.6-2+pexip24u5+deb12u2) pexip; urgency=medium
 
   * New upstream releases with security fixes
