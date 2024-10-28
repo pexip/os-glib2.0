@@ -1,3 +1,24 @@
+glib2.0 (2.74.6-2+deb12u4) bookworm; urgency=medium
+
+  [ Helmut Grohne ]
+  * Provide libgio-2.0-dev from libglib2.0-dev in bookworm.
+    In unstable, libgio-2.0-dev has been split off from
+    libglib2.0-dev. Some of the build dependencies on libglib2.0-dev
+    will be switched over to libgio-2.0-dev. This causes them to
+    be unsatisfiable in bookworm-backports, unless a bookworm update
+    provides forward compatibility by providing libgio-2.0-dev (which
+    has never been mentioned in bookworm).
+
+  [ Simon McVittie ]
+  * d/control.in: libglib2.0-dev-bin Provides libgio-2.0-dev-bin.
+    Packages backported from trixie/sid might build-depend on
+    libgio-2.0-dev-bin if they participate in bootstrapping and need to
+    run utilities like glib-mkenums or gdbus-codegen during their build.
+  * d/control.in: Freeze Uploaders at the value it previously had in bookworm.
+    This allows `debian/rules clean` to be run without altering d/control.
+
+ -- Simon McVittie <smcv@debian.org>  Mon, 28 Oct 2024 08:41:03 +0000
+
 glib2.0 (2.74.6-2+deb12u3) bookworm; urgency=medium
 
   * d/p/gdbusmessage-Clean-the-cached-arg0-when-setting-the-messa.patch:
