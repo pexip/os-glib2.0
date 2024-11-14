@@ -140,6 +140,7 @@ Breaks: libglib2.0-0-dbg (<< 2.51.4-1~)
 Replaces: libglib2.0-0-dbg (<< 2.51.4-1~)
 Suggests: libgirepository1.0-dev (>= 1.62),
           libglib2.0-doc
+Provides: libgio-2.0-dev (= ${binary:Version})
 Description: Development files for the GLib library
  GLib is a library containing many useful C routines for things such
  as trees, hashes, lists, and strings.  It is a useful general-purpose
@@ -161,6 +162,7 @@ Depends: python3-distutils,
          ${shlibs:Depends}
 Suggests: libgdk-pixbuf2.0-bin,
           libxml2-utils
+Provides: libgio-2.0-dev-bin (= ${binary:Version})
 Multi-Arch: foreign
 Description: Development utilities for the GLib library
  GLib is a library containing many useful C routines for things such

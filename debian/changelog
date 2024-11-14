@@ -1,46 +1,35 @@
+glib2.0 (2.74.6-2+pexip24u6+deb12u4) pexip; urgency=medium
+
+  * New upstream release
+
+ -- Steve McIntyre <steve.mcintyre@pexip.com>  Thu, 14 Nov 2024 16:29:14 +0000
+
+glib2.0 (2.74.6-2+deb12u4) bookworm; urgency=medium
+
+  [ Helmut Grohne ]
+  * Provide libgio-2.0-dev from libglib2.0-dev in bookworm.
+    In unstable, libgio-2.0-dev has been split off from
+    libglib2.0-dev. Some of the build dependencies on libglib2.0-dev
+    will be switched over to libgio-2.0-dev. This causes them to
+    be unsatisfiable in bookworm-backports, unless a bookworm update
+    provides forward compatibility by providing libgio-2.0-dev (which
+    has never been mentioned in bookworm).
+
+  [ Simon McVittie ]
+  * d/control.in: libglib2.0-dev-bin Provides libgio-2.0-dev-bin.
+    Packages backported from trixie/sid might build-depend on
+    libgio-2.0-dev-bin if they participate in bootstrapping and need to
+    run utilities like glib-mkenums or gdbus-codegen during their build.
+  * d/control.in: Freeze Uploaders at the value it previously had in bookworm.
+    This allows `debian/rules clean` to be run without altering d/control.
+
+ -- Simon McVittie <smcv@debian.org>  Mon, 28 Oct 2024 08:41:03 +0000
+
 glib2.0 (2.74.6-2+pexip24u6+deb12u3) pexip; urgency=medium
 
   * New upstream release
 
  -- Mark Hymers <mark.hymers@pexip.com>  Mon, 01 Jul 2024 08:57:06 +0000
-
-glib2.0 (2.74.6-2+pexip24u5+deb12u2) pexip; urgency=medium
-
-  * New upstream releases with security fixes
-
- -- Steve McIntyre <steve.mcintyre@pexip.com>  Mon, 20 May 2024 18:04:11 +0100
-
-glib2.0 (2.74.6-2+deb12u2) bookworm-security; urgency=high
-
-  * d/p/CVE-2024-34397/gdbusconnection-Allow-name-owners-to-have-the-syntax-of-a.patch:
-    Relax name owner checks to avoid a regression in ibus.
-    Fixing CVE-2024-34397 caused a regression in ibus affecting text entry
-    with non-trivial input methods.
-    (Closes: #1070730, #1070736, #1070743, #1070745, #1070749, #1070752)
-
- -- Simon McVittie <smcv@debian.org>  Wed, 08 May 2024 12:35:38 +0100
-
-glib2.0 (2.74.6-2+deb12u1) bookworm-security; urgency=high
-
-  * d/patches: Backport GDBus fixes from 2.80.1
-    - If local users send signals on the D-Bus system bus that spoof a
-      trusted sender, do not deliver them to signal subscriptions for the
-      trusted sender's well-known bus name (CVE-2024-34397)
-    - Fix a use-after-free when subscribing to signals with an arg0
-      match rule, originally from 2.79.0 and necessary to make the test
-      for CVE-2024-34397 pass reliably
-    - Add a local backport of g_set_str(), required by the above
-    - Add proposed fix for a race condition that can cause a unit test
-      to regress after the above
-  * d/gbp.conf, d/control.in: Use debian/bookworm branch for Debian 12
-
- -- Simon McVittie <smcv@debian.org>  Mon, 06 May 2024 21:28:59 +0100
-
-glib2.0 (2.74.6-2+pexip24u4) pexip-bookworm; urgency=medium
-
-  * New versioning scheme
-
- -- Mark Hymers <mark.hymers@pexip.com>  Thu, 01 Feb 2024 15:59:09 +0000
 
 glib2.0 (2.74.6-2+deb12u3) bookworm; urgency=medium
 
@@ -49,6 +38,12 @@ glib2.0 (2.74.6-2+deb12u3) bookworm; urgency=medium
     rare situations since 2.74.6-2+deb12u1 (Closes: #1070851)
 
  -- Simon McVittie <smcv@debian.org>  Tue, 14 May 2024 11:11:32 +0100
+
+glib2.0 (2.74.6-2+pexip24u5+deb12u2) pexip; urgency=medium
+
+  * New upstream releases with security fixes
+
+ -- Steve McIntyre <steve.mcintyre@pexip.com>  Mon, 20 May 2024 18:04:11 +0100
 
 glib2.0 (2.74.6-2+deb12u2) bookworm-security; urgency=high
 
