@@ -1,3 +1,17 @@
+glib2.0 (2.74.6-2+pexip24u7+deb12u7) pexip; urgency=medium
+
+  * New upstream release
+
+ -- Steve McIntyre <steve.mcintyre@pexip.com>  Mon, 13 Jan 2025 13:37:06 +0000
+
+glib2.0 (2.74.6-2+deb12u5) bookworm; urgency=medium
+
+  * d/p/gsocks4aproxy-Fix-a-single-byte-buffer-overflow-in-connec.patch:
+    Fix a buffer overflow when configured to use a SOCKS4a proxy with a
+    very long username (CVE-2024-52533, Closes: #1087419)
+
+ -- Simon McVittie <smcv@debian.org>  Thu, 14 Nov 2024 09:42:34 +0000
+
 glib2.0 (2.74.6-2+pexip24u6+deb12u4) pexip; urgency=medium
 
   * New upstream release
