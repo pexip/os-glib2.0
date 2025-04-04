@@ -33,9 +33,9 @@ G_BEGIN_DECLS
 
 /**
  * GBusAcquiredCallback:
- * @connection: The #GDBusConnection to a message bus.
- * @name: The name that is requested to be owned.
- * @user_data: User data passed to g_bus_own_name().
+ * @connection: the connection to a message bus
+ * @name: the name that is requested to be owned
+ * @user_data: user data passed to [func@Gio.bus_own_name]
  *
  * Invoked when a connection to a message bus has been obtained.
  *
@@ -47,9 +47,10 @@ typedef void (*GBusAcquiredCallback) (GDBusConnection *connection,
 
 /**
  * GBusNameAcquiredCallback:
- * @connection: The #GDBusConnection on which to acquired the name.
- * @name: The name being owned.
- * @user_data: User data passed to g_bus_own_name() or g_bus_own_name_on_connection().
+ * @connection: the connection on which to acquired the name
+ * @name: the name being owned
+ * @user_data: user data passed to [func@Gio.bus_own_name] or
+ *   [func@Gio.bus_own_name_on_connection]
  *
  * Invoked when the name is acquired.
  *
@@ -61,10 +62,11 @@ typedef void (*GBusNameAcquiredCallback) (GDBusConnection *connection,
 
 /**
  * GBusNameLostCallback:
- * @connection: The #GDBusConnection on which to acquire the name or %NULL if
- * the connection was disconnected.
- * @name: The name being owned.
- * @user_data: User data passed to g_bus_own_name() or g_bus_own_name_on_connection().
+ * @connection: the connect on which to acquire the name or `NULL` if
+ *   the connection was disconnected
+ * @name: the name being owned
+ * @user_data: user data passed to [func@Gio.bus_own_name] or
+ *   [func@Gio.bus_own_name_on_connection]
  *
  * Invoked when the name is lost or @connection has been closed.
  *
@@ -74,7 +76,7 @@ typedef void (*GBusNameLostCallback) (GDBusConnection *connection,
                                       const gchar     *name,
                                       gpointer         user_data);
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 guint g_bus_own_name                 (GBusType                  bus_type,
                                       const gchar              *name,
                                       GBusNameOwnerFlags        flags,
@@ -84,7 +86,7 @@ guint g_bus_own_name                 (GBusType                  bus_type,
                                       gpointer                  user_data,
                                       GDestroyNotify            user_data_free_func);
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 guint g_bus_own_name_on_connection   (GDBusConnection          *connection,
                                       const gchar              *name,
                                       GBusNameOwnerFlags        flags,
@@ -93,7 +95,7 @@ guint g_bus_own_name_on_connection   (GDBusConnection          *connection,
                                       gpointer                  user_data,
                                       GDestroyNotify            user_data_free_func);
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 guint g_bus_own_name_with_closures   (GBusType                  bus_type,
                                       const gchar              *name,
                                       GBusNameOwnerFlags        flags,
@@ -101,7 +103,7 @@ guint g_bus_own_name_with_closures   (GBusType                  bus_type,
                                       GClosure                 *name_acquired_closure,
                                       GClosure                 *name_lost_closure);
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 guint g_bus_own_name_on_connection_with_closures (
                                       GDBusConnection          *connection,
                                       const gchar              *name,
@@ -109,7 +111,7 @@ guint g_bus_own_name_on_connection_with_closures (
                                       GClosure                 *name_acquired_closure,
                                       GClosure                 *name_lost_closure);
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 void  g_bus_unown_name               (guint                     owner_id);
 
 G_END_DECLS

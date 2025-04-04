@@ -267,7 +267,7 @@ test_param_spec_float (void)
   g_value_set_float (&value, 0.0);
   g_assert_false (g_param_value_is_valid (pspec, &value));
   g_assert_true (g_param_value_validate (pspec, &value));
-  g_assert_cmpint (g_value_get_float (&value), ==, 20.0);
+  g_assert_cmpfloat (g_value_get_float (&value), ==, 20.0);
 
   g_param_spec_unref (pspec);
 }
@@ -289,7 +289,21 @@ test_param_spec_double (void)
   g_value_set_double (&value, 0.0);
   g_assert_false (g_param_value_is_valid (pspec, &value));
   g_assert_true (g_param_value_validate (pspec, &value));
-  g_assert_cmpint (g_value_get_double (&value), ==, 20.0);
+  g_assert_cmpfloat (g_value_get_double (&value), ==, 20.0);
+
+  g_param_spec_unref (pspec);
+
+  /* Test validation with some larger values, which fit in a double but not in a float.
+   * In particular, check there are no double → float conversions in the pipeline,
+   * by using a valid range which is entirely outside the range of numbers
+   * representable in a float. */
+  pspec = g_param_spec_double ("double", NULL, NULL,
+                               1.2e308, 1.3e308, 1.21e308, G_PARAM_READWRITE);
+
+  g_param_value_set_default (pspec, &value);
+  g_assert_true (g_param_value_is_valid (pspec, &value));
+  g_assert_false (g_param_value_validate (pspec, &value));
+  g_assert_cmpfloat (g_value_get_double (&value), ==, 1.21e308);
 
   g_param_spec_unref (pspec);
 }
@@ -805,13 +819,13 @@ test_value_transform (void)
   GValue src = G_VALUE_INIT;
   GValue dest = G_VALUE_INIT;
 
-#define CHECK_INT_CONVERSION(type, getter, value)                       \
+#define CHECK_INT_CONVERSION(type, cmpfunc, getter, value)              \
   g_assert_true (g_value_type_transformable (G_TYPE_INT, type));        \
   g_value_init (&src, G_TYPE_INT);                                      \
   g_value_init (&dest, type);                                           \
   g_value_set_int (&src, value);                                        \
   g_assert_true (g_value_transform (&src, &dest));                      \
-  g_assert_cmpint (g_value_get_##getter (&dest), ==, value);            \
+  cmpfunc (g_value_get_##getter (&dest), ==, value);                    \
   g_value_unset (&src);                                                 \
   g_value_unset (&dest);
 
@@ -820,197 +834,197 @@ test_value_transform (void)
    * https://bugzilla.gnome.org/show_bug.cgi?id=659870
    * for why it is broken.
    */
-  CHECK_INT_CONVERSION(G_TYPE_CHAR, char, 124)
+  CHECK_INT_CONVERSION(G_TYPE_CHAR, g_assert_cmpuint, char, 124)
 
-  CHECK_INT_CONVERSION(G_TYPE_CHAR, schar, -124)
-  CHECK_INT_CONVERSION(G_TYPE_CHAR, schar, 124)
-  CHECK_INT_CONVERSION(G_TYPE_UCHAR, uchar, 0)
-  CHECK_INT_CONVERSION(G_TYPE_UCHAR, uchar, 255)
-  CHECK_INT_CONVERSION(G_TYPE_INT, int, -12345)
-  CHECK_INT_CONVERSION(G_TYPE_INT, int, 12345)
-  CHECK_INT_CONVERSION(G_TYPE_UINT, uint, 0)
-  CHECK_INT_CONVERSION(G_TYPE_UINT, uint, 12345)
-  CHECK_INT_CONVERSION(G_TYPE_LONG, long, -12345678)
-  CHECK_INT_CONVERSION(G_TYPE_ULONG, ulong, 12345678)
-  CHECK_INT_CONVERSION(G_TYPE_INT64, int64, -12345678)
-  CHECK_INT_CONVERSION(G_TYPE_UINT64, uint64, 12345678)
-  CHECK_INT_CONVERSION(G_TYPE_FLOAT, float, 12345678)
-  CHECK_INT_CONVERSION(G_TYPE_DOUBLE, double, 12345678)
+  CHECK_INT_CONVERSION(G_TYPE_CHAR, g_assert_cmpint, schar, -124)
+  CHECK_INT_CONVERSION(G_TYPE_CHAR, g_assert_cmpint, schar, 124)
+  CHECK_INT_CONVERSION(G_TYPE_UCHAR, g_assert_cmpuint, uchar, 0)
+  CHECK_INT_CONVERSION(G_TYPE_UCHAR, g_assert_cmpuint, uchar, 255)
+  CHECK_INT_CONVERSION(G_TYPE_INT, g_assert_cmpint, int, -12345)
+  CHECK_INT_CONVERSION(G_TYPE_INT, g_assert_cmpint, int, 12345)
+  CHECK_INT_CONVERSION(G_TYPE_UINT, g_assert_cmpuint, uint, 0)
+  CHECK_INT_CONVERSION(G_TYPE_UINT, g_assert_cmpuint, uint, 12345)
+  CHECK_INT_CONVERSION(G_TYPE_LONG, g_assert_cmpint, long, -12345678)
+  CHECK_INT_CONVERSION(G_TYPE_ULONG, g_assert_cmpuint, ulong, 12345678)
+  CHECK_INT_CONVERSION(G_TYPE_INT64, g_assert_cmpint, int64, -12345678)
+  CHECK_INT_CONVERSION(G_TYPE_UINT64, g_assert_cmpuint, uint64, 12345678)
+  CHECK_INT_CONVERSION(G_TYPE_FLOAT, g_assert_cmpfloat, float, 12345678)
+  CHECK_INT_CONVERSION(G_TYPE_DOUBLE, g_assert_cmpfloat, double, 12345678)
 
-#define CHECK_UINT_CONVERSION(type, getter, value)                      \
+#define CHECK_UINT_CONVERSION(type, cmpfunc, getter, value)             \
   g_assert_true (g_value_type_transformable (G_TYPE_UINT, type));       \
   g_value_init (&src, G_TYPE_UINT);                                     \
   g_value_init (&dest, type);                                           \
   g_value_set_uint (&src, value);                                       \
   g_assert_true (g_value_transform (&src, &dest));                      \
-  g_assert_cmpuint (g_value_get_##getter (&dest), ==, value);           \
+  cmpfunc (g_value_get_##getter (&dest), ==, value);                    \
   g_value_unset (&src);                                                 \
   g_value_unset (&dest);
 
-  CHECK_UINT_CONVERSION(G_TYPE_CHAR, char, 124)
-  CHECK_UINT_CONVERSION(G_TYPE_CHAR, char, 124)
-  CHECK_UINT_CONVERSION(G_TYPE_UCHAR, uchar, 0)
-  CHECK_UINT_CONVERSION(G_TYPE_UCHAR, uchar, 255)
-  CHECK_UINT_CONVERSION(G_TYPE_INT, int, 12345)
-  CHECK_UINT_CONVERSION(G_TYPE_INT, int, 12345)
-  CHECK_UINT_CONVERSION(G_TYPE_UINT, uint, 0)
-  CHECK_UINT_CONVERSION(G_TYPE_UINT, uint, 12345)
-  CHECK_UINT_CONVERSION(G_TYPE_LONG, long, 12345678)
-  CHECK_UINT_CONVERSION(G_TYPE_ULONG, ulong, 12345678)
-  CHECK_UINT_CONVERSION(G_TYPE_INT64, int64, 12345678)
-  CHECK_UINT_CONVERSION(G_TYPE_UINT64, uint64, 12345678)
-  CHECK_UINT_CONVERSION(G_TYPE_FLOAT, float, 12345678)
-  CHECK_UINT_CONVERSION(G_TYPE_DOUBLE, double, 12345678)
+  CHECK_UINT_CONVERSION(G_TYPE_CHAR, g_assert_cmpint, char, 124)
+  CHECK_UINT_CONVERSION(G_TYPE_CHAR, g_assert_cmpint, char, 124)
+  CHECK_UINT_CONVERSION(G_TYPE_UCHAR, g_assert_cmpuint, uchar, 0)
+  CHECK_UINT_CONVERSION(G_TYPE_UCHAR, g_assert_cmpuint, uchar, 255)
+  CHECK_UINT_CONVERSION(G_TYPE_INT, g_assert_cmpint, int, 12345)
+  CHECK_UINT_CONVERSION(G_TYPE_INT, g_assert_cmpint, int, 12345)
+  CHECK_UINT_CONVERSION(G_TYPE_UINT, g_assert_cmpuint, uint, 0)
+  CHECK_UINT_CONVERSION(G_TYPE_UINT, g_assert_cmpuint, uint, 12345)
+  CHECK_UINT_CONVERSION(G_TYPE_LONG, g_assert_cmpint, long, 12345678)
+  CHECK_UINT_CONVERSION(G_TYPE_ULONG, g_assert_cmpuint, ulong, 12345678)
+  CHECK_UINT_CONVERSION(G_TYPE_INT64, g_assert_cmpint, int64, 12345678)
+  CHECK_UINT_CONVERSION(G_TYPE_UINT64, g_assert_cmpuint, uint64, 12345678)
+  CHECK_UINT_CONVERSION(G_TYPE_FLOAT, g_assert_cmpfloat, float, 12345678)
+  CHECK_UINT_CONVERSION(G_TYPE_DOUBLE, g_assert_cmpfloat, double, 12345678)
 
-#define CHECK_LONG_CONVERSION(type, getter, value)                      \
+#define CHECK_LONG_CONVERSION(type, cmpfunc, getter, value)             \
   g_assert_true (g_value_type_transformable (G_TYPE_LONG, type));       \
   g_value_init (&src, G_TYPE_LONG);                                     \
   g_value_init (&dest, type);                                           \
   g_value_set_long (&src, value);                                       \
   g_assert_true (g_value_transform (&src, &dest));                      \
-  g_assert_cmpint (g_value_get_##getter (&dest), ==, value);            \
+  cmpfunc (g_value_get_##getter (&dest), ==, value);                    \
   g_value_unset (&src);                                                 \
   g_value_unset (&dest);
 
-  CHECK_LONG_CONVERSION(G_TYPE_CHAR, schar, -124)
-  CHECK_LONG_CONVERSION(G_TYPE_CHAR, schar, 124)
-  CHECK_LONG_CONVERSION(G_TYPE_UCHAR, uchar, 0)
-  CHECK_LONG_CONVERSION(G_TYPE_UCHAR, uchar, 255)
-  CHECK_LONG_CONVERSION(G_TYPE_INT, int, -12345)
-  CHECK_LONG_CONVERSION(G_TYPE_INT, int, 12345)
-  CHECK_LONG_CONVERSION(G_TYPE_UINT, uint, 0)
-  CHECK_LONG_CONVERSION(G_TYPE_UINT, uint, 12345)
-  CHECK_LONG_CONVERSION(G_TYPE_LONG, long, -12345678)
-  CHECK_LONG_CONVERSION(G_TYPE_ULONG, ulong, 12345678)
-  CHECK_LONG_CONVERSION(G_TYPE_INT64, int64, -12345678)
-  CHECK_LONG_CONVERSION(G_TYPE_UINT64, uint64, 12345678)
-  CHECK_LONG_CONVERSION(G_TYPE_FLOAT, float, 12345678)
-  CHECK_LONG_CONVERSION(G_TYPE_DOUBLE, double, 12345678)
+  CHECK_LONG_CONVERSION(G_TYPE_CHAR, g_assert_cmpint, schar, -124)
+  CHECK_LONG_CONVERSION(G_TYPE_CHAR, g_assert_cmpint, schar, 124)
+  CHECK_LONG_CONVERSION(G_TYPE_UCHAR, g_assert_cmpuint, uchar, 0)
+  CHECK_LONG_CONVERSION(G_TYPE_UCHAR, g_assert_cmpuint, uchar, 255)
+  CHECK_LONG_CONVERSION(G_TYPE_INT, g_assert_cmpint, int, -12345)
+  CHECK_LONG_CONVERSION(G_TYPE_INT, g_assert_cmpint, int, 12345)
+  CHECK_LONG_CONVERSION(G_TYPE_UINT, g_assert_cmpuint, uint, 0)
+  CHECK_LONG_CONVERSION(G_TYPE_UINT, g_assert_cmpuint, uint, 12345)
+  CHECK_LONG_CONVERSION(G_TYPE_LONG, g_assert_cmpint, long, -12345678)
+  CHECK_LONG_CONVERSION(G_TYPE_ULONG, g_assert_cmpuint, ulong, 12345678)
+  CHECK_LONG_CONVERSION(G_TYPE_INT64, g_assert_cmpint, int64, -12345678)
+  CHECK_LONG_CONVERSION(G_TYPE_UINT64, g_assert_cmpuint, uint64, 12345678)
+  CHECK_LONG_CONVERSION(G_TYPE_FLOAT, g_assert_cmpfloat, float, 12345678)
+  CHECK_LONG_CONVERSION(G_TYPE_DOUBLE, g_assert_cmpfloat, double, 12345678)
 
-#define CHECK_ULONG_CONVERSION(type, getter, value)                     \
+#define CHECK_ULONG_CONVERSION(type, cmpfunc, getter, value)            \
   g_assert_true (g_value_type_transformable (G_TYPE_ULONG, type));      \
   g_value_init (&src, G_TYPE_ULONG);                                    \
   g_value_init (&dest, type);                                           \
   g_value_set_ulong (&src, value);                                      \
   g_assert_true (g_value_transform (&src, &dest));                      \
-  g_assert_cmpuint (g_value_get_##getter (&dest), ==, value);           \
+  cmpfunc (g_value_get_##getter (&dest), ==, value);                    \
   g_value_unset (&src);                                                 \
   g_value_unset (&dest);
 
-  CHECK_ULONG_CONVERSION(G_TYPE_CHAR, char, 124)
-  CHECK_ULONG_CONVERSION(G_TYPE_CHAR, char, 124)
-  CHECK_ULONG_CONVERSION(G_TYPE_UCHAR, uchar, 0)
-  CHECK_ULONG_CONVERSION(G_TYPE_UCHAR, uchar, 255)
-  CHECK_ULONG_CONVERSION(G_TYPE_INT, int, -12345)
-  CHECK_ULONG_CONVERSION(G_TYPE_INT, int, 12345)
-  CHECK_ULONG_CONVERSION(G_TYPE_UINT, uint, 0)
-  CHECK_ULONG_CONVERSION(G_TYPE_UINT, uint, 12345)
-  CHECK_ULONG_CONVERSION(G_TYPE_LONG, long, 12345678)
-  CHECK_ULONG_CONVERSION(G_TYPE_ULONG, ulong, 12345678)
-  CHECK_ULONG_CONVERSION(G_TYPE_INT64, int64, 12345678)
-  CHECK_ULONG_CONVERSION(G_TYPE_UINT64, uint64, 12345678)
-  CHECK_ULONG_CONVERSION(G_TYPE_FLOAT, float, 12345678)
-  CHECK_ULONG_CONVERSION(G_TYPE_DOUBLE, double, 12345678)
+  CHECK_ULONG_CONVERSION(G_TYPE_CHAR, g_assert_cmpint, char, 124)
+  CHECK_ULONG_CONVERSION(G_TYPE_CHAR, g_assert_cmpint, char, 124)
+  CHECK_ULONG_CONVERSION(G_TYPE_UCHAR, g_assert_cmpuint, uchar, 0)
+  CHECK_ULONG_CONVERSION(G_TYPE_UCHAR, g_assert_cmpuint, uchar, 255)
+  CHECK_ULONG_CONVERSION(G_TYPE_INT, g_assert_cmpint, int, -12345)
+  CHECK_ULONG_CONVERSION(G_TYPE_INT, g_assert_cmpint, int, 12345)
+  CHECK_ULONG_CONVERSION(G_TYPE_UINT, g_assert_cmpuint, uint, 0)
+  CHECK_ULONG_CONVERSION(G_TYPE_UINT, g_assert_cmpuint, uint, 12345)
+  CHECK_ULONG_CONVERSION(G_TYPE_LONG, g_assert_cmpint, long, 12345678)
+  CHECK_ULONG_CONVERSION(G_TYPE_ULONG, g_assert_cmpuint, ulong, 12345678)
+  CHECK_ULONG_CONVERSION(G_TYPE_INT64, g_assert_cmpint, int64, 12345678)
+  CHECK_ULONG_CONVERSION(G_TYPE_UINT64, g_assert_cmpuint, uint64, 12345678)
+  CHECK_ULONG_CONVERSION(G_TYPE_FLOAT, g_assert_cmpfloat, float, 12345678)
+  CHECK_ULONG_CONVERSION(G_TYPE_DOUBLE, g_assert_cmpfloat, double, 12345678)
 
-#define CHECK_INT64_CONVERSION(type, getter, value)                     \
+#define CHECK_INT64_CONVERSION(type, cmpfunc, getter, value)            \
   g_assert_true (g_value_type_transformable (G_TYPE_INT64, type));      \
   g_value_init (&src, G_TYPE_INT64);                                    \
   g_value_init (&dest, type);                                           \
   g_value_set_int64 (&src, value);                                      \
   g_assert_true (g_value_transform (&src, &dest));                      \
-  g_assert_cmpint (g_value_get_##getter (&dest), ==, value);            \
+  cmpfunc (g_value_get_##getter (&dest), ==, value);                    \
   g_value_unset (&src);                                                 \
   g_value_unset (&dest);
 
-  CHECK_INT64_CONVERSION(G_TYPE_CHAR, schar, -124)
-  CHECK_INT64_CONVERSION(G_TYPE_CHAR, schar, 124)
-  CHECK_INT64_CONVERSION(G_TYPE_UCHAR, uchar, 0)
-  CHECK_INT64_CONVERSION(G_TYPE_UCHAR, uchar, 255)
-  CHECK_INT64_CONVERSION(G_TYPE_INT, int, -12345)
-  CHECK_INT64_CONVERSION(G_TYPE_INT, int, 12345)
-  CHECK_INT64_CONVERSION(G_TYPE_UINT, uint, 0)
-  CHECK_INT64_CONVERSION(G_TYPE_UINT, uint, 12345)
-  CHECK_INT64_CONVERSION(G_TYPE_LONG, long, -12345678)
-  CHECK_INT64_CONVERSION(G_TYPE_ULONG, ulong, 12345678)
-  CHECK_INT64_CONVERSION(G_TYPE_INT64, int64, -12345678)
-  CHECK_INT64_CONVERSION(G_TYPE_UINT64, uint64, 12345678)
-  CHECK_INT64_CONVERSION(G_TYPE_FLOAT, float, 12345678)
-  CHECK_INT64_CONVERSION(G_TYPE_DOUBLE, double, 12345678)
+  CHECK_INT64_CONVERSION(G_TYPE_CHAR, g_assert_cmpint, schar, -124)
+  CHECK_INT64_CONVERSION(G_TYPE_CHAR, g_assert_cmpint, schar, 124)
+  CHECK_INT64_CONVERSION(G_TYPE_UCHAR, g_assert_cmpuint, uchar, 0)
+  CHECK_INT64_CONVERSION(G_TYPE_UCHAR, g_assert_cmpuint, uchar, 255)
+  CHECK_INT64_CONVERSION(G_TYPE_INT, g_assert_cmpint, int, -12345)
+  CHECK_INT64_CONVERSION(G_TYPE_INT, g_assert_cmpint, int, 12345)
+  CHECK_INT64_CONVERSION(G_TYPE_UINT, g_assert_cmpuint, uint, 0)
+  CHECK_INT64_CONVERSION(G_TYPE_UINT, g_assert_cmpuint, uint, 12345)
+  CHECK_INT64_CONVERSION(G_TYPE_LONG, g_assert_cmpint, long, -12345678)
+  CHECK_INT64_CONVERSION(G_TYPE_ULONG, g_assert_cmpuint, ulong, 12345678)
+  CHECK_INT64_CONVERSION(G_TYPE_INT64, g_assert_cmpint, int64, -12345678)
+  CHECK_INT64_CONVERSION(G_TYPE_UINT64, g_assert_cmpuint, uint64, 12345678)
+  CHECK_INT64_CONVERSION(G_TYPE_FLOAT, g_assert_cmpfloat, float, 12345678)
+  CHECK_INT64_CONVERSION(G_TYPE_DOUBLE, g_assert_cmpfloat, double, 12345678)
 
-#define CHECK_UINT64_CONVERSION(type, getter, value)                    \
+#define CHECK_UINT64_CONVERSION(type, cmpfunc, getter, value)           \
   g_assert_true (g_value_type_transformable (G_TYPE_UINT64, type));     \
   g_value_init (&src, G_TYPE_UINT64);                                   \
   g_value_init (&dest, type);                                           \
   g_value_set_uint64 (&src, value);                                     \
   g_assert_true (g_value_transform (&src, &dest));                      \
-  g_assert_cmpuint (g_value_get_##getter (&dest), ==, value);           \
+  cmpfunc (g_value_get_##getter (&dest), ==, value);                    \
   g_value_unset (&src);                                                 \
   g_value_unset (&dest);
 
-  CHECK_UINT64_CONVERSION(G_TYPE_CHAR, schar, -124)
-  CHECK_UINT64_CONVERSION(G_TYPE_CHAR, schar, 124)
-  CHECK_UINT64_CONVERSION(G_TYPE_UCHAR, uchar, 0)
-  CHECK_UINT64_CONVERSION(G_TYPE_UCHAR, uchar, 255)
-  CHECK_UINT64_CONVERSION(G_TYPE_INT, int, -12345)
-  CHECK_UINT64_CONVERSION(G_TYPE_INT, int, 12345)
-  CHECK_UINT64_CONVERSION(G_TYPE_UINT, uint, 0)
-  CHECK_UINT64_CONVERSION(G_TYPE_UINT, uint, 12345)
-  CHECK_UINT64_CONVERSION(G_TYPE_LONG, long, -12345678)
-  CHECK_UINT64_CONVERSION(G_TYPE_ULONG, ulong, 12345678)
-  CHECK_UINT64_CONVERSION(G_TYPE_INT64, int64, -12345678)
-  CHECK_UINT64_CONVERSION(G_TYPE_UINT64, uint64, 12345678)
-  CHECK_UINT64_CONVERSION(G_TYPE_FLOAT, float, 12345678)
-  CHECK_UINT64_CONVERSION(G_TYPE_DOUBLE, double, 12345678)
+  CHECK_UINT64_CONVERSION(G_TYPE_CHAR, g_assert_cmpint, schar, -124)
+  CHECK_UINT64_CONVERSION(G_TYPE_CHAR, g_assert_cmpint, schar, 124)
+  CHECK_UINT64_CONVERSION(G_TYPE_UCHAR, g_assert_cmpuint, uchar, 0)
+  CHECK_UINT64_CONVERSION(G_TYPE_UCHAR, g_assert_cmpuint, uchar, 255)
+  CHECK_UINT64_CONVERSION(G_TYPE_INT, g_assert_cmpint, int, -12345)
+  CHECK_UINT64_CONVERSION(G_TYPE_INT, g_assert_cmpint, int, 12345)
+  CHECK_UINT64_CONVERSION(G_TYPE_UINT, g_assert_cmpuint, uint, 0)
+  CHECK_UINT64_CONVERSION(G_TYPE_UINT, g_assert_cmpuint, uint, 12345)
+  CHECK_UINT64_CONVERSION(G_TYPE_LONG, g_assert_cmpint, long, -12345678)
+  CHECK_UINT64_CONVERSION(G_TYPE_ULONG, g_assert_cmpuint, ulong, 12345678)
+  CHECK_UINT64_CONVERSION(G_TYPE_INT64, g_assert_cmpint, int64, -12345678)
+  CHECK_UINT64_CONVERSION(G_TYPE_UINT64, g_assert_cmpuint, uint64, 12345678)
+  CHECK_UINT64_CONVERSION(G_TYPE_FLOAT, g_assert_cmpfloat, float, 12345678)
+  CHECK_UINT64_CONVERSION(G_TYPE_DOUBLE, g_assert_cmpfloat, double, 12345678)
 
-#define CHECK_FLOAT_CONVERSION(type, getter, value)                    \
+#define CHECK_FLOAT_CONVERSION(type, cmpfunc, getter, value)           \
   g_assert_true (g_value_type_transformable (G_TYPE_FLOAT, type));     \
   g_value_init (&src, G_TYPE_FLOAT);                                   \
   g_value_init (&dest, type);                                          \
   g_value_set_float (&src, value);                                     \
   g_assert_true (g_value_transform (&src, &dest));                     \
-  g_assert_cmpfloat (g_value_get_##getter (&dest), ==, value);         \
+  cmpfunc (g_value_get_##getter (&dest), ==, value);                   \
   g_value_unset (&src);                                                \
   g_value_unset (&dest);
 
-  CHECK_FLOAT_CONVERSION(G_TYPE_CHAR, schar, -124)
-  CHECK_FLOAT_CONVERSION(G_TYPE_CHAR, schar, 124)
-  CHECK_FLOAT_CONVERSION(G_TYPE_UCHAR, uchar, 0)
-  CHECK_FLOAT_CONVERSION(G_TYPE_UCHAR, uchar, 255)
-  CHECK_FLOAT_CONVERSION(G_TYPE_INT, int, -12345)
-  CHECK_FLOAT_CONVERSION(G_TYPE_INT, int, 12345)
-  CHECK_FLOAT_CONVERSION(G_TYPE_UINT, uint, 0)
-  CHECK_FLOAT_CONVERSION(G_TYPE_UINT, uint, 12345)
-  CHECK_FLOAT_CONVERSION(G_TYPE_LONG, long, -12345678)
-  CHECK_FLOAT_CONVERSION(G_TYPE_ULONG, ulong, 12345678)
-  CHECK_FLOAT_CONVERSION(G_TYPE_INT64, int64, -12345678)
-  CHECK_FLOAT_CONVERSION(G_TYPE_UINT64, uint64, 12345678)
-  CHECK_FLOAT_CONVERSION(G_TYPE_FLOAT, float, 12345678)
-  CHECK_FLOAT_CONVERSION(G_TYPE_DOUBLE, double, 12345678)
+  CHECK_FLOAT_CONVERSION(G_TYPE_CHAR, g_assert_cmpint, schar, -124)
+  CHECK_FLOAT_CONVERSION(G_TYPE_CHAR, g_assert_cmpint, schar, 124)
+  CHECK_FLOAT_CONVERSION(G_TYPE_UCHAR, g_assert_cmpuint, uchar, 0)
+  CHECK_FLOAT_CONVERSION(G_TYPE_UCHAR, g_assert_cmpuint, uchar, 255)
+  CHECK_FLOAT_CONVERSION(G_TYPE_INT, g_assert_cmpint, int, -12345)
+  CHECK_FLOAT_CONVERSION(G_TYPE_INT, g_assert_cmpint, int, 12345)
+  CHECK_FLOAT_CONVERSION(G_TYPE_UINT, g_assert_cmpuint, uint, 0)
+  CHECK_FLOAT_CONVERSION(G_TYPE_UINT, g_assert_cmpuint, uint, 12345)
+  CHECK_FLOAT_CONVERSION(G_TYPE_LONG, g_assert_cmpint, long, -12345678)
+  CHECK_FLOAT_CONVERSION(G_TYPE_ULONG, g_assert_cmpuint, ulong, 12345678)
+  CHECK_FLOAT_CONVERSION(G_TYPE_INT64, g_assert_cmpint, int64, -12345678)
+  CHECK_FLOAT_CONVERSION(G_TYPE_UINT64, g_assert_cmpuint, uint64, 12345678)
+  CHECK_FLOAT_CONVERSION(G_TYPE_FLOAT, g_assert_cmpfloat, float, 12345678)
+  CHECK_FLOAT_CONVERSION(G_TYPE_DOUBLE, g_assert_cmpfloat, double, 12345678)
 
-#define CHECK_DOUBLE_CONVERSION(type, getter, value)                    \
+#define CHECK_DOUBLE_CONVERSION(type, cmpfunc, getter, value)           \
   g_assert_true (g_value_type_transformable (G_TYPE_DOUBLE, type));     \
   g_value_init (&src, G_TYPE_DOUBLE);                                   \
   g_value_init (&dest, type);                                           \
   g_value_set_double (&src, value);                                     \
   g_assert_true (g_value_transform (&src, &dest));                      \
-  g_assert_cmpfloat (g_value_get_##getter (&dest), ==, value);          \
+  cmpfunc (g_value_get_##getter (&dest), ==, value);                    \
   g_value_unset (&src);                                                 \
   g_value_unset (&dest);
 
-  CHECK_DOUBLE_CONVERSION(G_TYPE_CHAR, schar, -124)
-  CHECK_DOUBLE_CONVERSION(G_TYPE_CHAR, schar, 124)
-  CHECK_DOUBLE_CONVERSION(G_TYPE_UCHAR, uchar, 0)
-  CHECK_DOUBLE_CONVERSION(G_TYPE_UCHAR, uchar, 255)
-  CHECK_DOUBLE_CONVERSION(G_TYPE_INT, int, -12345)
-  CHECK_DOUBLE_CONVERSION(G_TYPE_INT, int, 12345)
-  CHECK_DOUBLE_CONVERSION(G_TYPE_UINT, uint, 0)
-  CHECK_DOUBLE_CONVERSION(G_TYPE_UINT, uint, 12345)
-  CHECK_DOUBLE_CONVERSION(G_TYPE_LONG, long, -12345678)
-  CHECK_DOUBLE_CONVERSION(G_TYPE_ULONG, ulong, 12345678)
-  CHECK_DOUBLE_CONVERSION(G_TYPE_INT64, int64, -12345678)
-  CHECK_DOUBLE_CONVERSION(G_TYPE_UINT64, uint64, 12345678)
-  CHECK_DOUBLE_CONVERSION(G_TYPE_FLOAT, float, 12345678)
-  CHECK_DOUBLE_CONVERSION(G_TYPE_DOUBLE, double, 12345678)
+  CHECK_DOUBLE_CONVERSION(G_TYPE_CHAR, g_assert_cmpint, schar, -124)
+  CHECK_DOUBLE_CONVERSION(G_TYPE_CHAR, g_assert_cmpint, schar, 124)
+  CHECK_DOUBLE_CONVERSION(G_TYPE_UCHAR, g_assert_cmpuint, uchar, 0)
+  CHECK_DOUBLE_CONVERSION(G_TYPE_UCHAR, g_assert_cmpuint, uchar, 255)
+  CHECK_DOUBLE_CONVERSION(G_TYPE_INT, g_assert_cmpint, int, -12345)
+  CHECK_DOUBLE_CONVERSION(G_TYPE_INT, g_assert_cmpint, int, 12345)
+  CHECK_DOUBLE_CONVERSION(G_TYPE_UINT, g_assert_cmpuint, uint, 0)
+  CHECK_DOUBLE_CONVERSION(G_TYPE_UINT, g_assert_cmpuint, uint, 12345)
+  CHECK_DOUBLE_CONVERSION(G_TYPE_LONG, g_assert_cmpint, long, -12345678)
+  CHECK_DOUBLE_CONVERSION(G_TYPE_ULONG, g_assert_cmpuint, ulong, 12345678)
+  CHECK_DOUBLE_CONVERSION(G_TYPE_INT64, g_assert_cmpint, int64, -12345678)
+  CHECK_DOUBLE_CONVERSION(G_TYPE_UINT64, g_assert_cmpuint, uint64, 12345678)
+  CHECK_DOUBLE_CONVERSION(G_TYPE_FLOAT, g_assert_cmpfloat, float, 12345678)
+  CHECK_DOUBLE_CONVERSION(G_TYPE_DOUBLE, g_assert_cmpfloat, double, 12345678)
 
 #define CHECK_BOOLEAN_CONVERSION(type, setter, value)                   \
   g_assert_true (g_value_type_transformable (type, G_TYPE_BOOLEAN));    \
@@ -1157,7 +1171,6 @@ test_interface_default_init (TestInterfaceInterface *iface)
             g_object_interface_install_property (iface, pspec);
             g_test_assert_expected_messages ();
 
-            g_param_spec_unref (pspec);
             continue;
           }
 
@@ -1398,6 +1411,13 @@ test_param_implement (void)
 {
   gchar *test_path;
 
+  /* This test is slow. */
+  if (!g_test_slow ())
+    {
+      g_test_skip ("Skipping slow /param/implement test");
+      return;
+    }
+
   for (change_this_flag = 0; change_this_flag < 16; change_this_flag++)
     for (change_this_type = 0; change_this_type < 3; change_this_type++)
       for (use_this_flag = 0; use_this_flag < 16; use_this_flag++)
@@ -1432,7 +1452,7 @@ test_param_implement (void)
 
               case 'i':
                 g_test_trap_assert_failed ();
-                g_test_trap_assert_stderr ("*g_object_class_install_property*");
+                g_test_trap_assert_stderr ("*pspec->flags*");
                 continue;
 
               case 'f':
@@ -1624,6 +1644,24 @@ test_param_spec_custom (void)
   g_param_spec_unref (pspec);
 }
 
+static void
+test_param_spec_pool (void)
+{
+  GParamSpecPool *pool = g_param_spec_pool_new (FALSE);
+  GParamSpec *pspec = g_param_spec_ref_sink (g_param_spec_int ("int", NULL, NULL, -1, 100, -1, G_PARAM_READWRITE));
+  GParamSpec *check = NULL;
+
+  g_param_spec_pool_insert (pool, pspec, G_TYPE_OBJECT);
+  check = g_param_spec_pool_lookup (pool, "int", G_TYPE_OBJECT, FALSE);
+  g_assert_true (check->owner_type == G_TYPE_OBJECT);
+
+  g_param_spec_pool_remove (pool, pspec);
+  g_assert_null (g_param_spec_pool_lookup (pool, "int", G_TYPE_OBJECT, FALSE));
+
+  g_param_spec_pool_free (pool);
+  g_param_spec_unref (pspec);
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -1641,8 +1679,7 @@ main (int argc, char *argv[])
   g_test_add_func ("/param/validate", test_param_validate);
   g_test_add_func ("/param/convert", test_param_convert);
 
-  if (g_test_slow ())
-    g_test_add_func ("/param/implement", test_param_implement);
+  g_test_add_func ("/param/implement", test_param_implement);
 
   for (data.change_this_flag = 0; data.change_this_flag < 16; data.change_this_flag++)
     for (data.change_this_type = 0; data.change_this_type < 3; data.change_this_type++)
@@ -1653,8 +1690,7 @@ main (int argc, char *argv[])
                                          data.change_this_flag, data.change_this_type,
                                          data.use_this_flag, data.use_this_type);
             test_data = g_memdup2 (&data, sizeof (TestParamImplementData));
-            g_test_add_data_func_full (test_path, test_data, test_param_implement_child, g_free);
-            g_free (test_data);
+            g_test_add_data_func_full (test_path, g_steal_pointer (&test_data), test_param_implement_child, g_free);
             g_free (test_path);
           }
 
@@ -1680,6 +1716,7 @@ main (int argc, char *argv[])
   g_test_add_func ("/paramspec/variant", test_param_spec_variant);
   g_test_add_func ("/paramspec/variant/cmp", test_param_spec_variant_cmp);
   g_test_add_func ("/paramspec/custom", test_param_spec_custom);
+  g_test_add_func ("/paramspec/pool", test_param_spec_pool);
 
   return g_test_run ();
 }

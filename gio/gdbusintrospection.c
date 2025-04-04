@@ -29,20 +29,6 @@
 
 #include "glibintl.h"
 
-/**
- * SECTION:gdbusintrospection
- * @title: D-Bus Introspection Data
- * @short_description: Node and interface description data structures
- * @include: gio/gio.h
- *
- * Various data structures and convenience routines to parse and
- * generate D-Bus introspection XML. Introspection information is
- * used when registering objects with g_dbus_connection_register_object().
- *
- * The format of D-Bus introspection XML is specified in the
- * [D-Bus specification](http://dbus.freedesktop.org/doc/dbus-specification.html#introspection-format)
- */
-
 /* ---------------------------------------------------------------------------------------------------- */
 
 #define _MY_DEFINE_BOXED_TYPE(TypeName, type_name) \
@@ -1613,7 +1599,7 @@ parser_end_element (GMarkupParseContext  *context,
       nodes = parse_data_steal_nodes (data, &num_nodes);
       interfaces = parse_data_steal_interfaces (data, &num_interfaces);
 
-      /* destroy the nodes, interfaces for scope we're exiting and and pop the nodes, interfaces from the
+      /* destroy the nodes, interfaces for scope we're exiting and pop the nodes, interfaces from the
        * scope we're reentering
        */
       parse_data_free_interfaces (data);
@@ -1707,7 +1693,7 @@ parser_end_element (GMarkupParseContext  *context,
 
       embedded_annotations = steal_annotations (data);
 
-      /* destroy the annotations for scope we're exiting and and pop the annotations from the scope we're reentering */
+      /* destroy the annotations for scope we're exiting and pop the annotations from the scope we're reentering */
       parse_data_free_annotations (data);
       data->annotations = (GPtrArray *) data->annotations_stack->data;
       data->annotations_stack = g_slist_remove (data->annotations_stack, data->annotations_stack->data);
@@ -1727,7 +1713,7 @@ parser_end_element (GMarkupParseContext  *context,
 
   if (!have_popped_annotations)
     {
-      /* destroy the annotations for scope we're exiting and and pop the annotations from the scope we're reentering */
+      /* destroy the annotations for scope we're exiting and pop the annotations from the scope we're reentering */
       parse_data_free_annotations (data);
       data->annotations = (GPtrArray *) data->annotations_stack->data;
       data->annotations_stack = g_slist_remove (data->annotations_stack, data->annotations_stack->data);
@@ -1761,10 +1747,10 @@ parser_error (GMarkupParseContext *context,
  * Parses @xml_data and returns a #GDBusNodeInfo representing the data.
  *
  * The introspection XML must contain exactly one top-level
- * <node> element.
+ * `<node>` element.
  *
  * Note that this routine is using a
- * [GMarkup][glib-Simple-XML-Subset-Parser.description]-based
+ * [GMarkup](../glib/markup.html)-based
  * parser that only accepts a subset of valid XML documents.
  *
  * Returns: A #GDBusNodeInfo structure or %NULL if @error is set. Free

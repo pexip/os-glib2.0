@@ -1,3 +1,5 @@
+#include "config.h"
+
 #include <stdlib.h>
 #include <locale.h>
 #include <libintl.h>
@@ -9,6 +11,11 @@
 #include <gio/gsettingsbackend.h>
 
 #include "testenum.h"
+
+#ifdef HAVE_XLOCALE_H
+/* Needed on macOS and FreeBSD for uselocale() */
+#include <xlocale.h>
+#endif
 
 static const gchar *locale_dir = ".";
 
@@ -747,7 +754,7 @@ test_atomic (void)
  * 1) The C library doesn't use LC_MESSAGES, that is implemented only
  * in libintl (defined in its <libintl.h>).
  *
- * 2) The locale names that setlocale() accepts and returns aren't in
+ * 2) The locale names that uselocale() accepts and returns aren't in
  * the "de_DE" style, but like "German_Germany".
  *
  * 3) libintl looks at the Win32 thread locale and not the C library
@@ -765,29 +772,46 @@ test_atomic (void)
 static void
 test_l10n (void)
 {
+#ifndef HAVE_USELOCALE
+  g_test_skip ("Unsafe to change locale because platform does not support uselocale()");
+#else
   GSettings *settings;
   gchar *str;
-  gchar *locale;
+  locale_t original_locale;
+  locale_t new_locale;
+  locale_t result;
 
   bindtextdomain ("test", locale_dir);
   bind_textdomain_codeset ("test", "UTF-8");
 
-  locale = g_strdup (setlocale (LC_MESSAGES, NULL));
+  original_locale = uselocale ((locale_t) 0);
+  g_assert_true (original_locale != (locale_t) 0);
+  new_locale = newlocale (LC_MESSAGES_MASK, "C", (locale_t) 0);
+  g_assert_true (new_locale != (locale_t) 0);
+  result = uselocale (new_locale);
+  g_assert_true (result == original_locale);
 
   settings = g_settings_new ("org.gtk.test.localized");
-
-  g_setenv ("LC_MESSAGES", "C", TRUE);
-  setlocale (LC_MESSAGES, "C");
   str = g_settings_get_string (settings, "error-message");
-  g_setenv ("LC_MESSAGES", locale, TRUE);
-  setlocale (LC_MESSAGES, locale);
+
+  result = uselocale (original_locale);
+  g_assert_true (result == new_locale);
+  freelocale (new_locale);
 
   g_assert_cmpstr (str, ==, "Unnamed");
   g_free (str);
   str = NULL;
 
-  g_setenv ("LC_MESSAGES", "de_DE.UTF-8", TRUE);
-  setlocale (LC_MESSAGES, "de_DE.UTF-8");
+  new_locale = newlocale (LC_MESSAGES_MASK, "de_DE.UTF-8", (locale_t) 0);
+  if (new_locale == (locale_t) 0)
+    {
+      g_test_skip ("Cannot run test becaues de_DE.UTF-8 locale is not available");
+      g_object_unref (settings);
+      return;
+    }
+  result = uselocale (new_locale);
+  g_assert_true (result == original_locale);
+
   /* Only do the test if translation is actually working... */
   if (g_str_equal (dgettext ("test", "\"Unnamed\""), "\"Unbenannt\""))
     {
@@ -798,12 +822,16 @@ test_l10n (void)
       str = NULL;
     }
   else
-    g_printerr ("warning: translation is not working... skipping test. ");
+    {
+      g_test_skip ("translation is not working");
+    }
 
-  g_setenv ("LC_MESSAGES", locale, TRUE);
-  setlocale (LC_MESSAGES, locale);
-  g_free (locale);
+  result = uselocale (original_locale);
+  g_assert_true (result == new_locale);
+  freelocale (new_locale);
+
   g_object_unref (settings);
+#endif
 }
 
 /* Test that message context works as expected with translated
@@ -816,39 +844,133 @@ test_l10n (void)
 static void
 test_l10n_context (void)
 {
+#ifndef HAVE_USELOCALE
+  g_test_skip ("Unsafe to change locale because platform does not support uselocale()");
+#else
   GSettings *settings;
   gchar *str;
-  gchar *locale;
+  locale_t original_locale;
+  locale_t new_locale;
+  locale_t result;
 
   bindtextdomain ("test", locale_dir);
   bind_textdomain_codeset ("test", "UTF-8");
 
-  locale = g_strdup (setlocale (LC_MESSAGES, NULL));
-
   settings = g_settings_new ("org.gtk.test.localized");
 
-  g_setenv ("LC_MESSAGES", "C", TRUE);
-  setlocale (LC_MESSAGES, "C");
+  original_locale = uselocale ((locale_t) 0);
+  g_assert_true (original_locale != (locale_t) 0);
+  new_locale = newlocale (LC_MESSAGES_MASK, "C", (locale_t) 0);
+  g_assert_true (new_locale != (locale_t) 0);
+  result = uselocale (new_locale);
+  g_assert_true (result == original_locale);
+
   g_settings_get (settings, "backspace", "s", &str);
-  g_setenv ("LC_MESSAGES", locale, TRUE);
-  setlocale (LC_MESSAGES, locale);
+
+  result = uselocale (original_locale);
+  g_assert_true (result == new_locale);
+  freelocale (new_locale);
 
   g_assert_cmpstr (str, ==, "BackSpace");
   g_free (str);
   str = NULL;
 
-  g_setenv ("LC_MESSAGES", "de_DE.UTF-8", TRUE);
-  setlocale (LC_MESSAGES, "de_DE.UTF-8");
+  new_locale = newlocale (LC_MESSAGES_MASK, "de_DE.UTF-8", (locale_t) 0);
+  if (new_locale == (locale_t) 0)
+    {
+      g_test_skip ("Cannot run test becaues de_DE.UTF-8 locale is not available");
+      g_object_unref (settings);
+      return;
+    }
+  result = uselocale (new_locale);
+  g_assert_true (result == original_locale);
+
   /* Only do the test if translation is actually working... */
   if (g_str_equal (dgettext ("test", "\"Unnamed\""), "\"Unbenannt\""))
     settings_assert_cmpstr (settings, "backspace", ==, "Löschen");
   else
-    g_printerr ("warning: translation is not working... skipping test.  ");
+    g_test_skip ("translation is not working");
 
-  g_setenv ("LC_MESSAGES", locale, TRUE);
-  setlocale (LC_MESSAGES, locale);
-  g_free (locale);
+  result = uselocale (original_locale);
+  g_assert_true (result == new_locale);
+  freelocale (new_locale);
+
   g_object_unref (settings);
+#endif
+}
+
+/* Test use of l10n="time" and LC_TIME. */
+static void
+test_l10n_time (void)
+{
+#ifndef HAVE_USELOCALE
+  g_test_skip ("Unsafe to change locale because platform does not support uselocale()");
+#else
+  GSettings *settings;
+  gchar *str;
+  locale_t original_locale;
+  locale_t new_locale;
+  locale_t result;
+
+  g_test_summary ("Test that l10n='time' attribute uses the correct category for translations");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/2575");
+
+  bindtextdomain ("test", locale_dir);
+  bind_textdomain_codeset ("test", "UTF-8");
+
+  settings = g_settings_new ("org.gtk.test.localized");
+
+  original_locale = uselocale ((locale_t) 0);
+  g_assert_true (original_locale != (locale_t) 0);
+  new_locale = duplocale (original_locale);
+  g_assert_true (new_locale != (locale_t) 0);
+  g_clear_pointer (&new_locale, freelocale);
+
+  new_locale = newlocale (LC_TIME_MASK, "C", new_locale);
+  g_assert_true (new_locale != (locale_t) 0);
+  result = uselocale (new_locale);
+  g_assert_true (result == original_locale);
+
+  str = g_settings_get_string (settings, "midnight");
+
+  result = uselocale (original_locale);
+  g_assert_true (result == new_locale);
+
+  g_assert_cmpstr (str, ==, "12:00 AM");
+  g_free (str);
+  g_clear_pointer (&new_locale, freelocale);
+  str = NULL;
+
+  new_locale = newlocale (LC_TIME_MASK, "de_DE.UTF-8", new_locale);
+  if (new_locale == (locale_t) 0)
+    {
+      g_test_skip ("Cannot run test becaues de_DE.UTF-8 locale is not available");
+      g_object_unref (settings);
+      return;
+    }
+  result = uselocale (new_locale);
+  g_assert_true (result != (locale_t) 0);
+
+  /* Only do the test if translation is actually working... */
+  if (g_str_equal (dgettext ("test", "\"12:00 AM\""), "\"00:00\""))
+    {
+      str = g_settings_get_string (settings, "midnight");
+
+      g_assert_cmpstr (str, ==, "00:00");
+      g_free (str);
+      str = NULL;
+    }
+  else
+    {
+      g_test_skip ("translation is not working");
+    }
+
+  result = uselocale (original_locale);
+  g_assert_true (result == new_locale);
+  g_clear_pointer (&new_locale, freelocale);
+
+  g_object_unref (settings);
+#endif
 }
 
 enum
@@ -1044,9 +1166,9 @@ test_object_set_property (GObject      *object,
 static GType
 test_enum_get_type (void)
 {
-  static gsize define_type_id = 0;
+  static GType define_type_id = 0;
 
-  if (g_once_init_enter (&define_type_id))
+  if (g_once_init_enter_pointer (&define_type_id))
     {
       static const GEnumValue values[] = {
         { TEST_ENUM_FOO, "TEST_ENUM_FOO", "foo" },
@@ -1057,7 +1179,7 @@ test_enum_get_type (void)
       };
 
       GType type_id = g_enum_register_static ("TestEnum", values);
-      g_once_init_leave (&define_type_id, type_id);
+      g_once_init_leave_pointer (&define_type_id, type_id);
     }
 
   return define_type_id;
@@ -1066,9 +1188,9 @@ test_enum_get_type (void)
 static GType
 test_flags_get_type (void)
 {
-  static gsize define_type_id = 0;
+  static GType define_type_id = 0;
 
-  if (g_once_init_enter (&define_type_id))
+  if (g_once_init_enter_pointer (&define_type_id))
     {
       static const GFlagsValue values[] = {
         { TEST_FLAGS_NONE, "TEST_FLAGS_NONE", "none" },
@@ -1079,7 +1201,7 @@ test_flags_get_type (void)
       };
 
       GType type_id = g_flags_register_static ("TestFlags", values);
-      g_once_init_leave (&define_type_id, type_id);
+      g_once_init_leave_pointer (&define_type_id, type_id);
     }
 
   return define_type_id;
@@ -1592,6 +1714,146 @@ test_custom_binding (void)
   g_test_assert_expected_messages ();
 
   g_object_unref (obj);
+  g_object_unref (settings);
+}
+
+/* Same test as above, but with closures
+ */
+static void
+test_bind_with_mapping_closures (void)
+{
+  TestObject *obj;
+  GSettings *settings;
+  char *s;
+  gboolean b;
+  GClosure *get;
+  GClosure *set;
+
+  settings = g_settings_new ("org.gtk.test.binding");
+  obj = test_object_new ();
+
+  g_settings_set_string (settings, "string", "true");
+
+  get = g_cclosure_new (G_CALLBACK (string_to_bool), NULL, NULL);
+  set = g_cclosure_new (G_CALLBACK (bool_to_string), NULL, NULL);
+
+  g_settings_bind_with_mapping_closures (settings, "string",
+                                         G_OBJECT (obj), "bool",
+                                         G_SETTINGS_BIND_DEFAULT, get, set);
+
+  g_settings_set_string (settings, "string", "false");
+  g_object_get (obj, "bool", &b, NULL);
+  g_assert_cmpint (b, ==, FALSE);
+
+  g_settings_set_string (settings, "string", "not true");
+  g_object_get (obj, "bool", &b, NULL);
+  g_assert_cmpint (b, ==, FALSE);
+
+  g_object_set (obj, "bool", TRUE, NULL);
+  s = g_settings_get_string (settings, "string");
+  g_assert_cmpstr (s, ==, "true");
+  g_free (s);
+
+  set = g_cclosure_new (G_CALLBACK (bool_to_bool), NULL, NULL);
+
+  g_settings_bind_with_mapping_closures (settings, "string",
+                                         G_OBJECT (obj), "bool",
+                                         G_SETTINGS_BIND_DEFAULT, get, set);
+  g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                         "*binding mapping function for key 'string' returned"
+                         " GVariant of type 'b' when type 's' was requested*");
+  g_object_set (obj, "bool", FALSE, NULL);
+  g_test_assert_expected_messages ();
+
+  g_object_unref (obj);
+  g_object_unref (settings);
+}
+
+typedef struct
+{
+  gboolean get_called;
+  gboolean set_called;
+  gboolean get_freed;
+  gboolean set_freed;
+} BindWithMappingData;
+
+static gboolean
+get_callback (GValue *value,
+              GVariant *variant,
+              void *user_data)
+{
+  BindWithMappingData *data = (BindWithMappingData *) user_data;
+  data->get_called = TRUE;
+
+  g_assert_true (G_VALUE_HOLDS_BOOLEAN (value));
+  g_assert_true (g_variant_is_of_type (variant, G_VARIANT_TYPE_STRING));
+
+  return string_to_bool (value, variant, NULL);
+}
+
+static GVariant *
+set_callback (const GValue *value,
+              const GVariantType *expected_type,
+              void *user_data)
+{
+  BindWithMappingData *data = (BindWithMappingData *) user_data;
+  data->set_called = TRUE;
+
+  g_assert_true (G_VALUE_HOLDS_BOOLEAN (value));
+  g_assert_true (g_variant_type_equal (expected_type, G_VARIANT_TYPE_STRING));
+
+  return bool_to_string (value, expected_type, NULL);
+}
+
+static void
+teardown_get (void *user_data, GClosure *closure)
+{
+  BindWithMappingData *data = (BindWithMappingData *) user_data;
+  data->get_freed = TRUE;
+}
+
+static void
+teardown_set (void *user_data, GClosure *closure)
+{
+  BindWithMappingData *data = (BindWithMappingData *) user_data;
+  data->set_freed = TRUE;
+}
+
+/* Tests the types of GValue and GVariant passed to the closures */
+static void
+test_bind_with_mapping_closures_parameters (void)
+{
+  TestObject *obj;
+  GSettings *settings;
+  GClosure *get;
+  GClosure *set;
+  BindWithMappingData data = { FALSE, FALSE, FALSE, FALSE };
+
+  settings = g_settings_new ("org.gtk.test.binding");
+  obj = test_object_new ();
+
+  g_settings_set_string (settings, "string", "true");
+
+  get = g_cclosure_new (G_CALLBACK (get_callback), &data, teardown_get);
+  set = g_cclosure_new (G_CALLBACK (set_callback), &data, teardown_set);
+
+  g_settings_bind_with_mapping_closures (settings, "string",
+                                         G_OBJECT (obj), "bool",
+                                         G_SETTINGS_BIND_DEFAULT, get, set);
+
+  g_assert_true (data.get_called);
+  g_assert_false (data.set_called);
+
+  data.get_called = FALSE;
+  g_object_set (obj, "bool", FALSE, NULL);
+  g_assert_true (data.set_called);
+  g_assert_false (data.get_called);
+
+  g_object_unref (obj);
+
+  g_assert_true (data.get_freed);
+  g_assert_true (data.set_freed);
+
   g_object_unref (settings);
 }
 
@@ -2886,6 +3148,7 @@ static void
 test_per_desktop (void)
 {
   GSettings *settings;
+  GAction *action_string;
   TestObject *obj;
   gpointer p;
   gchar *str;
@@ -2918,6 +3181,10 @@ test_per_desktop (void)
   g_assert_cmpstr (str, ==, "GNOME");
   g_free (str);
 
+  action_string = g_settings_create_action (settings, "desktop");
+  check_and_free (g_action_get_state (action_string), "'GNOME'");
+
+  g_clear_object (&action_string);
   g_object_unref (settings);
   g_object_unref (obj);
 }
@@ -2929,6 +3196,7 @@ static void
 test_per_desktop_subprocess (void)
 {
   GSettings *settings;
+  GAction *action_string;
   TestObject *obj;
   gpointer p;
   gchar *str;
@@ -2956,6 +3224,10 @@ test_per_desktop_subprocess (void)
   g_assert_cmpstr (str, ==, "GNOME Classic");
   g_free (str);
 
+  action_string = g_settings_create_action (settings, "desktop");
+  check_and_free (g_action_get_state (action_string), "'GNOME Classic'");
+
+  g_clear_object (&action_string);
   g_object_unref (settings);
   g_object_unref (obj);
 }
@@ -2967,11 +3239,26 @@ test_extended_schema (void)
   GSettings *settings;
   gchar **keys;
 
-  settings = g_settings_new_with_path ("org.gtk.test.extends.extended", "/test/extendes/");
+  settings = g_settings_new_with_path ("org.gtk.test.extends.extended", "/test/extends/");
   g_object_get (settings, "settings-schema", &schema, NULL);
   keys = g_settings_schema_list_keys (schema);
   g_assert_true (strv_set_equal ((const gchar * const *) keys, "int32", "string", "another-int32", NULL));
   g_strfreev (keys);
+  g_object_unref (settings);
+  g_settings_schema_unref (schema);
+}
+
+static void
+test_extended_schema_has_key (void)
+{
+  GSettingsSchema *schema;
+  GSettings *settings;
+
+  settings = g_settings_new_with_path ("org.gtk.test.extends.extended", "/test/extends/");
+  g_object_get (settings, "settings-schema", &schema, NULL);
+  g_assert_true (g_settings_schema_has_key (schema, "int32"));
+  g_assert_true (g_settings_schema_has_key (schema, "string"));
+  g_assert_true (g_settings_schema_has_key (schema, "another-int32"));
   g_object_unref (settings);
   g_settings_schema_unref (schema);
 }
@@ -3002,11 +3289,13 @@ main (int argc, char *argv[])
 
   setlocale (LC_ALL, "");
 
-  g_test_init (&argc, &argv, NULL);
+  g_test_init (&argc, &argv, G_TEST_OPTION_ISOLATE_DIRS, NULL);
 
   if (!g_test_subprocess ())
     {
       GError *local_error = NULL;
+      char *subprocess_stdout = NULL;
+
       /* A GVDB header is 6 guint32s, and requires a magic number in the first
        * two guint32s. A set of zero bytes of a greater length is considered
        * corrupt. */
@@ -3046,14 +3335,20 @@ main (int argc, char *argv[])
                                                 "--schema-file=org.gtk.test.enums.xml "
                                                 "--schema-file=org.gtk.test.gschema.xml "
                                                 "--override-file=org.gtk.test.gschema.override",
-                                                NULL, NULL, &result, NULL));
+                                                &subprocess_stdout, NULL, &result, NULL));
+      if (subprocess_stdout && *g_strstrip (subprocess_stdout) != '\0')
+        g_test_message ("%s", subprocess_stdout);
+      g_clear_pointer (&subprocess_stdout, g_free);
       g_assert_cmpint (result, ==, 0);
 
       g_remove ("schema-source/gschemas.compiled");
       g_mkdir ("schema-source", 0777);
       g_assert_true (g_spawn_command_line_sync (GLIB_COMPILE_SCHEMAS " --targetdir=schema-source "
                                                 "--schema-file=" SRCDIR "/org.gtk.schemasourcecheck.gschema.xml",
-                                                NULL, NULL, &result, NULL));
+                                                &subprocess_stdout, NULL, &result, NULL));
+      if (subprocess_stdout && *g_strstrip (subprocess_stdout) != '\0')
+        g_test_message ("%s", subprocess_stdout);
+      g_clear_pointer (&subprocess_stdout, g_free);
       g_assert_cmpint (result, ==, 0);
 
       g_remove ("schema-source-corrupt/gschemas.compiled");
@@ -3089,6 +3384,7 @@ main (int argc, char *argv[])
 
   g_test_add_func ("/gsettings/l10n", test_l10n);
   g_test_add_func ("/gsettings/l10n-context", test_l10n_context);
+  g_test_add_func ("/gsettings/l10n-time", test_l10n_time);
 
   g_test_add_func ("/gsettings/delay-apply", test_delay_apply);
   g_test_add_func ("/gsettings/delay-revert", test_delay_revert);
@@ -3099,6 +3395,8 @@ main (int argc, char *argv[])
   g_test_add_func ("/gsettings/simple-binding", test_simple_binding);
   g_test_add_func ("/gsettings/directional-binding", test_directional_binding);
   g_test_add_func ("/gsettings/custom-binding", test_custom_binding);
+  g_test_add_func ("/gsettings/bind-with-mapping-closures", test_bind_with_mapping_closures);
+  g_test_add_func ("/gsettings/bind-with-mapping-closures-parameters", test_bind_with_mapping_closures_parameters);
   g_test_add_func ("/gsettings/no-change-binding", test_no_change_binding);
   g_test_add_func ("/gsettings/unbinding", test_unbind);
   g_test_add_func ("/gsettings/writable-binding", test_bind_writable);
@@ -3146,6 +3444,7 @@ main (int argc, char *argv[])
   g_test_add_func ("/gsettings/memory-backend", test_memory_backend);
   g_test_add_func ("/gsettings/read-descriptions", test_read_descriptions);
   g_test_add_func ("/gsettings/test-extended-schema", test_extended_schema);
+  g_test_add_func ("/gsettings/test-extended-schema-has-key", test_extended_schema_has_key);
   g_test_add_func ("/gsettings/default-value", test_default_value);
   g_test_add_func ("/gsettings/per-desktop", test_per_desktop);
   g_test_add_func ("/gsettings/per-desktop/subprocess", test_per_desktop_subprocess);

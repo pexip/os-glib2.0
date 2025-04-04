@@ -23,31 +23,7 @@
 #include "config.h"
 
 #include "gnetworking.h"
-
-/**
- * SECTION:gnetworking
- * @title: gnetworking.h
- * @short_description: System networking includes
- * @include: gio/gnetworking.h
- *
- * The `<gio/gnetworking.h>` header can be included to get
- * various low-level networking-related system headers, automatically
- * taking care of certain portability issues for you.
- *
- * This can be used, for example, if you want to call setsockopt()
- * on a #GSocket.
- *
- * Note that while WinSock has many of the same APIs as the
- * traditional UNIX socket API, most of them behave at least slightly
- * differently (particularly with respect to error handling). If you
- * want your code to work under both UNIX and Windows, you will need
- * to take these differences into account.
- *
- * Also, under GNU libc, certain non-portable functions are only visible
- * in the headers if you define %_GNU_SOURCE before including them. Note
- * that this symbol must be defined before including any headers, or it
- * may not take effect.
- */
+#include "gnetworkingprivate.h"
 
 /**
  * g_networking_init:
@@ -75,4 +51,27 @@ g_networking_init (void)
       g_once_init_leave (&inited, 1);
     }
 #endif
+}
+
+gboolean
+g_getservbyname_ntohs (const char *name, const char *proto, guint16 *out_port)
+{
+  struct servent *result;
+
+#ifdef HAVE_GETSERVBYNAME_R
+  struct servent result_buf;
+  char buf[2048];
+  int r;
+
+  r = getservbyname_r (name, proto, &result_buf, buf, sizeof (buf), &result);
+  if (r != 0 || result != &result_buf)
+    result = NULL;
+#else
+  result = getservbyname (name, proto);
+#endif
+
+  if (!result)
+    return FALSE;
+  *out_port = g_ntohs (result->s_port);
+  return TRUE;
 }

@@ -7,12 +7,10 @@
 
 #include "glib/glib-private.h"
 
-static gboolean
+static void
 time_out (gpointer unused G_GNUC_UNUSED)
 {
   g_error ("Timed out");
-  /* not reached */
-  return FALSE;
 }
 
 static guint
@@ -22,7 +20,7 @@ add_timeout (guint seconds)
   /* Safety-catch against the main loop having blocked */
   alarm (seconds + 5);
 #endif
-  return g_timeout_add_seconds (seconds, time_out, NULL);
+  return g_timeout_add_seconds_once (seconds, time_out, NULL);
 }
 
 static void
@@ -831,13 +829,8 @@ service_thread_func (gpointer user_data)
   flags = G_DBUS_SERVER_FLAGS_NONE;
 
 #ifdef G_OS_UNIX
-  if (g_unix_socket_address_abstract_names_supported ())
-    address = g_strdup ("unix:tmpdir=/tmp/test-dbus-peer");
-  else
-    {
-      tmpdir = g_dir_make_tmp ("test-dbus-peer-XXXXXX", NULL);
-      address = g_strdup_printf ("unix:tmpdir=%s", tmpdir);
-    }
+  tmpdir = g_dir_make_tmp ("test-dbus-peer-XXXXXX", NULL);
+  address = g_strdup_printf ("unix:tmpdir=%s", tmpdir);
 #else
   address = g_strdup ("nonce-tcp:");
   flags |= G_DBUS_SERVER_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS;
@@ -1014,17 +1007,16 @@ test_dbus_roundtrip (void)
 static void
 test_dbus_peer_roundtrip (void)
 {
-#ifdef _GLIB_ADDRESS_SANITIZER
-  g_test_incomplete ("FIXME: Leaks a GCancellableSource, see glib#2313");
-  (void) peer_connection_up;
-  (void) peer_connection_down;
-#else
   PeerConnection peer;
+
+#ifdef _GLIB_ADDRESS_SANITIZER
+  g_test_message ("Ensure that no GCancellableSource are leaked");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/issues/2313");
+#endif
 
   peer_connection_up (&peer);
   do_roundtrip (peer.server_connection, peer.client_connection);
   peer_connection_down (&peer);
-#endif
 }
 
 static gint items_changed_count;
@@ -1153,17 +1145,52 @@ test_dbus_subscriptions (void)
 static void
 test_dbus_peer_subscriptions (void)
 {
-#ifdef _GLIB_ADDRESS_SANITIZER
-  g_test_incomplete ("FIXME: Leaks a GCancellableSource, see glib#2313");
-  (void) peer_connection_up;
-  (void) peer_connection_down;
-#else
   PeerConnection peer;
+
+#ifdef _GLIB_ADDRESS_SANITIZER
+  g_test_message ("Ensure that no GCancellableSource are leaked");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/issues/2313");
+#endif
 
   peer_connection_up (&peer);
   do_subscriptions (peer.server_connection, peer.client_connection);
   peer_connection_down (&peer);
-#endif
+}
+
+static void
+test_dbus_export_error_handling (void)
+{
+  GRand *rand = NULL;
+  RandomMenu *menu = NULL;
+  GDBusConnection *bus;
+  GError *local_error = NULL;
+  guint id1, id2;
+
+  g_test_summary ("Test that error handling of menu model export failure works");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/3366");
+
+  bus = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, NULL);
+
+  rand = g_rand_new_with_seed (g_test_rand_int ());
+  menu = random_menu_new (rand, 2);
+
+  id1 = g_dbus_connection_export_menu_model (bus, "/", G_MENU_MODEL (menu), &local_error);
+  g_assert_no_error (local_error);
+  g_assert_cmpuint (id1, !=, 0);
+
+  /* Trigger a failure by trying to export on a path which is already in use */
+  id2 = g_dbus_connection_export_menu_model (bus, "/", G_MENU_MODEL (menu), &local_error);
+  g_assert_error (local_error, G_IO_ERROR, G_IO_ERROR_EXISTS);
+  g_assert_cmpuint (id2, ==, 0);
+  g_clear_error (&local_error);
+
+  g_dbus_connection_unexport_menu_model (bus, id1);
+
+  while (g_main_context_iteration (NULL, FALSE));
+
+  g_clear_object (&menu);
+  g_rand_free (rand);
+  g_clear_object (&bus);
 }
 
 static gpointer
@@ -1665,6 +1692,7 @@ main (int argc, char **argv)
   g_test_add_func ("/gmenu/dbus/threaded", test_dbus_threaded);
   g_test_add_func ("/gmenu/dbus/peer/roundtrip", test_dbus_peer_roundtrip);
   g_test_add_func ("/gmenu/dbus/peer/subscriptions", test_dbus_peer_subscriptions);
+  g_test_add_func ("/gmenu/dbus/export/error-handling", test_dbus_export_error_handling);
   g_test_add_func ("/gmenu/attributes", test_attributes);
   g_test_add_func ("/gmenu/attributes/iterate", test_attribute_iter);
   g_test_add_func ("/gmenu/links", test_links);

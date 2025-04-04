@@ -56,23 +56,21 @@
 #include "gappinfo.h"
 #include "gappinfoprivate.h"
 #include "glocalfilemonitor.h"
+#include "gutilsprivate.h"
 
 #ifdef G_OS_UNIX
 #include "gdocumentportal.h"
 #endif
 
 /**
- * SECTION:gdesktopappinfo
- * @title: GDesktopAppInfo
- * @short_description: Application information from desktop files
- * @include: gio/gdesktopappinfo.h
+ * GDesktopAppInfo:
  *
- * #GDesktopAppInfo is an implementation of #GAppInfo based on
+ * `GDesktopAppInfo` is an implementation of [iface@Gio.AppInfo] based on
  * desktop files.
  *
  * Note that `<gio/gdesktopappinfo.h>` belongs to the UNIX-specific
  * GIO interfaces, thus you have to use the `gio-unix-2.0.pc` pkg-config
- * file when using it.
+ * file or the `GioUnix-2.0` GIR namespace when using it.
  */
 
 #define DEFAULT_APPLICATIONS_GROUP  "Default Applications"
@@ -94,11 +92,6 @@ static gboolean g_desktop_app_info_ensure_saved       (GDesktopAppInfo  *info,
                                                        GError          **error);
 static gboolean g_desktop_app_info_load_file (GDesktopAppInfo *self);
 
-/**
- * GDesktopAppInfo:
- *
- * Information about an installed application from a desktop file.
- */
 struct _GDesktopAppInfo
 {
   GObject parent_instance;
@@ -364,7 +357,7 @@ get_lowercase_current_desktops (void)
 {
   static gchar **result;
 
-  if (g_once_init_enter (&result))
+  if (g_once_init_enter_pointer (&result))
     {
       char **tmp = get_valid_current_desktops (NULL);
       gsize i, j;
@@ -376,7 +369,7 @@ get_lowercase_current_desktops (void)
             tmp[i][j] = g_ascii_tolower (tmp[i][j]);
         }
 
-      g_once_init_leave (&result, tmp);
+      g_once_init_leave_pointer (&result, tmp);
     }
 
   return (const gchar **) result;
@@ -387,11 +380,11 @@ get_current_desktops (const gchar *value)
 {
   static gchar **result;
 
-  if (g_once_init_enter (&result))
+  if (g_once_init_enter_pointer (&result))
     {
       char **tmp = get_valid_current_desktops (value);
 
-      g_once_init_leave (&result, tmp);
+      g_once_init_leave_pointer (&result, tmp);
     }
 
   return (const gchar **) result;
@@ -431,7 +424,6 @@ add_to_table_if_appropriate (GHashTable      *apps,
 
 enum
 {
-  DESKTOP_KEY_Comment,
   DESKTOP_KEY_Exec,
   DESKTOP_KEY_GenericName,
   DESKTOP_KEY_Keywords,
@@ -451,9 +443,18 @@ const gchar desktop_key_match_category[N_DESKTOP_KEYS] = {
   [DESKTOP_KEY_Exec]             = 2,
   [DESKTOP_KEY_Keywords]         = 3,
   [DESKTOP_KEY_GenericName]      = 4,
-  [DESKTOP_KEY_X_GNOME_FullName] = 5,
-  [DESKTOP_KEY_Comment]          = 6
+  [DESKTOP_KEY_X_GNOME_FullName] = 5
 };
+
+typedef enum {
+  /* Lower numbers have higher priority.
+   * Prefix match should put before substring match, independently of
+   * category relevance, i.e. a prefix match in 'Keyword' category will
+   * come before a substring match in a more relevant category like 'Name'.
+   */
+  MATCH_TYPE_PREFIX = 1,
+  MATCH_TYPE_SUBSTRING = 2
+} MatchType;
 
 /* Common prefix commands to ignore from Exec= lines */
 const char * const exec_key_match_blocklist[] = {
@@ -476,8 +477,6 @@ desktop_key_get_name (guint key_id)
 {
   switch (key_id)
     {
-    case DESKTOP_KEY_Comment:
-      return "Comment";
     case DESKTOP_KEY_Exec:
       return "Exec";
     case DESKTOP_KEY_GenericName:
@@ -536,6 +535,7 @@ struct search_result
 {
   const gchar *app_name;
   gint         category;
+  gint         match_type;
 };
 
 static struct search_result *static_token_results;
@@ -557,13 +557,23 @@ compare_results (gconstpointer a,
   const struct search_result *rb = b;
 
   if (ra->app_name < rb->app_name)
-    return -1;
-
+    {
+      return -1;
+    }
   else if (ra->app_name > rb->app_name)
-    return 1;
-
+    {
+      return 1;
+    }
   else
-    return ra->category - rb->category;
+    {
+      /* We prioritize prefix matches over category relevance e.g. a prefix match in 'Keyword'
+       * category is better than a substring match in a more relevance category like 'Name'.
+       */
+      if (ra->match_type != rb->match_type)
+        return ra->match_type - rb->match_type;
+
+      return ra->category - rb->category;
+    }
 }
 
 static gint
@@ -573,12 +583,19 @@ compare_categories (gconstpointer a,
   const struct search_result *ra = a;
   const struct search_result *rb = b;
 
+  /* We prioritize prefix matches over category relevance e.g. a prefix match in 'Keyword'
+   * category is better than a substring match in a more relevance category like 'Name'.
+   */
+  if (ra->match_type != rb->match_type)
+    return ra->match_type - rb->match_type;
+
   return ra->category - rb->category;
 }
 
 static void
 add_token_result (const gchar *app_name,
-                  guint16      category)
+                  guint16      category,
+                  guint16      match_type)
 {
   if G_UNLIKELY (static_token_results_size == static_token_results_allocated)
     {
@@ -588,6 +605,7 @@ add_token_result (const gchar *app_name,
 
   static_token_results[static_token_results_size].app_name = app_name;
   static_token_results[static_token_results_size].category = category;
+  static_token_results[static_token_results_size].match_type = match_type;
   static_token_results_size++;
 }
 
@@ -671,10 +689,22 @@ merge_token_results (gboolean first)
                *
                * Category should be the worse of the two (ie:
                * numerically larger).
+               *
+               * Match type should also be the worse, so if an app has two
+               * prefix matches it will has higher priority than one prefix
+               * matches and one substring matches, for example, LibreOffice
+               * Writer should be higher priority than LibreOffice Draw with
+               * `lib w`.
+               *
+               * (This ignores the difference between partly prefix matches and
+               * all substring matches, however most time we just focus on exact
+               * prefix matches, who cares the 10th-20th search results?)
                */
               static_search_results[j].app_name = static_search_results[k].app_name;
               static_search_results[j].category = MAX (static_search_results[k].category,
                                                        static_token_results[i].category);
+              static_search_results[j].match_type = MAX (static_search_results[k].match_type,
+                                                         static_token_results[i].match_type);
               j++;
             }
         }
@@ -1216,6 +1246,8 @@ desktop_file_dir_unindexed_search (DesktopFileDir  *dir,
   GHashTableIter iter;
   gpointer key, value;
 
+  g_assert (search_token != NULL);
+
   if (!dir->memory_index)
     desktop_file_dir_unindexed_setup_search (dir);
 
@@ -1223,13 +1255,24 @@ desktop_file_dir_unindexed_search (DesktopFileDir  *dir,
   while (g_hash_table_iter_next (&iter, &key, &value))
     {
       MemoryIndexEntry *mie = value;
+      const char *p;
+      MatchType match_type;
 
-      if (!g_str_has_prefix (key, search_token))
+      /* strstr(haystack, needle) returns haystack if needle is empty, so if
+       * needle is not empty and return value equals to haystack means a prefix
+       * match.
+       */
+      p = strstr (key, search_token);
+      if (p == NULL)
         continue;
+      else if (p == key && *search_token != '\0')
+        match_type = MATCH_TYPE_PREFIX;
+      else
+        match_type = MATCH_TYPE_SUBSTRING;
 
       while (mie)
         {
-          add_token_result (mie->app_name, mie->match_category);
+          add_token_result (mie->app_name, mie->match_category, match_type);
           mie = mie->next;
         }
     }
@@ -1734,11 +1777,11 @@ g_desktop_app_info_class_init (GDesktopAppInfoClass *klass)
   /**
    * GDesktopAppInfo:filename:
    *
-   * The origin filename of this #GDesktopAppInfo
+   * The origin filename of this [class@Gio.DesktopAppInfo]
    */
   g_object_class_install_property (gobject_class,
                                    PROP_FILENAME,
-                                   g_param_spec_string ("filename", "Filename", "", NULL,
+                                   g_param_spec_string ("filename", NULL, NULL, NULL,
                                                         G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY));
 }
 
@@ -1830,6 +1873,7 @@ g_desktop_app_info_load_from_keyfile (GDesktopAppInfo *info,
   char *type;
   char *try_exec;
   char *exec;
+  char *path;
   gboolean bus_activatable;
 
   start_group = g_key_file_get_start_group (key_file);
@@ -1851,6 +1895,10 @@ g_desktop_app_info_load_from_keyfile (GDesktopAppInfo *info,
     }
   g_free (type);
 
+  path = g_key_file_get_string (key_file,
+                                G_KEY_FILE_DESKTOP_GROUP,
+                                G_KEY_FILE_DESKTOP_KEY_PATH, NULL);
+
   try_exec = g_key_file_get_string (key_file,
                                     G_KEY_FILE_DESKTOP_GROUP,
                                     G_KEY_FILE_DESKTOP_KEY_TRY_EXEC,
@@ -1858,9 +1906,11 @@ g_desktop_app_info_load_from_keyfile (GDesktopAppInfo *info,
   if (try_exec && try_exec[0] != '\0')
     {
       char *t;
-      t = g_find_program_in_path (try_exec);
+      /* Use the desktop file path (if any) as working dir to search program */
+      t = GLIB_PRIVATE_CALL (g_find_program_for_path) (try_exec, NULL, path);
       if (t == NULL)
         {
+          g_free (path);
           g_free (try_exec);
           return FALSE;
         }
@@ -1877,6 +1927,7 @@ g_desktop_app_info_load_from_keyfile (GDesktopAppInfo *info,
       char **argv;
       if (!g_shell_parse_argv (exec, &argc, &argv, NULL))
         {
+          g_free (path);
           g_free (exec);
           g_free (try_exec);
           return FALSE;
@@ -1888,11 +1939,13 @@ g_desktop_app_info_load_from_keyfile (GDesktopAppInfo *info,
           /* Since @exec is not an empty string, there must be at least one
            * argument, so dereferencing argv[0] should return non-NULL. */
           g_assert (argc > 0);
-          t = g_find_program_in_path (argv[0]);
+          /* Use the desktop file path (if any) as working dir to search program */
+          t = GLIB_PRIVATE_CALL (g_find_program_for_path) (argv[0], NULL, path);
           g_strfreev (argv);
 
           if (t == NULL)
             {
+              g_free (path);
               g_free (exec);
               g_free (try_exec);
               return FALSE;
@@ -1912,7 +1965,7 @@ g_desktop_app_info_load_from_keyfile (GDesktopAppInfo *info,
   info->not_show_in = g_key_file_get_string_list (key_file, G_KEY_FILE_DESKTOP_GROUP, G_KEY_FILE_DESKTOP_KEY_NOT_SHOW_IN, NULL, NULL);
   info->try_exec = try_exec;
   info->exec = exec;
-  info->path = g_key_file_get_string (key_file, G_KEY_FILE_DESKTOP_GROUP, G_KEY_FILE_DESKTOP_KEY_PATH, NULL);
+  info->path = g_steal_pointer (&path);
   info->terminal = g_key_file_get_boolean (key_file, G_KEY_FILE_DESKTOP_GROUP, G_KEY_FILE_DESKTOP_KEY_TERMINAL, NULL) != FALSE;
   info->startup_notify = g_key_file_get_boolean (key_file, G_KEY_FILE_DESKTOP_GROUP, G_KEY_FILE_DESKTOP_KEY_STARTUP_NOTIFY, NULL) != FALSE;
   info->no_fuse = g_key_file_get_boolean (key_file, G_KEY_FILE_DESKTOP_GROUP, "X-GIO-NoFuse", NULL) != FALSE;
@@ -2011,11 +2064,11 @@ g_desktop_app_info_load_file (GDesktopAppInfo *self)
 
 /**
  * g_desktop_app_info_new_from_keyfile:
- * @key_file: an opened #GKeyFile
+ * @key_file: an opened [type@GLib.KeyFile]
  *
- * Creates a new #GDesktopAppInfo.
+ * Creates a new [class@Gio.DesktopAppInfo].
  *
- * Returns: (nullable): a new #GDesktopAppInfo or %NULL on error.
+ * Returns: (nullable): a new [class@Gio.DesktopAppInfo] or `NULL` on error.
  *
  * Since: 2.18
  **/
@@ -2042,9 +2095,9 @@ g_desktop_app_info_new_from_keyfile (GKeyFile *key_file)
  * @filename: (type filename): the path of a desktop file, in the GLib
  *      filename encoding
  *
- * Creates a new #GDesktopAppInfo.
+ * Creates a new [class@Gio.DesktopAppInfo].
  *
- * Returns: (nullable): a new #GDesktopAppInfo or %NULL on error.
+ * Returns: (nullable): a new [class@Gio.DesktopAppInfo] or `NULL` on error.
  **/
 GDesktopAppInfo *
 g_desktop_app_info_new_from_filename (const char *filename)
@@ -2062,22 +2115,22 @@ g_desktop_app_info_new_from_filename (const char *filename)
 
 /**
  * g_desktop_app_info_new:
- * @desktop_id: the desktop file id
+ * @desktop_id: the desktop file ID
  *
- * Creates a new #GDesktopAppInfo based on a desktop file id.
+ * Creates a new [class@Gio.DesktopAppInfo] based on a desktop file ID.
  *
- * A desktop file id is the basename of the desktop file, including the
- * .desktop extension. GIO is looking for a desktop file with this name
+ * A desktop file ID is the basename of the desktop file, including the
+ * `.desktop` extension. GIO is looking for a desktop file with this name
  * in the `applications` subdirectories of the XDG
  * data directories (i.e. the directories specified in the `XDG_DATA_HOME`
  * and `XDG_DATA_DIRS` environment variables). GIO also supports the
  * prefix-to-subdirectory mapping that is described in the
  * [Menu Spec](http://standards.freedesktop.org/menu-spec/latest/)
- * (i.e. a desktop id of kde-foo.desktop will match
+ * (i.e. a desktop ID of `kde-foo.desktop` will match
  * `/usr/share/applications/kde/foo.desktop`).
  *
- * Returns: (nullable): a new #GDesktopAppInfo, or %NULL if no desktop
- *     file with that id exists.
+ * Returns: (nullable): a new [class@Gio.DesktopAppInfo], or `NULL` if no
+ *    desktop file with that ID exists.
  */
 GDesktopAppInfo *
 g_desktop_app_info_new (const char *desktop_id)
@@ -2195,12 +2248,13 @@ g_desktop_app_info_get_display_name (GAppInfo *appinfo)
 
 /**
  * g_desktop_app_info_get_is_hidden:
- * @info: a #GDesktopAppInfo.
+ * @info: a [class@Gio.DesktopAppInfo].
  *
- * A desktop file is hidden if the Hidden key in it is
- * set to True.
+ * A desktop file is hidden if the
+ * [`Hidden` key](https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s06.html#key-hidden)
+ * in it is set to `True`.
  *
- * Returns: %TRUE if hidden, %FALSE otherwise.
+ * Returns: `TRUE` if hidden, `FALSE` otherwise.
  **/
 gboolean
 g_desktop_app_info_get_is_hidden (GDesktopAppInfo *info)
@@ -2210,14 +2264,14 @@ g_desktop_app_info_get_is_hidden (GDesktopAppInfo *info)
 
 /**
  * g_desktop_app_info_get_filename:
- * @info: a #GDesktopAppInfo
+ * @info: a [class@Gio.DesktopAppInfo]
  *
  * When @info was created from a known filename, return it.  In some
- * situations such as the #GDesktopAppInfo returned from
- * g_desktop_app_info_new_from_keyfile(), this function will return %NULL.
+ * situations such as a [class@Gio.DesktopAppInfo] returned from
+ * [ctor@Gio.DesktopAppInfo.new_from_keyfile], this function will return `NULL`.
  *
  * Returns: (nullable) (type filename): The full path to the file for @info,
- *     or %NULL if not known.
+ *   or `NULL` if not known.
  * Since: 2.24
  */
 const char *
@@ -2260,12 +2314,14 @@ g_desktop_app_info_get_icon (GAppInfo *appinfo)
 
 /**
  * g_desktop_app_info_get_categories:
- * @info: a #GDesktopAppInfo
+ * @info: a [class@Gio.DesktopAppInfo]
  *
  * Gets the categories from the desktop file.
  *
- * Returns: (nullable): The unparsed Categories key from the desktop file;
- *     i.e. no attempt is made to split it by ';' or validate it.
+ * Returns: (nullable): The unparsed
+ *   [`Categories` key](https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s06.html#key-categories)
+ *   from the desktop file;
+ *   i.e. no attempt is made to split it by `;` or validate it.
  */
 const char *
 g_desktop_app_info_get_categories (GDesktopAppInfo *info)
@@ -2275,11 +2331,12 @@ g_desktop_app_info_get_categories (GDesktopAppInfo *info)
 
 /**
  * g_desktop_app_info_get_keywords:
- * @info: a #GDesktopAppInfo
+ * @info: a [class@Gio.DesktopAppInfo]
  *
  * Gets the keywords from the desktop file.
  *
- * Returns: (transfer none): The value of the Keywords key
+ * Returns: (transfer none): The value of the
+ *   [`Keywords` key](https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s06.html#key-keywords)
  *
  * Since: 2.32
  */
@@ -2291,11 +2348,12 @@ g_desktop_app_info_get_keywords (GDesktopAppInfo *info)
 
 /**
  * g_desktop_app_info_get_generic_name:
- * @info: a #GDesktopAppInfo
+ * @info: a [class@Gio.DesktopAppInfo]
  *
  * Gets the generic name from the desktop file.
  *
- * Returns: (nullable): The value of the GenericName key
+ * Returns: (nullable): The value of the
+ *   [`GenericName` key](https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s06.html#key-genericname)
  */
 const char *
 g_desktop_app_info_get_generic_name (GDesktopAppInfo *info)
@@ -2305,13 +2363,14 @@ g_desktop_app_info_get_generic_name (GDesktopAppInfo *info)
 
 /**
  * g_desktop_app_info_get_nodisplay:
- * @info: a #GDesktopAppInfo
+ * @info: a [class@Gio.DesktopAppInfo]
  *
- * Gets the value of the NoDisplay key, which helps determine if the
- * application info should be shown in menus. See
- * %G_KEY_FILE_DESKTOP_KEY_NO_DISPLAY and g_app_info_should_show().
+ * Gets the value of the
+ * [`NoDisplay` key](https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s06.html#key-nodisplay)
+ *  which helps determine if the application info should be shown in menus. See
+ * `G_KEY_FILE_DESKTOP_KEY_NO_DISPLAY` and [method@Gio.AppInfo.should_show].
  *
- * Returns: The value of the NoDisplay key
+ * Returns: The value of the `NoDisplay` key
  *
  * Since: 2.30
  */
@@ -2323,24 +2382,25 @@ g_desktop_app_info_get_nodisplay (GDesktopAppInfo *info)
 
 /**
  * g_desktop_app_info_get_show_in:
- * @info: a #GDesktopAppInfo
+ * @info: a [class@Gio.DesktopAppInfo]
  * @desktop_env: (nullable): a string specifying a desktop name
  *
  * Checks if the application info should be shown in menus that list available
  * applications for a specific name of the desktop, based on the
- * `OnlyShowIn` and `NotShowIn` keys.
+ * [`OnlyShowIn`](https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s06.html#key-onlyshowin)
+ * and [`NotShowIn`](https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s06.html#key-notshowin)
+ * keys.
  *
- * @desktop_env should typically be given as %NULL, in which case the
+ * @desktop_env should typically be given as `NULL`, in which case the
  * `XDG_CURRENT_DESKTOP` environment variable is consulted.  If you want
  * to override the default mechanism then you may specify @desktop_env,
  * but this is not recommended.
  *
- * Note that g_app_info_should_show() for @info will include this check (with
- * %NULL for @desktop_env) as well as additional checks.
+ * Note that [method@Gio.AppInfo.should_show] for @info will include this check
+ * (with `NULL` for @desktop_env) as well as additional checks.
  *
- * Returns: %TRUE if the @info should be shown in @desktop_env according to the
- * `OnlyShowIn` and `NotShowIn` keys, %FALSE
- * otherwise.
+ * Returns: `TRUE` if the @info should be shown in @desktop_env according to the
+ * `OnlyShowIn` and `NotShowIn` keys, `FALSE` otherwise.
  *
  * Since: 2.30
  */
@@ -2622,17 +2682,36 @@ expand_application_parameters (GDesktopAppInfo   *info,
 }
 
 static gboolean
-prepend_terminal_to_vector (int    *argc,
-                            char ***argv)
+prepend_terminal_to_vector (int          *argc,
+                            char       ***argv,
+                            const char   *path,
+                            const char   *working_dir)
 {
 #ifndef G_OS_WIN32
   char **real_argv;
-  int real_argc;
-  int i, j;
-  char **term_argv = NULL;
-  int term_argc = 0;
-  char *check;
+  size_t real_argc;
+  size_t i;
+  size_t term_argc;
+  char *found_terminal;
   char **the_argv;
+  const char *term_arg = NULL;
+  static const struct {
+    const char *exec;
+    const char *exec_arg;
+  } known_terminals[] = {
+    { "xdg-terminal-exec", NULL },
+    { "kgx", "-e" },
+    { "gnome-terminal", "--" },
+    { "mate-terminal", "-x" },
+    { "xfce4-terminal", "-x" },
+    { "tilix", "-e" },
+    { "konsole", "-e" },
+    { "nxterm", "-e" },
+    { "color-xterm", "-e" },
+    { "rxvt", "-e" },
+    { "dtterm", "-e" },
+    { "xterm", "-e" }
+  };
 
   g_return_val_if_fail (argc != NULL, FALSE);
   g_return_val_if_fail (argv != NULL, FALSE);
@@ -2646,69 +2725,42 @@ prepend_terminal_to_vector (int    *argc,
   /* compute size if not given */
   if (*argc < 0)
     {
-      for (i = 0; the_argv[i] != NULL; i++)
+      for ((*argc) = 0; the_argv[*argc] != NULL; (*argc)++)
         ;
-      *argc = i;
     }
 
-  term_argc = 2;
-  term_argv = g_new0 (char *, 3);
+  for (i = 0, found_terminal = NULL; i < G_N_ELEMENTS (known_terminals); i++)
+    {
+      found_terminal = GLIB_PRIVATE_CALL (g_find_program_for_path) (known_terminals[i].exec,
+                                                                    path, working_dir);
+      if (found_terminal != NULL)
+        {
+          term_arg = known_terminals[i].exec_arg;
+          break;
+        }
+    }
 
-  check = g_find_program_in_path ("gnome-terminal");
-  if (check != NULL)
+  if (found_terminal == NULL)
     {
-      term_argv[0] = check;
-      /* Since 2017, gnome-terminal has preferred `--` over `-x` or `-e`. */
-      term_argv[1] = g_strdup ("--");
+      g_debug ("Couldn’t find a known terminal");
+      return FALSE;
     }
-  else
-    {
-      if (check == NULL)
-        check = g_find_program_in_path ("mate-terminal");
-      if (check == NULL)
-        check = g_find_program_in_path ("xfce4-terminal");
-      if (check != NULL)
-        {
-          term_argv[0] = check;
-          /* Note that gnome-terminal takes -x and
-           * as -e in gnome-terminal is broken we use that. */
-          term_argv[1] = g_strdup ("-x");
-        }
-      else
-        {
-          if (check == NULL)
-            check = g_find_program_in_path ("tilix");
-          if (check == NULL)
-            check = g_find_program_in_path ("konsole");
-          if (check == NULL)
-            check = g_find_program_in_path ("nxterm");
-          if (check == NULL)
-            check = g_find_program_in_path ("color-xterm");
-          if (check == NULL)
-            check = g_find_program_in_path ("rxvt");
-          if (check == NULL)
-            check = g_find_program_in_path ("dtterm");
-          if (check == NULL)
-            check = g_find_program_in_path ("xterm");
-          if (check == NULL)
-            {
-              g_debug ("Couldn’t find a known terminal");
-              g_free (term_argv);
-              return FALSE;
-            }
-          term_argv[0] = check;
-          term_argv[1] = g_strdup ("-e");
-        }
-    }
+
+  /* check if the terminal require an option */
+  term_argc = term_arg ? 2 : 1;
 
   real_argc = term_argc + *argc;
   real_argv = g_new (char *, real_argc + 1);
 
-  for (i = 0; i < term_argc; i++)
-    real_argv[i] = term_argv[i];
+  i = 0;
+  real_argv[i++] = found_terminal;
 
-  for (j = 0; j < *argc; j++, i++)
-    real_argv[i] = (char *)the_argv[j];
+  if (term_arg)
+    real_argv[i++] = g_strdup (term_arg);
+
+  g_assert (i == term_argc);
+  for (int j = 0; j < *argc; j++)
+    real_argv[i++] = the_argv[j];
 
   real_argv[i] = NULL;
 
@@ -2716,9 +2768,6 @@ prepend_terminal_to_vector (int    *argc,
   *argv = real_argv;
   *argc = real_argc;
 
-  /* we use g_free here as we sucked all the inner strings
-   * out from it into real_argv */
-  g_free (term_argv);
   return TRUE;
 #else
   return FALSE;
@@ -2760,11 +2809,11 @@ notify_desktop_launch (GDBusConnection  *session_bus,
   if (session_bus == NULL)
     return;
 
-  g_variant_builder_init (&uri_variant, G_VARIANT_TYPE ("as"));
+  g_variant_builder_init_static (&uri_variant, G_VARIANT_TYPE ("as"));
   for (iter = uris; iter; iter = iter->next)
     g_variant_builder_add (&uri_variant, "s", iter->data);
 
-  g_variant_builder_init (&extras_variant, G_VARIANT_TYPE ("a{sv}"));
+  g_variant_builder_init_static (&extras_variant, G_VARIANT_TYPE ("a{sv}"));
   if (sn_id != NULL && g_utf8_validate (sn_id, -1, NULL))
     g_variant_builder_add (&extras_variant, "{sv}",
                            "startup-id",
@@ -2817,7 +2866,7 @@ emit_launch_started (GAppLaunchContext *context,
 
   if (startup_id)
     {
-      g_variant_builder_init (&builder, G_VARIANT_TYPE_ARRAY);
+      g_variant_builder_init_static (&builder, G_VARIANT_TYPE_ARRAY);
       g_variant_builder_add (&builder, "{sv}",
                              "startup-notification-id",
                              g_variant_new_string (startup_id));
@@ -2885,7 +2934,9 @@ g_desktop_app_info_launch_uris_with_spawn (GDesktopAppInfo            *info,
         launched_uris = g_list_prepend (launched_uris, iter->data);
       launched_uris = g_list_reverse (launched_uris);
 
-      if (info->terminal && !prepend_terminal_to_vector (&argc, &argv))
+      if (info->terminal && !prepend_terminal_to_vector (&argc, &argv,
+                                                         g_environ_getenv (envp, "PATH"),
+                                                         info->path))
         {
           g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_FAILED,
                                _("Unable to find terminal required for application"));
@@ -2909,7 +2960,10 @@ g_desktop_app_info_launch_uris_with_spawn (GDesktopAppInfo            *info,
                                                                   G_APP_INFO (info),
                                                                   launched_files);
               if (sn_id)
-                envp = g_environ_setenv (envp, "DESKTOP_STARTUP_ID", sn_id, TRUE);
+                {
+                  envp = g_environ_setenv (envp, "DESKTOP_STARTUP_ID", sn_id, TRUE);
+                  envp = g_environ_setenv (envp, "XDG_ACTIVATION_TOKEN", sn_id, TRUE);
+                }
             }
 
           g_list_free_full (launched_files, g_object_unref);
@@ -2917,7 +2971,47 @@ g_desktop_app_info_launch_uris_with_spawn (GDesktopAppInfo            *info,
           emit_launch_started (launch_context, info, sn_id);
         }
 
-      if (g_once_init_enter (&gio_launch_desktop_path))
+      g_assert (argc > 0);
+
+      if (!g_path_is_absolute (argv[0]) ||
+          !g_file_test (argv[0], G_FILE_TEST_IS_EXECUTABLE) ||
+          g_file_test (argv[0], G_FILE_TEST_IS_DIR))
+        {
+          char *program = g_steal_pointer (&argv[0]);
+          char *program_path = NULL;
+
+          if (!g_path_is_absolute (program))
+            {
+              const char *env_path = g_environ_getenv (envp, "PATH");
+
+              program_path = GLIB_PRIVATE_CALL (g_find_program_for_path) (program,
+                                                                          env_path,
+                                                                          info->path);
+            }
+
+          if (program_path)
+            {
+              argv[0] = g_steal_pointer (&program_path);
+            }
+          else
+            {
+              if (sn_id)
+                g_app_launch_context_launch_failed (launch_context, sn_id);
+
+              g_set_error (error, G_SPAWN_ERROR, G_SPAWN_ERROR_NOENT,
+                           _("Program ‘%s’ not found in $PATH"),
+                           program);
+
+              g_free (program);
+              g_clear_pointer (&sn_id, g_free);
+              g_clear_list (&launched_uris, NULL);
+              goto out;
+            }
+
+          g_free (program);
+        }
+
+      if (g_once_init_enter_pointer (&gio_launch_desktop_path))
         {
           const gchar *tmp = NULL;
           gboolean is_setuid = GLIB_PRIVATE_CALL (g_check_setuid) ();
@@ -2933,7 +3027,7 @@ g_desktop_app_info_launch_uris_with_spawn (GDesktopAppInfo            *info,
           /* Fall back on usual searching in $PATH */
           if (tmp == NULL)
             tmp = "gio-launch-desktop";
-          g_once_init_leave (&gio_launch_desktop_path, tmp);
+          g_once_init_leave_pointer (&gio_launch_desktop_path, tmp);
         }
 
       wrapped_argv = g_new (char *, argc + 2);
@@ -2976,7 +3070,7 @@ g_desktop_app_info_launch_uris_with_spawn (GDesktopAppInfo            *info,
           GVariantBuilder builder;
           GVariant *platform_data;
 
-          g_variant_builder_init (&builder, G_VARIANT_TYPE_ARRAY);
+          g_variant_builder_init_static (&builder, G_VARIANT_TYPE_ARRAY);
           g_variant_builder_add (&builder, "{sv}", "pid", g_variant_new_int32 (pid));
           if (sn_id)
             g_variant_builder_add (&builder, "{sv}", "startup-notification-id", g_variant_new_string (sn_id));
@@ -3034,7 +3128,7 @@ g_desktop_app_info_make_platform_data (GDesktopAppInfo   *info,
 {
   GVariantBuilder builder;
 
-  g_variant_builder_init (&builder, G_VARIANT_TYPE_VARDICT);
+  g_variant_builder_init_static (&builder, G_VARIANT_TYPE_VARDICT);
 
   if (launch_context)
     {
@@ -3046,7 +3140,10 @@ g_desktop_app_info_make_platform_data (GDesktopAppInfo   *info,
 
           sn_id = g_app_launch_context_get_startup_notify_id (launch_context, G_APP_INFO (info), launched_files);
           if (sn_id)
-            g_variant_builder_add (&builder, "{sv}", "desktop-startup-id", g_variant_new_take_string (sn_id));
+            {
+              g_variant_builder_add (&builder, "{sv}", "desktop-startup-id", g_variant_new_string (sn_id));
+              g_variant_builder_add (&builder, "{sv}", "activation-token", g_variant_new_take_string (g_steal_pointer (&sn_id)));
+            }
         }
 
       g_list_free_full (launched_files, g_object_unref);
@@ -3060,7 +3157,7 @@ typedef struct
   GDesktopAppInfo     *info; /* (owned) */
   GAppLaunchContext   *launch_context; /* (owned) (nullable) */
   GAsyncReadyCallback  callback;
-  gchar               *startup_id; /* (owned) */
+  gchar               *startup_id; /* (owned) (nullable) */
   gpointer             user_data;
 } LaunchUrisWithDBusData;
 
@@ -3085,12 +3182,15 @@ launch_uris_with_dbus_signal_cb (GObject      *object,
   if (data->launch_context)
     {
       if (g_task_had_error (G_TASK (result)))
-        g_app_launch_context_launch_failed (data->launch_context, data->startup_id);
+        {
+          if (data->startup_id != NULL)
+            g_app_launch_context_launch_failed (data->launch_context, data->startup_id);
+        }
       else
         {
           GVariant *platform_data;
 
-          g_variant_builder_init (&builder, G_VARIANT_TYPE_ARRAY);
+          g_variant_builder_init_static (&builder, G_VARIANT_TYPE_ARRAY);
           /* the docs guarantee `pid` will be set, but we can’t
            * easily know it for a D-Bus process, so set it to zero */
           g_variant_builder_add (&builder, "{sv}", "pid", g_variant_new_int32 (0));
@@ -3131,7 +3231,7 @@ launch_uris_with_dbus (GDesktopAppInfo    *info,
   gchar *object_path;
   LaunchUrisWithDBusData *data;
 
-  g_variant_builder_init (&builder, G_VARIANT_TYPE_TUPLE);
+  g_variant_builder_init_static (&builder, G_VARIANT_TYPE_TUPLE);
 
   if (uris)
     {
@@ -3451,28 +3551,28 @@ g_desktop_app_info_launch (GAppInfo           *appinfo,
 
 /**
  * g_desktop_app_info_launch_uris_as_manager_with_fds:
- * @appinfo: a #GDesktopAppInfo
+ * @appinfo: a [class@Gio.DesktopAppInfo]
  * @uris: (element-type utf8): List of URIs
- * @launch_context: (nullable): a #GAppLaunchContext
- * @spawn_flags: #GSpawnFlags, used for each process
- * @user_setup: (scope async) (nullable): a #GSpawnChildSetupFunc, used once
- *     for each process.
- * @user_setup_data: (closure user_setup) (nullable): User data for @user_setup
- * @pid_callback: (scope call) (nullable): Callback for child processes
- * @pid_callback_data: (closure pid_callback) (nullable): User data for @callback
- * @stdin_fd: file descriptor to use for child's stdin, or -1
- * @stdout_fd: file descriptor to use for child's stdout, or -1
- * @stderr_fd: file descriptor to use for child's stderr, or -1
- * @error: return location for a #GError, or %NULL
+ * @launch_context: (nullable): a [class@Gio.AppLaunchContext]
+ * @spawn_flags: [flags@GLib.SpawnFlags], used for each process
+ * @user_setup: (scope async) (nullable) (closure user_setup_data): a
+ *   [callback@GLib.SpawnChildSetupFunc], used once for each process.
+ * @user_setup_data: User data for @user_setup
+ * @pid_callback: (scope call) (nullable) (closure pid_callback_data): Callback for child processes
+ * @pid_callback_data: User data for @callback
+ * @stdin_fd: file descriptor to use for child’s stdin, or `-1`
+ * @stdout_fd: file descriptor to use for child’s stdout, or `-1`
+ * @stderr_fd: file descriptor to use for child’s stderr, or `-1`
+ * @error: return location for a #GError, or `NULL`
  *
- * Equivalent to g_desktop_app_info_launch_uris_as_manager() but allows
+ * Equivalent to [method@Gio.DesktopAppInfo.launch_uris_as_manager] but allows
  * you to pass in file descriptors for the stdin, stdout and stderr streams
  * of the launched process.
  *
  * If application launching occurs via some non-spawn mechanism (e.g. D-Bus
  * activation) then @stdin_fd, @stdout_fd and @stderr_fd are ignored.
  *
- * Returns: %TRUE on successful launch, %FALSE otherwise.
+ * Returns: `TRUE` on successful launch, `FALSE` otherwise.
  *
  * Since: 2.58
  */
@@ -3506,34 +3606,35 @@ g_desktop_app_info_launch_uris_as_manager_with_fds (GDesktopAppInfo            *
 
 /**
  * g_desktop_app_info_launch_uris_as_manager:
- * @appinfo: a #GDesktopAppInfo
+ * @appinfo: a [class@Gio.DesktopAppInfo]
  * @uris: (element-type utf8): List of URIs
- * @launch_context: (nullable): a #GAppLaunchContext
- * @spawn_flags: #GSpawnFlags, used for each process
- * @user_setup: (scope async) (nullable): a #GSpawnChildSetupFunc, used once
- *     for each process.
+ * @launch_context: (nullable): a [class@Gio.AppLaunchContext]
+ * @spawn_flags: [flags@GLib.SpawnFlags], used for each process
+ * @user_setup: (scope async) (nullable): a [callback@GLib.SpawnChildSetupFunc],
+ *   used once  for each process.
  * @user_setup_data: (closure user_setup) (nullable): User data for @user_setup
  * @pid_callback: (scope call) (nullable): Callback for child processes
  * @pid_callback_data: (closure pid_callback) (nullable): User data for @callback
- * @error: return location for a #GError, or %NULL
+ * @error: return location for a #GError, or `NULL`
  *
- * This function performs the equivalent of g_app_info_launch_uris(),
+ * This function performs the equivalent of [method@Gio.AppInfo.launch_uris],
  * but is intended primarily for operating system components that
  * launch applications.  Ordinary applications should use
- * g_app_info_launch_uris().
+ * [method@Gio.AppInfo.launch_uris].
  *
  * If the application is launched via GSpawn, then @spawn_flags, @user_setup
- * and @user_setup_data are used for the call to g_spawn_async().
+ * and @user_setup_data are used for the call to [func@GLib.spawn_async].
  * Additionally, @pid_callback (with @pid_callback_data) will be called to
- * inform about the PID of the created process. See g_spawn_async_with_pipes()
- * for information on certain parameter conditions that can enable an
- * optimized posix_spawn() codepath to be used.
+ * inform about the PID of the created process. See
+ * [func@GLib.spawn_async_with_pipes] for information on certain parameter
+ * conditions that can enable an optimized [`posix_spawn()`](man:posix_spawn(3))
+ * code path to be used.
  *
- * If application launching occurs via some other mechanism (eg: D-Bus
+ * If application launching occurs via some other mechanism (for example, D-Bus
  * activation) then @spawn_flags, @user_setup, @user_setup_data,
  * @pid_callback and @pid_callback_data are ignored.
  *
- * Returns: %TRUE on successful launch, %FALSE otherwise.
+ * Returns: `TRUE` on successful launch, `FALSE` otherwise.
  */
 gboolean
 g_desktop_app_info_launch_uris_as_manager (GDesktopAppInfo            *appinfo,
@@ -3565,15 +3666,17 @@ g_desktop_app_info_launch_uris_as_manager (GDesktopAppInfo            *appinfo,
  * @desktop_env: a string specifying what desktop this is
  *
  * Sets the name of the desktop that the application is running in.
- * This is used by g_app_info_should_show() and
- * g_desktop_app_info_get_show_in() to evaluate the
- * `OnlyShowIn` and `NotShowIn`
- * desktop entry fields.
+ *
+ * This is used by [method@Gio.AppInfo.should_show] and
+ * [method@Gio.DesktopAppInfo.get_show_in] to evaluate the
+ * [`OnlyShowIn`](https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s06.html#key-onlyshowin)
+ * and [`NotShowIn`](https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s06.html#key-notshowin)
+ * keys.
  *
  * Should be called only once; subsequent calls are ignored.
  *
  * Deprecated:2.42:do not use this API.  Since 2.42 the value of the
- * `XDG_CURRENT_DESKTOP` environment variable will be used.
+ *   `XDG_CURRENT_DESKTOP` environment variable will be used.
  */
 void
 g_desktop_app_info_set_desktop_env (const gchar *desktop_env)
@@ -4221,28 +4324,12 @@ g_desktop_app_info_delete (GAppInfo *appinfo)
 }
 
 /* Create for commandline {{{2 */
-/**
- * g_app_info_create_from_commandline:
- * @commandline: (type filename): the commandline to use
- * @application_name: (nullable): the application name, or %NULL to use @commandline
- * @flags: flags that can specify details of the created #GAppInfo
- * @error: a #GError location to store the error occurring, %NULL to ignore.
- *
- * Creates a new #GAppInfo from the given information.
- *
- * Note that for @commandline, the quoting rules of the Exec key of the
- * [freedesktop.org Desktop Entry Specification](http://freedesktop.org/Standards/desktop-entry-spec)
- * are applied. For example, if the @commandline contains
- * percent-encoded URIs, the percent-character must be doubled in order to prevent it from
- * being swallowed by Exec key unquoting. See the specification for exact quoting rules.
- *
- * Returns: (transfer full): new #GAppInfo for given command.
- **/
+
 GAppInfo *
-g_app_info_create_from_commandline (const char           *commandline,
-                                    const char           *application_name,
-                                    GAppInfoCreateFlags   flags,
-                                    GError              **error)
+g_app_info_create_from_commandline_impl (const char           *commandline,
+                                         const char           *application_name,
+                                         GAppInfoCreateFlags   flags,
+                                         GError              **error)
 {
   char **split;
   char *basename;
@@ -4391,24 +4478,8 @@ g_desktop_app_info_get_desktop_ids_for_content_type (const gchar *content_type,
   return (gchar **) g_ptr_array_free (hits, FALSE);
 }
 
-/**
- * g_app_info_get_recommended_for_type:
- * @content_type: the content type to find a #GAppInfo for
- *
- * Gets a list of recommended #GAppInfos for a given content type, i.e.
- * those applications which claim to support the given content type exactly,
- * and not by MIME type subclassing.
- * Note that the first application of the list is the last used one, i.e.
- * the last one for which g_app_info_set_as_last_used_for_type() has been
- * called.
- *
- * Returns: (element-type GAppInfo) (transfer full): #GList of #GAppInfos
- *     for given @content_type or %NULL on error.
- *
- * Since: 2.28
- **/
 GList *
-g_app_info_get_recommended_for_type (const gchar *content_type)
+g_app_info_get_recommended_for_type_impl (const gchar *content_type)
 {
   gchar **desktop_ids;
   GList *infos;
@@ -4433,21 +4504,8 @@ g_app_info_get_recommended_for_type (const gchar *content_type)
   return g_list_reverse (infos);
 }
 
-/**
- * g_app_info_get_fallback_for_type:
- * @content_type: the content type to find a #GAppInfo for
- *
- * Gets a list of fallback #GAppInfos for a given content type, i.e.
- * those applications which claim to support the given content type
- * by MIME type subclassing and not directly.
- *
- * Returns: (element-type GAppInfo) (transfer full): #GList of #GAppInfos
- *     for given @content_type or %NULL on error.
- *
- * Since: 2.28
- **/
 GList *
-g_app_info_get_fallback_for_type (const gchar *content_type)
+g_app_info_get_fallback_for_type_impl (const gchar *content_type)
 {
   gchar **recommended_ids;
   gchar **all_ids;
@@ -4485,20 +4543,8 @@ g_app_info_get_fallback_for_type (const gchar *content_type)
   return g_list_reverse (infos);
 }
 
-/**
- * g_app_info_get_all_for_type:
- * @content_type: the content type to find a #GAppInfo for
- *
- * Gets a list of all #GAppInfos for a given content type,
- * including the recommended and fallback #GAppInfos. See
- * g_app_info_get_recommended_for_type() and
- * g_app_info_get_fallback_for_type().
- *
- * Returns: (element-type GAppInfo) (transfer full): #GList of #GAppInfos
- *     for given @content_type or %NULL on error.
- **/
 GList *
-g_app_info_get_all_for_type (const char *content_type)
+g_app_info_get_all_for_type_impl (const char *content_type)
 {
   gchar **desktop_ids;
   GList *infos;
@@ -4523,40 +4569,17 @@ g_app_info_get_all_for_type (const char *content_type)
   return g_list_reverse (infos);
 }
 
-/**
- * g_app_info_reset_type_associations:
- * @content_type: a content type
- *
- * Removes all changes to the type associations done by
- * g_app_info_set_as_default_for_type(),
- * g_app_info_set_as_default_for_extension(),
- * g_app_info_add_supports_type() or
- * g_app_info_remove_supports_type().
- *
- * Since: 2.20
- */
 void
-g_app_info_reset_type_associations (const char *content_type)
+g_app_info_reset_type_associations_impl (const char *content_type)
 {
   update_mimeapps_list (NULL, content_type,
                         UPDATE_MIME_NONE,
                         NULL);
 }
 
-/**
- * g_app_info_get_default_for_type:
- * @content_type: the content type to find a #GAppInfo for
- * @must_support_uris: if %TRUE, the #GAppInfo is expected to
- *     support URIs
- *
- * Gets the default #GAppInfo for a given content type.
- *
- * Returns: (transfer full) (nullable): #GAppInfo for given @content_type or
- *     %NULL on error.
- */
 GAppInfo *
-g_app_info_get_default_for_type (const char *content_type,
-                                 gboolean    must_support_uris)
+g_app_info_get_default_for_type_impl (const char *content_type,
+                                      gboolean    must_support_uris)
 {
   GPtrArray *blocklist;
   GPtrArray *results;
@@ -4619,20 +4642,8 @@ out:
   return info;
 }
 
-/**
- * g_app_info_get_default_for_uri_scheme:
- * @uri_scheme: a string containing a URI scheme.
- *
- * Gets the default application for handling URIs with
- * the given URI scheme. A URI scheme is the initial part
- * of the URI, up to but not including the ':', e.g. "http",
- * "ftp" or "sip".
- *
- * Returns: (transfer full) (nullable): #GAppInfo for given @uri_scheme or
- *     %NULL on error.
- */
 GAppInfo *
-g_app_info_get_default_for_uri_scheme (const char *uri_scheme)
+g_app_info_get_default_for_uri_scheme_impl (const char *uri_scheme)
 {
   GAppInfo *app_info;
   char *content_type, *scheme_down;
@@ -4657,10 +4668,10 @@ g_app_info_get_default_for_uri_scheme (const char *uri_scheme)
  * Gets all applications that implement @interface.
  *
  * An application implements an interface if that interface is listed in
- * the Implements= line of the desktop file of the application.
+ * the `Implements` line of the desktop file of the application.
  *
- * Returns: (element-type GDesktopAppInfo) (transfer full): a list of #GDesktopAppInfo
- * objects.
+ * Returns: (element-type GDesktopAppInfo) (transfer full): a list of
+ *   [class@Gio.DesktopAppInfo] objects.
  *
  * Since: 2.42
  **/
@@ -4713,24 +4724,25 @@ g_desktop_app_info_get_implementations (const gchar *interface)
  * any time.
  *
  * None of the search results are subjected to the normal validation
- * checks performed by g_desktop_app_info_new() (for example, checking that
+ * checks performed by [ctor@Gio.DesktopAppInfo.new] (for example, checking that
  * the executable referenced by a result exists), and so it is possible for
- * g_desktop_app_info_new() to return %NULL when passed an app ID returned by
- * this function. It is expected that calling code will do this when
- * subsequently creating a #GDesktopAppInfo for each result.
+ * [ctor@Gio.DesktopAppInfo.new] to return `NULL` when passed an app ID returned
+ * by this function. It is expected that calling code will do this when
+ * subsequently creating a [class@Gio.DesktopAppInfo] for each result.
  *
  * Returns: (array zero-terminated=1) (element-type GStrv) (transfer full): a
- *   list of strvs.  Free each item with g_strfreev() and free the outer
- *   list with g_free().
+ *   list of strvs.  Free each item with [func@GLib.strfreev] and free the outer
+ *   list with [func@GLib.free].
  */
 gchar ***
 g_desktop_app_info_search (const gchar *search_string)
 {
   gchar **search_tokens;
   gint last_category = -1;
+  gint last_match_type = -1;
   gchar ***results;
-  gint n_categories = 0;
-  gint start_of_category;
+  gint n_groups = 0;
+  gint start_of_group;
   gint i, j;
   guint k;
 
@@ -4752,36 +4764,41 @@ g_desktop_app_info_search (const gchar *search_string)
 
   sort_total_search_results ();
 
-  /* Count the total number of unique categories */
+  /* Count the total number of unique categories and match types */
   for (i = 0; i < static_total_results_size; i++)
-    if (static_total_results[i].category != last_category)
+    if (static_total_results[i].category != last_category ||
+        static_total_results[i].match_type != last_match_type)
       {
         last_category = static_total_results[i].category;
-        n_categories++;
+        last_match_type = static_total_results[i].match_type;
+        n_groups++;
       }
 
-  results = g_new (gchar **, n_categories + 1);
+  results = g_new (gchar **, n_groups + 1);
 
   /* Start loading into the results list */
-  start_of_category = 0;
-  for (i = 0; i < n_categories; i++)
+  start_of_group = 0;
+  for (i = 0; i < n_groups; i++)
     {
-      gint n_items_in_category = 0;
+      gint n_items_in_group = 0;
       gint this_category;
+      gint this_match_type;
       gint j;
 
-      this_category = static_total_results[start_of_category].category;
+      this_category = static_total_results[start_of_group].category;
+      this_match_type = static_total_results[start_of_group].match_type;
 
-      while (start_of_category + n_items_in_category < static_total_results_size &&
-             static_total_results[start_of_category + n_items_in_category].category == this_category)
-        n_items_in_category++;
+      while (start_of_group + n_items_in_group < static_total_results_size &&
+             static_total_results[start_of_group + n_items_in_group].category == this_category &&
+             static_total_results[start_of_group + n_items_in_group].match_type == this_match_type)
+        n_items_in_group++;
 
-      results[i] = g_new (gchar *, n_items_in_category + 1);
-      for (j = 0; j < n_items_in_category; j++)
-        results[i][j] = g_strdup (static_total_results[start_of_category + j].app_name);
+      results[i] = g_new (gchar *, n_items_in_group + 1);
+      for (j = 0; j < n_items_in_group; j++)
+        results[i][j] = g_strdup (static_total_results[start_of_group + j].app_name);
       results[i][j] = NULL;
 
-      start_of_category += n_items_in_category;
+      start_of_group += n_items_in_group;
     }
   results[i] = NULL;
 
@@ -4792,22 +4809,8 @@ g_desktop_app_info_search (const gchar *search_string)
   return results;
 }
 
-/**
- * g_app_info_get_all:
- *
- * Gets a list of all of the applications currently registered
- * on this system.
- *
- * For desktop files, this includes applications that have
- * `NoDisplay=true` set or are excluded from display by means
- * of `OnlyShowIn` or `NotShowIn`. See g_app_info_should_show().
- * The returned list does not include applications which have
- * the `Hidden` key set.
- *
- * Returns: (element-type GAppInfo) (transfer full): a newly allocated #GList of references to #GAppInfos.
- **/
 GList *
-g_app_info_get_all (void)
+g_app_info_get_all_impl (void)
 {
   GHashTable *apps;
   GHashTableIter iter;
@@ -4845,8 +4848,8 @@ g_app_info_get_all (void)
  * #GDesktopAppInfoLookup is an opaque data structure and can only be accessed
  * using the following functions.
  *
- * Deprecated: 2.28: The #GDesktopAppInfoLookup interface is deprecated and
- *    unused by GIO.
+ * Deprecated: 2.28: The [iface@Gio.DesktopAppInfoLookup] interface is
+ *   deprecated and unused by GIO.
  **/
 
 G_GNUC_BEGIN_IGNORE_DEPRECATIONS
@@ -4863,23 +4866,24 @@ g_desktop_app_info_lookup_default_init (GDesktopAppInfoLookupInterface *iface)
 
 /**
  * g_desktop_app_info_lookup_get_default_for_uri_scheme:
- * @lookup: a #GDesktopAppInfoLookup
+ * @lookup: a [iface@Gio.DesktopAppInfoLookup]
  * @uri_scheme: a string containing a URI scheme.
  *
  * Gets the default application for launching applications
- * using this URI scheme for a particular #GDesktopAppInfoLookup
+ * using this URI scheme for a particular [iface@Gio.DesktopAppInfoLookup]
  * implementation.
  *
- * The #GDesktopAppInfoLookup interface and this function is used
- * to implement g_app_info_get_default_for_uri_scheme() backends
+ * The [iface@Gio.DesktopAppInfoLookup] interface and this function is used
+ * to implement [func@Gio.AppInfo.get_default_for_uri_scheme] backends
  * in a GIO module. There is no reason for applications to use it
- * directly. Applications should use g_app_info_get_default_for_uri_scheme().
+ * directly. Applications should use
+ * [func@Gio.AppInfo.get_default_for_uri_scheme].
  *
- * Returns: (transfer full) (nullable): #GAppInfo for given @uri_scheme or
- *    %NULL on error.
+ * Returns: (transfer full) (nullable): [iface@Gio.AppInfo] for given
+ *   @uri_scheme or `NULL` on error.
  *
- * Deprecated: 2.28: The #GDesktopAppInfoLookup interface is deprecated and
- *    unused by GIO.
+ * Deprecated: 2.28: The [iface@Gio.DesktopAppInfoLookup] interface is
+ *   deprecated and unused by GIO.
  */
 GAppInfo *
 g_desktop_app_info_lookup_get_default_for_uri_scheme (GDesktopAppInfoLookup *lookup,
@@ -4900,14 +4904,14 @@ G_GNUC_END_IGNORE_DEPRECATIONS
 
 /**
  * g_desktop_app_info_get_startup_wm_class:
- * @info: a #GDesktopAppInfo that supports startup notify
+ * @info: a [class@Gio.DesktopAppInfo] that supports startup notify
  *
- * Retrieves the StartupWMClass field from @info. This represents the
- * WM_CLASS property of the main window of the application, if launched
+ * Retrieves the `StartupWMClass` field from @info. This represents the
+ * `WM_CLASS` property of the main window of the application, if launched
  * through @info.
  *
- * Returns: (nullable) (transfer none): the startup WM class, or %NULL if none is set
- * in the desktop file.
+ * Returns: (nullable) (transfer none): the startup WM class, or `NULL` if none
+ *   is set in the desktop file.
  *
  * Since: 2.34
  */
@@ -4921,15 +4925,15 @@ g_desktop_app_info_get_startup_wm_class (GDesktopAppInfo *info)
 
 /**
  * g_desktop_app_info_get_string:
- * @info: a #GDesktopAppInfo
+ * @info: a [class@Gio.DesktopAppInfo]
  * @key: the key to look up
  *
  * Looks up a string value in the keyfile backing @info.
  *
- * The @key is looked up in the "Desktop Entry" group.
+ * The @key is looked up in the `Desktop Entry` group.
  *
- * Returns: (nullable): a newly allocated string, or %NULL if the key
- *     is not found
+ * Returns: (nullable): a newly allocated string, or `NULL` if the key is not
+ *   found
  *
  * Since: 2.36
  */
@@ -4945,16 +4949,16 @@ g_desktop_app_info_get_string (GDesktopAppInfo *info,
 
 /**
  * g_desktop_app_info_get_locale_string:
- * @info: a #GDesktopAppInfo
+ * @info: a [class@Gio.DesktopAppInfo]
  * @key: the key to look up
  *
  * Looks up a localized string value in the keyfile backing @info
  * translated to the current locale.
  *
- * The @key is looked up in the "Desktop Entry" group.
+ * The @key is looked up in the `Desktop Entry` group.
  *
- * Returns: (nullable): a newly allocated string, or %NULL if the key
- *     is not found
+ * Returns: (nullable): a newly allocated string, or `NULL` if the key is not
+ *   found
  *
  * Since: 2.56
  */
@@ -4972,15 +4976,14 @@ g_desktop_app_info_get_locale_string (GDesktopAppInfo *info,
 
 /**
  * g_desktop_app_info_get_boolean:
- * @info: a #GDesktopAppInfo
+ * @info: a [class@Gio.DesktopAppInfo]
  * @key: the key to look up
  *
  * Looks up a boolean value in the keyfile backing @info.
  *
- * The @key is looked up in the "Desktop Entry" group.
+ * The @key is looked up in the `Desktop Entry` group.
  *
- * Returns: the boolean value, or %FALSE if the key
- *     is not found
+ * Returns: the boolean value, or `FALSE` if the key is not found
  *
  * Since: 2.36
  */
@@ -4996,17 +4999,18 @@ g_desktop_app_info_get_boolean (GDesktopAppInfo *info,
 
 /**
  * g_desktop_app_info_get_string_list:
- * @info: a #GDesktopAppInfo
+ * @info: a [class@Gio.DesktopAppInfo]
  * @key: the key to look up
- * @length: (out) (optional): return location for the number of returned strings, or %NULL
+ * @length: (out) (optional): return location for the number of returned
+ *   strings, or `NULL`
  *
  * Looks up a string list value in the keyfile backing @info.
  *
- * The @key is looked up in the "Desktop Entry" group.
+ * The @key is looked up in the `Desktop Entry` group.
  *
  * Returns: (array zero-terminated=1 length=length) (element-type utf8) (transfer full):
- *  a %NULL-terminated string array or %NULL if the specified
- *  key cannot be found. The array should be freed with g_strfreev().
+ *   a `NULL`-terminated string array or `NULL` if the specified
+ *   key cannot be found. The array should be freed with [func@GLib.strfreev].
  *
  * Since: 2.60
  */
@@ -5023,13 +5027,13 @@ g_desktop_app_info_get_string_list (GDesktopAppInfo *info,
 
 /**
  * g_desktop_app_info_has_key:
- * @info: a #GDesktopAppInfo
+ * @info: a [class@Gio.DesktopAppInfo]
  * @key: the key to look up
  *
- * Returns whether @key exists in the "Desktop Entry" group
+ * Returns whether @key exists in the `Desktop Entry` group
  * of the keyfile backing @info.
  *
- * Returns: %TRUE if the @key exists
+ * Returns: `TRUE` if the @key exists
  *
  * Since: 2.36
  */
@@ -5047,15 +5051,17 @@ g_desktop_app_info_has_key (GDesktopAppInfo *info,
 
 /**
  * g_desktop_app_info_list_actions:
- * @info: a #GDesktopAppInfo
+ * @info: a [class@Gio.DesktopAppInfo]
  *
- * Returns the list of "additional application actions" supported on the
- * desktop file, as per the desktop file specification.
+ * Returns the list of
+ * [‘additional application actions’](https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s11.html)
+ * supported on the desktop file, as per the desktop file specification.
  *
  * As per the specification, this is the list of actions that are
- * explicitly listed in the "Actions" key of the [Desktop Entry] group.
+ * explicitly listed in the `Actions` key of the `Desktop Entry` group.
  *
- * Returns: (array zero-terminated=1) (element-type utf8) (transfer none): a list of strings, always non-%NULL
+ * Returns: (array zero-terminated=1) (element-type utf8) (transfer none): a
+ *   list of strings, always non-`NULL`
  *
  * Since: 2.38
  **/
@@ -5082,14 +5088,15 @@ app_info_has_action (GDesktopAppInfo *info,
 
 /**
  * g_desktop_app_info_get_action_name:
- * @info: a #GDesktopAppInfo
+ * @info: a [class@Gio.DesktopAppInfo]
  * @action_name: the name of the action as from
- *   g_desktop_app_info_list_actions()
+ *   [method@Gio.DesktopAppInfo.list_actions]
  *
- * Gets the user-visible display name of the "additional application
- * action" specified by @action_name.
+ * Gets the user-visible display name of the
+ * [‘additional application actions’](https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s11.html)
+ * specified by @action_name.
  *
- * This corresponds to the "Name" key within the keyfile group for the
+ * This corresponds to the `Name` key within the keyfile group for the
  * action.
  *
  * Returns: (transfer full): the locale-specific action name
@@ -5124,25 +5131,26 @@ g_desktop_app_info_get_action_name (GDesktopAppInfo *info,
 
 /**
  * g_desktop_app_info_launch_action:
- * @info: a #GDesktopAppInfo
+ * @info: a [class@Gio.DesktopAppInfo]
  * @action_name: the name of the action as from
- *   g_desktop_app_info_list_actions()
- * @launch_context: (nullable): a #GAppLaunchContext
+ *   [method@Gio.DesktopAppInfo.list_actions]
+ * @launch_context: (nullable): a [class@Gio.AppLaunchContext]
  *
  * Activates the named application action.
  *
  * You may only call this function on action names that were
- * returned from g_desktop_app_info_list_actions().
+ * returned from [method@Gio.DesktopAppInfo.list_actions].
  *
  * Note that if the main entry of the desktop file indicates that the
  * application supports startup notification, and @launch_context is
- * non-%NULL, then startup notification will be used when activating the
+ * non-`NULL`, then startup notification will be used when activating the
  * action (and as such, invocation of the action on the receiving side
  * must signal the end of startup notification when it is completed).
  * This is the expected behaviour of applications declaring additional
- * actions, as per the desktop file specification.
+ * actions, as per the
+ * [desktop file specification](https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s11.html).
  *
- * As with g_app_info_launch() there is no way to detect failures that
+ * As with [method@Gio.AppInfo.launch] there is no way to detect failures that
  * occur while using this function.
  *
  * Since: 2.38

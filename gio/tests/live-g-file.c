@@ -2,6 +2,8 @@
  * Copyright (C) 2008 Red Hat, Inc.
  * Authors: Tomas Bzatek <tbzatek@redhat.com>
  *
+ * SPDX-License-Identifier: LicenseRef-old-glib-tests
+ *
  * This work is provided "as is"; redistribution and modification
  * in whole or in part, in any medium, physical or electronic is
  * permitted without restriction.
@@ -29,8 +31,6 @@
 #include <sys/types.h>
 #include <string.h>
 #include <sys/stat.h>
-
-#define DEFAULT_TEST_DIR		"testdir_live-g-file"
 
 #define PATTERN_FILE_SIZE	0x10000
 #define TEST_HANDLE_SPECIAL	TRUE
@@ -175,20 +175,6 @@ check_cap_dac_override (const char *tmpdir)
 }
 #endif
 
-#ifdef G_HAVE_ISO_VARARGS
-#define log(...) if (verbose)  g_printerr (__VA_ARGS__)
-#elif defined(G_HAVE_GNUC_VARARGS)
-#define log(msg...) if (verbose)  g_printerr (msg)
-#else  /* no varargs macros */
-static void log (const g_char *format, ...)
-{
-  va_list args;
-  va_start (args, format);
-  if (verbose) g_printerr (format, args);
-  va_end (args);
-}
-#endif
-
 static GFile *
 create_empty_file (GFile * parent, const char *filename,
 		   GFileCreateFlags create_flags)
@@ -255,8 +241,8 @@ test_create_structure (gconstpointer test_data)
   struct StructureItem item;
 
   g_assert_nonnull (test_data);
-  log ("\n  Going to create testing structure in '%s'...\n",
-       (char *) test_data);
+  g_test_message ("\n  Going to create testing structure in '%s'...",
+                  (char *) test_data);
 
   root = g_file_new_for_commandline_arg ((char *) test_data);
   g_assert_nonnull (root);
@@ -278,16 +264,16 @@ test_create_structure (gconstpointer test_data)
       switch (item.file_type)
 	{
 	case G_FILE_TYPE_REGULAR:
-	  log ("    Creating file '%s'...\n", item.filename);
+          g_test_message ("    Creating file '%s'...", item.filename);
 	  child = create_empty_file (root, item.filename, item.create_flags);
 	  break;
 	case G_FILE_TYPE_DIRECTORY:
-	  log ("    Creating directory '%s'...\n", item.filename);
+          g_test_message ("    Creating directory '%s'...", item.filename);
 	  child = create_empty_dir (root, item.filename);
 	  break;
 	case G_FILE_TYPE_SYMBOLIC_LINK:
-	  log ("    Creating symlink '%s' --> '%s'...\n", item.filename,
-	       item.link_to);
+          g_test_message ("    Creating symlink '%s' --> '%s'...", item.filename,
+                          item.link_to);
 	  child = create_symlink (root, item.filename, item.link_to);
 	  break;
         case G_FILE_TYPE_UNKNOWN:
@@ -332,7 +318,7 @@ test_create_structure (gconstpointer test_data)
     }
 
   /*  create a pattern file  */
-  log ("    Creating pattern file...");
+  g_test_message ("    Creating pattern file...");
   child = g_file_get_child (root, "pattern_file");
   g_assert_nonnull (child);
 
@@ -354,7 +340,7 @@ test_create_structure (gconstpointer test_data)
   g_object_unref (outds);
   g_object_unref (outs);
   g_object_unref (child);
-  log (" done.\n");
+  g_test_message (" done.");
 
   g_object_unref (root);
 }
@@ -501,7 +487,7 @@ test_initial_structure (gconstpointer test_data)
   struct StructureItem item;
 
   g_assert_nonnull (test_data);
-  log ("\n  Testing sample structure in '%s'...\n", (char *) test_data);
+  g_test_message ("  Testing sample structure in '%s'...", (char *) test_data);
 
   root = g_file_new_for_commandline_arg ((char *) test_data);
   g_assert_nonnull (root);
@@ -516,7 +502,7 @@ test_initial_structure (gconstpointer test_data)
 	  || (item.handle_special))
 	continue;
 
-      log ("    Testing file '%s'...\n", item.filename);
+      g_test_message ("    Testing file '%s'...", item.filename);
 
       child = file_exists (root, item.filename, &res);
       g_assert_nonnull (child);
@@ -536,7 +522,7 @@ test_initial_structure (gconstpointer test_data)
     }
 
   /*  read and test the pattern file  */
-  log ("    Testing pattern file...\n");
+  g_test_message ("    Testing pattern file...");
   child = file_exists (root, "pattern_file", &res);
   g_assert_nonnull (child);
   g_assert_true (res);
@@ -567,8 +553,8 @@ test_initial_structure (gconstpointer test_data)
 			     PATTERN_FILE_SIZE, NULL, &error);
       g_assert_no_error (error);
       total_read += read;
-      log ("      read %"G_GSSIZE_FORMAT" bytes, total = %"G_GSSIZE_FORMAT" of %d.\n",
-	   read, total_read, PATTERN_FILE_SIZE);
+      g_test_message ("      read %"G_GSSIZE_FORMAT" bytes, total = %"G_GSSIZE_FORMAT" of %d.",
+                      read, total_read, PATTERN_FILE_SIZE);
     }
   g_assert_cmpint (total_read, ==, PATTERN_FILE_SIZE);
 
@@ -633,8 +619,8 @@ traverse_recurse_dirs (GFile * parent, GFile * root)
 	}
       g_assert_true (found);
 
-      log ("  Found file %s, relative to root: %s\n",
-	   g_file_info_get_display_name (info), relative_path);
+      g_test_message ("  Found file %s, relative to root: %s",
+                      g_file_info_get_display_name (info), relative_path);
 
       if (g_file_info_get_file_type (info) == G_FILE_TYPE_DIRECTORY)
 	traverse_recurse_dirs (descend, root);
@@ -664,8 +650,8 @@ test_traverse_structure (gconstpointer test_data)
   gboolean res;
 
   g_assert_nonnull (test_data);
-  log ("\n  Traversing through the sample structure in '%s'...\n",
-       (char *) test_data);
+  g_test_message ("  Traversing through the sample structure in '%s'...",
+                  (char *) test_data);
 
   root = g_file_new_for_commandline_arg ((char *) test_data);
   g_assert_nonnull (root);
@@ -693,7 +679,7 @@ test_enumerate (gconstpointer test_data)
 
 
   g_assert_nonnull (test_data);
-  log ("\n  Test enumerate '%s'...\n", (char *) test_data);
+  g_test_message ("  Test enumerate '%s'...", (char *) test_data);
 
   root = g_file_new_for_commandline_arg ((char *) test_data);
   g_assert_nonnull (root);
@@ -713,7 +699,7 @@ test_enumerate (gconstpointer test_data)
 	  || ((item.extra_flags & TEST_ENUMERATE_FILE) ==
 	      TEST_ENUMERATE_FILE))
 	{
-	  log ("    Testing file '%s'\n", item.filename);
+	  g_test_message ("    Testing file '%s'", item.filename);
 	  child = g_file_get_child (root, item.filename);
 	  g_assert_nonnull (child);
 	  error = NULL;
@@ -772,7 +758,7 @@ do_copy_move (GFile * root, struct StructureItem item, const char *target_dir,
   gboolean have_cap_dac_override = check_cap_dac_override (g_file_peek_path (root));
 #endif
 
-  log ("    do_copy_move: '%s' --> '%s'\n", item.filename, target_dir);
+  g_test_message ("    do_copy_move: '%s' --> '%s'", item.filename, target_dir);
 
   dst_dir = g_file_get_child (root, target_dir);
   g_assert_nonnull (dst_dir);
@@ -795,8 +781,8 @@ do_copy_move (GFile * root, struct StructureItem item, const char *target_dir,
 		   NULL, NULL, &error);
 
   if (error)
-    log ("       res = %d, error code %d = %s\n", res, error->code,
-	 error->message);
+    g_test_message ("       res = %d, error code %d = %s", res, error->code,
+                    error->message);
 
   /*  copying file/directory to itself (".")  */
   if (((item.extra_flags & TEST_NOT_EXISTS) != TEST_NOT_EXISTS) &&
@@ -870,8 +856,6 @@ test_copy_move (gconstpointer test_data)
   gboolean res;
   guint i;
   struct StructureItem item;
-
-  log ("\n");
 
   g_assert_nonnull (test_data);
   root = g_file_new_for_commandline_arg ((char *) test_data);
@@ -964,7 +948,6 @@ test_create (gconstpointer test_data)
   GFileOutputStream *os;
 
   g_assert_nonnull (test_data);
-  log ("\n");
 
   root = g_file_new_for_commandline_arg ((char *) test_data);
   g_assert_nonnull (root);
@@ -979,7 +962,7 @@ test_create (gconstpointer test_data)
 	  ((item.extra_flags & TEST_REPLACE) == TEST_REPLACE) ||
 	  ((item.extra_flags & TEST_APPEND) == TEST_APPEND))
 	{
-	  log ("  test_create: '%s'\n", item.filename);
+	  g_test_message ("  test_create: '%s'", item.filename);
 
 	  child = g_file_get_child (root, item.filename);
 	  g_assert_nonnull (child);
@@ -997,7 +980,7 @@ test_create (gconstpointer test_data)
 
 
 	  if (error)
-	    log ("       error code %d = %s\n", error->code, error->message);
+	    g_test_message ("       error code %d = %s", error->code, error->message);
 
 	  if (((item.extra_flags & TEST_NOT_EXISTS) == 0) &&
 	      ((item.extra_flags & TEST_CREATE) == TEST_CREATE))
@@ -1028,8 +1011,8 @@ test_create (gconstpointer test_data)
 	      res =
 		g_output_stream_close (G_OUTPUT_STREAM (os), NULL, &error);
 	      if (error)
-		log ("         g_output_stream_close: error %d = %s\n",
-		     error->code, error->message);
+                g_test_message ("         g_output_stream_close: error %d = %s",
+                                error->code, error->message);
 	      g_assert_true (res);
 	      g_assert_no_error (error);
               g_object_unref (os);
@@ -1051,7 +1034,6 @@ test_open (gconstpointer test_data)
   GFileInputStream *input_stream;
 
   g_assert_nonnull (test_data);
-  log ("\n");
 
   root = g_file_new_for_commandline_arg ((char *) test_data);
   g_assert_nonnull (root);
@@ -1067,7 +1049,7 @@ test_open (gconstpointer test_data)
 
       if ((item.extra_flags & TEST_OPEN) == TEST_OPEN)
 	{
-	  log ("  test_open: '%s'\n", item.filename);
+	  g_test_message ("  test_open: '%s'", item.filename);
 
 	  child = g_file_get_child (root, item.filename);
 	  g_assert_nonnull (child);
@@ -1123,7 +1105,6 @@ test_delete (gconstpointer test_data)
   gchar *path;
 
   g_assert_nonnull (test_data);
-  log ("\n");
 
   root = g_file_new_for_commandline_arg ((char *) test_data);
   g_assert_nonnull (root);
@@ -1145,7 +1126,7 @@ test_delete (gconstpointer test_data)
 	  /*  we don't care about result here  */
 
           path = g_file_get_path (child);
-	  log ("  Deleting %s, path = %s\n", item.filename, path);
+          g_test_message ("  Deleting %s, path = %s", item.filename, path);
           g_free (path);
 
 	  error = NULL;
@@ -1173,7 +1154,7 @@ test_delete (gconstpointer test_data)
 
 	  if (error)
 	    {
-	      log ("      result = %d, error = %s\n", res, error->message);
+	      g_test_message ("      result = %d, error = %s", res, error->message);
 	      g_error_free (error);
 	    }
 
@@ -1311,7 +1292,7 @@ cleanup_dir_recurse (GFile *parent, GFile *root)
       g_assert_nonnull (relative_path);
       g_free (relative_path);
 
-      log ("    deleting '%s'\n", g_file_info_get_display_name (info));
+      g_test_message ("    deleting '%s'", g_file_info_get_display_name (info));
 
       if (g_file_info_get_file_type (info) == G_FILE_TYPE_DIRECTORY)
     	  cleanup_dir_recurse (descend, root);
@@ -1342,8 +1323,8 @@ prep_clean_structure (gconstpointer test_data)
   GFile *root;
   
   g_assert_nonnull (test_data);
-  log ("\n  Cleaning target testing structure in '%s'...\n",
-       (char *) test_data);
+  g_test_message ("  Cleaning target testing structure in '%s'...",
+                  (char *) test_data);
 
   root = g_file_new_for_commandline_arg ((char *) test_data);
   g_assert_nonnull (root);
@@ -1359,9 +1340,10 @@ int
 main (int argc, char *argv[])
 {
   static gboolean only_create_struct;
-  const char *target_path;
+  char *target_path = NULL;
   GError *error;
   GOptionContext *context;
+  int retval;
 
   static GOptionEntry cmd_entries[] = {
     {"read-write", 'w', 0, G_OPTION_ARG_NONE, &write_test,
@@ -1382,7 +1364,7 @@ main (int argc, char *argv[])
   posix_compat = FALSE;
 
   /*  strip all gtester-specific args  */
-  g_test_init (&argc, &argv, NULL);
+  g_test_init (&argc, &argv, G_TEST_OPTION_ISOLATE_DIRS, NULL);
 
   /*  no extra parameters specified, assume we're executed from glib test suite  */ 
   if (argc < 2)
@@ -1391,7 +1373,7 @@ main (int argc, char *argv[])
 	  verbose = TRUE;
 	  write_test = TRUE;
 	  only_create_struct = FALSE;
-	  target_path = DEFAULT_TEST_DIR;
+	  target_path = g_build_filename (g_get_tmp_dir (), "testdir_live-g-file", NULL);
 #ifdef G_PLATFORM_WIN32
 	  posix_compat = FALSE;
 #else
@@ -1411,7 +1393,7 @@ main (int argc, char *argv[])
 
   /*  remaining arg should is the target path; we don't care of the extra args here  */ 
   if (argc >= 2)
-    target_path = strdup (argv[1]);
+    target_path = g_strdup (argv[1]);
   
   if (! target_path) 
     {
@@ -1488,6 +1470,9 @@ main (int argc, char *argv[])
     g_test_add_data_func ("/live-g-file/final_clean", target_path,
     	  	  prep_clean_structure);
 
-  return g_test_run ();
+  retval = g_test_run ();
 
+  g_free (target_path);
+
+  return retval;
 }

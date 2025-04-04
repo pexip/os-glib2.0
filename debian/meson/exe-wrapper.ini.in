@@ -1,0 +1,2 @@
+[binaries]
+exe_wrapper = '@DEB_HOST_GNU_TYPE@-cross-exe-wrapper'

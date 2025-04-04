@@ -1,6 +1,8 @@
 /* Unit tests for gfileutils
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LicenseRef-old-glib-tests
+ *
  * This work is provided "as is"; redistribution and modification
  * in whole or in part, in any medium, physical or electronic is
  * permitted without restriction.
@@ -33,6 +35,7 @@
 /* Test our stdio wrappers here; this disables redefining (e.g.) g_open() to open() */
 #define G_STDIO_WRAP_ON_UNIX
 #include <glib/gstdio.h>
+#include "glib-private.h"
 
 #ifdef G_OS_UNIX
 #include <unistd.h>
@@ -56,6 +59,8 @@
 
 #define G_TEST_DIR_MODE (S_IWRITE | S_IREAD)
 #endif
+
+#include "testutils.h"
 
 #define S G_DIR_SEPARATOR_S
 
@@ -659,7 +664,7 @@ test_build_filenamev (void)
 static void
 test_mkdir_with_parents_1 (const gchar *base)
 {
-  char *p0 = g_build_filename (base, "fum", NULL);
+  char *p0 = g_build_filename (g_get_tmp_dir (), base, "fum", NULL);
   char *p1 = g_build_filename (p0, "tem", NULL);
   char *p2 = g_build_filename (p1, "zap", NULL);
   FILE *f;
@@ -718,46 +723,6 @@ test_mkdir_with_parents_1 (const gchar *base)
   g_free (p2);
   g_free (p1);
   g_free (p0);
-}
-
-static void
-test_mkdir_with_parents (void)
-{
-  gchar *cwd, *new_path;
-  if (g_test_verbose())
-    g_printerr ("checking g_mkdir_with_parents() in subdir ./hum/");
-  test_mkdir_with_parents_1 ("hum");
-  g_remove ("hum");
-  if (g_test_verbose())
-    g_printerr ("checking g_mkdir_with_parents() in subdir ./hii///haa/hee/");
-  test_mkdir_with_parents_1 ("./hii///haa/hee///");
-  g_remove ("hii/haa/hee");
-  g_remove ("hii/haa");
-  g_remove ("hii");
-  cwd = g_get_current_dir ();
-  if (g_test_verbose())
-    g_printerr ("checking g_mkdir_with_parents() in cwd: %s", cwd);
-  test_mkdir_with_parents_1 (cwd);
-
-  new_path = g_build_filename (cwd, "new", NULL);
-  g_assert_cmpint (g_mkdir_with_parents (new_path, 0), ==, 0);
-  g_assert_cmpint (g_rmdir (new_path), ==, 0);
-  g_free (new_path);
-  g_free (cwd);
-
-  g_assert_cmpint (g_mkdir_with_parents ("./test", 0), ==, 0);
-  g_assert_cmpint (g_mkdir_with_parents ("./test", 0), ==, 0);
-  g_remove ("./test");
-
-#ifndef G_OS_WIN32
-  g_assert_cmpint (g_mkdir_with_parents ("/usr/b/c", 0), ==, -1);
-  /* EPERM may be returned if the filesystem as a whole is read-only */
-  if (errno != EPERM)
-    g_assert_cmpint (errno, ==, EACCES);
-#endif
-
-  g_assert_cmpint (g_mkdir_with_parents (NULL, 0), ==, -1);
-  g_assert_cmpint (errno, ==, EINVAL);
 }
 
 /*
@@ -843,6 +808,56 @@ check_cap_dac_override (const char *tmpdir)
 #else
   return FALSE;
 #endif
+}
+
+static void
+test_mkdir_with_parents (void)
+{
+  gchar *cwd, *new_path;
+#ifndef G_OS_WIN32
+  gboolean can_override_dac = check_cap_dac_override (NULL);
+#endif
+
+  g_test_message ("Checking g_mkdir_with_parents() in subdir ./hum/");
+  test_mkdir_with_parents_1 ("hum");
+  g_remove ("hum");
+
+  g_test_message ("Checking g_mkdir_with_parents() in subdir ./hii///haa/hee/");
+  test_mkdir_with_parents_1 ("./hii///haa/hee///");
+  g_remove ("hii/haa/hee");
+  g_remove ("hii/haa");
+  g_remove ("hii");
+
+  cwd = g_get_current_dir ();
+  new_path = g_build_filename (cwd, "new", NULL);
+  g_assert_cmpint (g_mkdir_with_parents (new_path, 0), ==, 0);
+  g_assert_cmpint (g_rmdir (new_path), ==, 0);
+  g_free (new_path);
+  g_free (cwd);
+
+  g_assert_cmpint (g_mkdir_with_parents ("./test", 0), ==, 0);
+  g_assert_cmpint (g_mkdir_with_parents ("./test", 0), ==, 0);
+  g_remove ("./test");
+
+#ifndef G_OS_WIN32
+  if (can_override_dac)
+    {
+      g_assert_cmpint (g_mkdir_with_parents ("/usr/b/c", 0), ==, 0);
+      g_remove ("/usr/b/c");
+      g_remove ("/usr/b");
+    }
+  else
+    {
+      g_assert_cmpint (g_mkdir_with_parents ("/usr/b/c", 0), ==, -1);
+      /* EPERM or EROFS may be returned if the filesystem as a whole is read-only */
+      if (errno != EPERM && errno != EROFS)
+        g_assert_cmpint (errno, ==, EACCES);
+    }
+
+#endif
+
+  g_assert_cmpint (g_mkdir_with_parents (NULL, 0), ==, -1);
+  g_assert_cmpint (errno, ==, EINVAL);
 }
 
 /* Reproducer for https://gitlab.gnome.org/GNOME/glib/issues/1852 */
@@ -963,17 +978,17 @@ test_format_size_for_display (void)
   check_string (g_format_size_full (2, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_ONLY_VALUE), "2");
   check_string (g_format_size_full (2, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_ONLY_UNIT), "bits");
 
-  check_string (g_format_size_full (2000ULL, G_FORMAT_SIZE_BITS), "2.0\302\240kb");
-  check_string (g_format_size_full (2000ULL * 1000, G_FORMAT_SIZE_BITS), "2.0\302\240Mb");
-  check_string (g_format_size_full (2000ULL * 1000 * 1000, G_FORMAT_SIZE_BITS), "2.0\302\240Gb");
-  check_string (g_format_size_full (2000ULL * 1000 * 1000 * 1000, G_FORMAT_SIZE_BITS), "2.0\302\240Tb");
-  check_string (g_format_size_full (2000ULL * 1000 * 1000 * 1000 * 1000, G_FORMAT_SIZE_BITS), "2.0\302\240Pb");
-  check_string (g_format_size_full (2000ULL * 1000 * 1000 * 1000 * 1000 * 1000, G_FORMAT_SIZE_BITS), "2.0\302\240Eb");
+  check_string (g_format_size_full (2000ULL, G_FORMAT_SIZE_BITS), "2.0\302\240kbit");
+  check_string (g_format_size_full (2000ULL * 1000, G_FORMAT_SIZE_BITS), "2.0\302\240Mbit");
+  check_string (g_format_size_full (2000ULL * 1000 * 1000, G_FORMAT_SIZE_BITS), "2.0\302\240Gbit");
+  check_string (g_format_size_full (2000ULL * 1000 * 1000 * 1000, G_FORMAT_SIZE_BITS), "2.0\302\240Tbit");
+  check_string (g_format_size_full (2000ULL * 1000 * 1000 * 1000 * 1000, G_FORMAT_SIZE_BITS), "2.0\302\240Pbit");
+  check_string (g_format_size_full (2000ULL * 1000 * 1000 * 1000 * 1000 * 1000, G_FORMAT_SIZE_BITS), "2.0\302\240Ebit");
 
-  check_string (g_format_size_full (238472938, G_FORMAT_SIZE_BITS), "238.5\302\240Mb");
-  check_string (g_format_size_full (238472938, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_LONG_FORMAT), "238.5\302\240Mb (238472938 bits)");
+  check_string (g_format_size_full (238472938, G_FORMAT_SIZE_BITS), "238.5\302\240Mbit");
+  check_string (g_format_size_full (238472938, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_LONG_FORMAT), "238.5\302\240Mbit (238472938 bits)");
   check_string (g_format_size_full (238472938, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_ONLY_VALUE), "238.5");
-  check_string (g_format_size_full (238472938, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_ONLY_UNIT), "Mb");
+  check_string (g_format_size_full (238472938, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_ONLY_UNIT), "Mbit");
 
 
   check_string (g_format_size_full (0, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS), "0 bits");
@@ -986,17 +1001,17 @@ test_format_size_for_display (void)
   check_string (g_format_size_full (2, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_ONLY_VALUE), "2");
   check_string (g_format_size_full (2, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_ONLY_UNIT), "bits");
 
-  check_string (g_format_size_full (2048ULL, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS), "2.0\302\240Kib");
-  check_string (g_format_size_full (2048ULL * 1024, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS), "2.0\302\240Mib");
-  check_string (g_format_size_full (2048ULL * 1024 * 1024, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS), "2.0\302\240Gib");
-  check_string (g_format_size_full (2048ULL * 1024 * 1024 * 1024, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS), "2.0\302\240Tib");
-  check_string (g_format_size_full (2048ULL * 1024 * 1024 * 1024 * 1024, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS), "2.0\302\240Pib");
-  check_string (g_format_size_full (2048ULL * 1024 * 1024 * 1024 * 1024 * 1024, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS), "2.0\302\240Eib");
+  check_string (g_format_size_full (2048ULL, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS), "2.0\302\240Kibit");
+  check_string (g_format_size_full (2048ULL * 1024, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS), "2.0\302\240Mibit");
+  check_string (g_format_size_full (2048ULL * 1024 * 1024, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS), "2.0\302\240Gibit");
+  check_string (g_format_size_full (2048ULL * 1024 * 1024 * 1024, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS), "2.0\302\240Tibit");
+  check_string (g_format_size_full (2048ULL * 1024 * 1024 * 1024 * 1024, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS), "2.0\302\240Pibit");
+  check_string (g_format_size_full (2048ULL * 1024 * 1024 * 1024 * 1024 * 1024, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS), "2.0\302\240Eibit");
 
-  check_string (g_format_size_full (238472938, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS), "227.4\302\240Mib");
-  check_string (g_format_size_full (238472938, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_LONG_FORMAT), "227.4\302\240Mib (238472938 bits)");
+  check_string (g_format_size_full (238472938, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS), "227.4\302\240Mibit");
+  check_string (g_format_size_full (238472938, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_LONG_FORMAT), "227.4\302\240Mibit (238472938 bits)");
   check_string (g_format_size_full (238472938, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_ONLY_VALUE), "227.4");
-  check_string (g_format_size_full (238472938, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_ONLY_UNIT), "Mib");
+  check_string (g_format_size_full (238472938, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_ONLY_UNIT), "Mibit");
 }
 
 static void
@@ -1202,6 +1217,7 @@ test_dir_make_tmp (void)
   name = g_dir_make_tmp ("testXXXXXXtest", &error);
   g_assert_no_error (error);
   g_assert_true (g_file_test (name, G_FILE_TEST_IS_DIR));
+  g_assert_true (g_str_has_prefix (name, g_getenv ("G_TEST_TMPDIR")));
   ret = g_rmdir (name);
   g_assert_cmpint (ret, ==, 0);
   g_free (name);
@@ -1209,6 +1225,7 @@ test_dir_make_tmp (void)
   name = g_dir_make_tmp (NULL, &error);
   g_assert_no_error (error);
   g_assert_true (g_file_test (name, G_FILE_TEST_IS_DIR));
+  g_assert_true (g_str_has_prefix (name, g_getenv ("G_TEST_TMPDIR")));
   ret = g_rmdir (name);
   g_assert_cmpint (ret, ==, 0);
   g_free (name);
@@ -1235,6 +1252,7 @@ test_file_open_tmp (void)
   g_assert_cmpint (fd, !=, -1);
   g_assert_no_error (error);
   g_assert_nonnull (name);
+  g_assert_true (g_str_has_prefix (name, g_getenv ("G_TEST_TMPDIR")));
   unlink (name);
   g_free (name);
   close (fd);
@@ -1243,6 +1261,7 @@ test_file_open_tmp (void)
   g_assert_cmpint (fd, !=, -1);
   g_assert_no_error (error);
   g_assert_nonnull (name);
+  g_assert_true (g_str_has_prefix (name, g_getenv ("G_TEST_TMPDIR")));
   g_unlink (name);
   g_free (name);
   close (fd);
@@ -1321,7 +1340,7 @@ test_mkstemp (void)
   g_free (name);
 
   /* Test normal case */
-  name = g_strdup ("testXXXXXXtest"),
+  name = g_build_filename (g_get_tmp_dir (), "testXXXXXXtest", NULL),
   fd = g_mkstemp (name);
   g_assert_cmpint (fd, !=, -1);
   g_assert_null (strstr (name, "XXXXXX"));
@@ -1337,8 +1356,8 @@ test_mkstemp (void)
   strcpy (template, "foobarXXX");
   g_assert_cmpint (g_mkstemp (template), ==, -1);
 
-  strcpy (template, "fooXXXXXX");
-  fd = g_mkstemp (template);
+  name = g_build_filename (g_get_tmp_dir (), "fooXXXXXX", NULL);
+  fd = g_mkstemp (name);
   g_assert_cmpint (fd, !=, -1);
   result = write (fd, hello, hellolen);
   g_assert_cmpint (result, !=, -1);
@@ -1353,15 +1372,16 @@ test_mkstemp (void)
   g_assert_cmpstr (chars, ==, hello);
 
   close (fd);
-  remove (template);
+  remove (name);
+  g_free (name);
 
-  /* Check that is does not work for "fooXXXXXX.pdf" */
-  strcpy (template, "fooXXXXXX.pdf");
-  fd = g_mkstemp (template);
+  /* Check that it works for "fooXXXXXX.pdf" */
+  name = g_build_filename (g_get_tmp_dir (), "fooXXXXXX.pdf", NULL);
+  fd = g_mkstemp (name);
   g_assert_cmpint (fd, !=, -1);
-
   close (fd);
-  remove (template);
+  remove (name);
+  g_free (name);
 }
 
 static void
@@ -1369,12 +1389,12 @@ test_mkdtemp (void)
 {
   gint fd;
   gchar *ret;
-  gchar *name;
+  gchar *name, *name2;
   char template[32];
 
-  name = g_strdup ("testXXXXXXtest"),
+  name = g_build_filename (g_get_tmp_dir (), "testXXXXXXtest", NULL),
   ret = g_mkdtemp (name);
-  g_assert (ret == name);
+  g_assert_true (ret == name);
   g_assert_null (strstr (name, "XXXXXX"));
   g_rmdir (name);
   g_free (name);
@@ -1390,27 +1410,29 @@ test_mkdtemp (void)
   strcpy (template, "foodir");
   g_assert_null (g_mkdtemp (template));
 
-  strcpy (template, "fooXXXXXX");
-  ret = g_mkdtemp (template);
+  name = g_build_filename (g_get_tmp_dir (), "fooXXXXXX", NULL);
+  ret = g_mkdtemp (name);
   g_assert_nonnull (ret);
-  g_assert_true (ret == template);
-  g_assert_false (g_file_test (template, G_FILE_TEST_IS_REGULAR));
-  g_assert_true (g_file_test (template, G_FILE_TEST_IS_DIR));
+  g_assert_true (ret == name);
+  g_assert_false (g_file_test (name, G_FILE_TEST_IS_REGULAR));
+  g_assert_true (g_file_test (name, G_FILE_TEST_IS_DIR));
 
-  strcat (template, "/abc");
-  fd = g_open (template, O_WRONLY | O_CREAT, 0600);
+  name2 = g_build_filename (name, "abc", NULL);
+  fd = g_open (name2, O_WRONLY | O_CREAT, 0600);
   g_assert_cmpint (fd, !=, -1);
   close (fd);
-  g_assert_true (g_file_test (template, G_FILE_TEST_IS_REGULAR));
-  g_assert_cmpint (g_unlink (template), !=, -1);
+  g_assert_true (g_file_test (name2, G_FILE_TEST_IS_REGULAR));
+  g_assert_cmpint (g_unlink (name2), !=, -1);
+  g_free (name2);
 
-  template[9] = '\0';
-  g_assert_cmpint (g_rmdir (template), !=, -1);
+  g_assert_cmpint (g_rmdir (name), !=, -1);
+  g_free (name);
 
-  strcpy (template, "fooXXXXXX.dir");
-  g_assert_nonnull (g_mkdtemp (template));
-  g_assert_true (g_file_test (template, G_FILE_TEST_IS_DIR));
-  g_rmdir (template);
+  name = g_build_filename (g_get_tmp_dir (), "fooXXXXXX.dir", NULL);
+  g_assert_nonnull (g_mkdtemp (name));
+  g_assert_true (g_file_test (name, G_FILE_TEST_IS_DIR));
+  g_rmdir (name);
+  g_free (name);
 }
 
 static void
@@ -1421,7 +1443,7 @@ test_get_contents (void)
   gchar *contents;
   GError *error = NULL;
   const gchar *text = "abcdefghijklmnopqrstuvwxyz";
-  const gchar *filename = "file-test-get-contents";
+  char *filename = g_build_filename (g_get_tmp_dir (), "file-test-get-contents", NULL);
   gsize bytes_written;
 
   f = g_fopen (filename, "w");
@@ -1449,6 +1471,125 @@ test_get_contents (void)
   g_assert_no_error (error);
 
   g_free (contents);
+  g_remove (filename);
+  g_free (filename);
+}
+
+static gboolean
+resize_file (const gchar *filename,
+             gint64       size)
+{
+  int fd;
+  int retval;
+
+  fd = g_open (filename, O_CREAT | O_RDWR | O_TRUNC, 0666);
+  g_assert_cmpint (fd, >=, 0);
+
+#ifdef G_OS_WIN32
+  retval = _chsize_s (fd, size);
+#elif HAVE_FTRUNCATE64
+  retval = ftruncate64 (fd, size);
+#else
+  errno = ENOSYS;
+  retval = -1;
+#endif
+  if (retval != 0)
+    {
+      g_test_message ("Error trying to resize file (%s)", strerror (errno));
+      close (fd);
+      return FALSE;
+    }
+
+  close (fd);
+  return TRUE;
+}
+
+static gboolean
+is_error_in_list (GFileError       error_code,
+                  const GFileError ok_list[],
+                  size_t           ok_count)
+{
+  for (size_t i = 0; i < ok_count; i++)
+    {
+      if (ok_list[i] == error_code)
+        return TRUE;
+    }
+  return FALSE;
+}
+
+static void
+get_largefile_check_len (const gchar      *filename,
+                         gint64            large_len,
+                         const GFileError  ok_list[],
+                         size_t            ok_count)
+{
+  gboolean get_ok;
+  gsize len;
+  gchar *contents;
+  GError *error = NULL;
+
+  get_ok = g_file_get_contents (filename, &contents, &len, &error);
+  if (get_ok)
+    {
+      g_assert_cmpint ((gint64) len, ==, large_len);
+      g_free (contents);
+    }
+  else
+    {
+      g_assert_cmpint (error->domain, ==, G_FILE_ERROR);
+      if (is_error_in_list ((GFileError)error->code, ok_list, ok_count))
+        {
+          g_test_message ("Error reading file of size 0x%" G_GINT64_MODIFIER "x, but with acceptable error type (%s)", large_len, error->message);
+        }
+      else
+        {
+          /* fail for other errors */
+          g_assert_no_error (error);
+        }
+      g_clear_error (&error);
+    }
+}
+
+static void
+test_get_contents_largefile (void)
+{
+  if (!g_test_slow ())
+    {
+      g_test_skip ("Skipping slow largefile test");
+      return;
+    }
+
+  const gchar *filename = "file-test-get-contents-large";
+  gint64 large_len;
+
+  /* error OK if couldn't allocate large buffer, or if file is too large */
+  const GFileError too_large_errors[] = { G_FILE_ERROR_NOMEM, G_FILE_ERROR_FAILED };
+  /* error OK if couldn't allocate large buffer */
+  const GFileError nomem_errors[] = { G_FILE_ERROR_NOMEM };
+
+  /* OK to fail to read this, but don't silently under-read */
+  large_len = (G_GINT64_CONSTANT (1) << 32) + 16;
+  if (!resize_file (filename, large_len))
+    goto failed_resize;
+  get_largefile_check_len (filename, large_len, too_large_errors, G_N_ELEMENTS (too_large_errors));
+
+  /* OK to fail to read this size, but don't silently under-read */
+  large_len = (G_GINT64_CONSTANT (1) << 32) - 1;
+  if (!resize_file (filename, large_len))
+    goto failed_resize;
+  get_largefile_check_len (filename, large_len, too_large_errors, G_N_ELEMENTS (too_large_errors));
+
+  /* OK to fail memory allocation, but don't otherwise fail this size */
+  large_len = (G_GINT64_CONSTANT (1) << 31) - 1;
+  if (!resize_file (filename, large_len))
+    goto failed_resize;
+  get_largefile_check_len (filename, large_len, nomem_errors, G_N_ELEMENTS (nomem_errors));
+
+  g_remove (filename);
+  return;
+
+failed_resize:
+  g_test_incomplete ("Failed to resize large file, unable to complete large file tests.");
   g_remove (filename);
 }
 
@@ -1581,6 +1722,8 @@ test_set_contents_full (void)
           gsize len;
           gboolean ret;
           GStatBuf statbuf;
+          const gchar *original_contents = "a string which is longer than what will be overwritten on it";
+          size_t original_contents_len = strlen (original_contents);
 
           g_test_message ("Flags %d and test %" G_GSIZE_FORMAT, flags, i);
 
@@ -1595,7 +1738,7 @@ test_set_contents_full (void)
 
                 fd = g_file_open_tmp (NULL, &file_name, &error);
                 g_assert_no_error (error);
-                g_assert_cmpint (write (fd, "a", 1), ==, 1);
+                g_assert_cmpint (write (fd, original_contents, original_contents_len), ==, original_contents_len);
                 g_assert_no_errno (g_fsync (fd));
                 close (fd);
 
@@ -1691,7 +1834,7 @@ test_set_contents_full (void)
 
                   g_file_get_contents (file_name, &target_contents, NULL, &error);
                   g_assert_no_error (error);
-                  g_assert_cmpstr (target_contents, ==, "a");
+                  g_assert_cmpstr (target_contents, ==, original_contents);
 
                   g_free (target_contents);
                 }
@@ -1951,7 +2094,7 @@ test_stdio_wrappers (void)
 
   g_remove ("mkdir-test/test-create");
   ret = g_rmdir ("mkdir-test");
-  g_assert (ret == 0 || errno == ENOENT);
+  g_assert_true (ret == 0 || errno == ENOENT);
 
   ret = g_stat ("mkdir-test", &buf);
   g_assert_cmpint (ret, ==, -1);
@@ -2052,7 +2195,7 @@ test_stdio_wrappers (void)
 static void
 test_fopen_modes (void)
 {
-  char        *path = g_build_filename ("temp-fopen", NULL);
+  char        *path = g_build_filename (g_get_tmp_dir (), "temp-fopen", NULL);
   gsize        i;
   const gchar *modes[] =
     {
@@ -2453,6 +2596,148 @@ test_win32_zero_terminate_symlink (void)
 
 #endif
 
+static void
+test_clear_fd_ebadf (void)
+{
+  char *name = NULL;
+  GError *error = NULL;
+  int fd;
+  int copy_of_fd;
+  int errsv;
+  gboolean ret;
+  GWin32InvalidParameterHandler handler;
+
+  /* We're going to trigger a programming error: attmpting to close a
+   * fd that was already closed. Make criticals non-fatal. */
+  g_assert_true (g_test_undefined ());
+  g_log_set_always_fatal (G_LOG_FATAL_MASK);
+  g_log_set_fatal_mask ("GLib", G_LOG_FATAL_MASK);
+  GLIB_PRIVATE_CALL (g_win32_push_empty_invalid_parameter_handler) (&handler);
+
+  fd = g_file_open_tmp (NULL, &name, &error);
+  g_assert_cmpint (fd, !=, -1);
+  g_assert_no_error (error);
+  g_assert_nonnull (name);
+  ret = g_close (fd, &error);
+  g_assert_no_error (error);
+  assert_fd_was_closed (fd);
+  g_assert_true (ret);
+  g_unlink (name);
+  g_free (name);
+
+  /* Try to close it again with g_close() */
+  ret = g_close (fd, NULL);
+  errsv = errno;
+  g_assert_cmpint (errsv, ==, EBADF);
+  assert_fd_was_closed (fd);
+  g_assert_false (ret);
+
+  /* Try to close it again with g_clear_fd() */
+  copy_of_fd = fd;
+  errno = EILSEQ;
+  ret = g_clear_fd (&copy_of_fd, NULL);
+  errsv = errno;
+  g_assert_cmpint (errsv, ==, EBADF);
+  assert_fd_was_closed (fd);
+  g_assert_false (ret);
+
+#ifdef g_autofree
+    {
+      g_autofd int close_me = fd;
+
+      /* This avoids clang warnings about the variables being unused */
+      g_test_message ("Invalid fd will be closed by autocleanup: %d",
+                      close_me);
+      errno = EILSEQ;
+    }
+
+  errsv = errno;
+  g_assert_cmpint (errsv, ==, EILSEQ);
+#endif
+
+  GLIB_PRIVATE_CALL (g_win32_pop_invalid_parameter_handler) (&handler);
+}
+
+static void
+test_clear_fd (void)
+{
+  char *name = NULL;
+  GError *error = NULL;
+  int fd;
+  int copy_of_fd;
+  int errsv;
+
+#ifdef g_autofree
+  g_test_summary ("Test g_clear_fd() and g_autofd");
+#else
+  g_test_summary ("Test g_clear_fd() (g_autofd unsupported by this compiler)");
+#endif
+
+  /* g_clear_fd() normalizes any negative number to -1 */
+  fd = -23;
+  g_clear_fd (&fd, &error);
+  g_assert_cmpint (fd, ==, -1);
+  g_assert_no_error (error);
+
+  /* Nothing special about g_file_open_tmp, it's just a convenient way
+   * to get an open fd */
+  fd = g_file_open_tmp (NULL, &name, &error);
+  g_assert_cmpint (fd, !=, -1);
+  g_assert_no_error (error);
+  g_assert_nonnull (name);
+  copy_of_fd = fd;
+  g_clear_fd (&fd, &error);
+  g_assert_cmpint (fd, ==, -1);
+  g_assert_no_error (error);
+  assert_fd_was_closed (copy_of_fd);
+  g_unlink (name);
+  g_free (name);
+
+  /* g_clear_fd() is idempotent */
+  g_clear_fd (&fd, &error);
+  g_assert_cmpint (fd, ==, -1);
+  g_assert_no_error (error);
+
+#ifdef g_autofree
+  fd = g_file_open_tmp (NULL, &name, &error);
+  g_assert_cmpint (fd, !=, -1);
+  g_assert_no_error (error);
+  g_assert_nonnull (name);
+
+    {
+      g_autofd int close_me = fd;
+      g_autofd int was_never_set = -42;
+
+      /* This avoids clang warnings about the variables being unused */
+      g_test_message ("Will be closed by autocleanup: %d, %d",
+                      close_me, was_never_set);
+      /* This is one of the few errno values guaranteed by Standard C.
+       * We set it here to check that a successful g_autofd close doesn't
+       * alter errno. */
+      errno = EILSEQ;
+    }
+
+  errsv = errno;
+  g_assert_cmpint (errsv, ==, EILSEQ);
+  assert_fd_was_closed (fd);
+  g_unlink (name);
+  g_free (name);
+#endif
+
+  if (g_test_undefined ())
+    {
+      g_test_message ("Testing error handling");
+      g_test_trap_subprocess ("/fileutils/clear-fd/subprocess/ebadf",
+                              0, G_TEST_SUBPROCESS_DEFAULT);
+#ifdef g_autofree
+      g_test_trap_assert_stderr ("*failed with EBADF*failed with EBADF*failed with EBADF*");
+#else
+      g_test_trap_assert_stderr ("*failed with EBADF*failed with EBADF*");
+#endif
+      g_test_trap_assert_passed ();
+    }
+}
+
 int
 main (int   argc,
       char *argv[])
@@ -2482,6 +2767,7 @@ main (int   argc,
   g_test_add_func ("/fileutils/mkstemp", test_mkstemp);
   g_test_add_func ("/fileutils/mkdtemp", test_mkdtemp);
   g_test_add_func ("/fileutils/get-contents", test_get_contents);
+  g_test_add_func ("/fileutils/get-contents-large-file", test_get_contents_largefile);
   g_test_add_func ("/fileutils/set-contents", test_set_contents);
   g_test_add_func ("/fileutils/set-contents-full", test_set_contents_full);
   g_test_add_func ("/fileutils/set-contents-full/read-only-file", test_set_contents_full_read_only_file);
@@ -2489,6 +2775,8 @@ main (int   argc,
   g_test_add_func ("/fileutils/read-link", test_read_link);
   g_test_add_func ("/fileutils/stdio-wrappers", test_stdio_wrappers);
   g_test_add_func ("/fileutils/fopen-modes", test_fopen_modes);
+  g_test_add_func ("/fileutils/clear-fd", test_clear_fd);
+  g_test_add_func ("/fileutils/clear-fd/subprocess/ebadf", test_clear_fd_ebadf);
 
   return g_test_run ();
 }

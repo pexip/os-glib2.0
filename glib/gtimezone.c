@@ -46,32 +46,28 @@
 #endif
 
 #ifdef G_OS_WIN32
-
-#define STRICT
 #include <windows.h>
 #include <wchar.h>
 #endif
 
 /**
- * SECTION:timezone
- * @title: GTimeZone
- * @short_description: a structure representing a time zone
- * @see_also: #GDateTime
+ * GTimeZone:
  *
- * #GTimeZone is a structure that represents a time zone, at no
- * particular point in time.  It is refcounted and immutable.
+ * A `GTimeZone` represents a time zone, at no particular point in time.
+ *
+ * The `GTimeZone` struct is refcounted and immutable.
  *
  * Each time zone has an identifier (for example, ‘Europe/London’) which is
- * platform dependent. See g_time_zone_new() for information on the identifier
- * formats. The identifier of a time zone can be retrieved using
- * g_time_zone_get_identifier().
+ * platform dependent. See [ctor@GLib.TimeZone.new] for information on the
+ * identifier formats. The identifier of a time zone can be retrieved using
+ * [method@GLib.TimeZone.get_identifier].
  *
- * A time zone contains a number of intervals.  Each interval has
- * an abbreviation to describe it (for example, ‘PDT’), an offset to UTC and a
- * flag indicating if the daylight savings time is in effect during that
- * interval.  A time zone always has at least one interval — interval 0. Note
- * that interval abbreviations are not the same as time zone identifiers
- * (apart from ‘UTC’), and cannot be passed to g_time_zone_new().
+ * A time zone contains a number of intervals. Each interval has an abbreviation
+ * to describe it (for example, ‘PDT’), an offset to UTC and a flag indicating
+ * if the daylight savings time is in effect during that interval. A time zone
+ * always has at least one interval — interval 0. Note that interval abbreviations
+ * are not the same as time zone identifiers (apart from ‘UTC’), and cannot be
+ * passed to [ctor@GLib.TimeZone.new].
  *
  * Every UTC time is contained within exactly one interval, but a given
  * local time may be contained within zero, one or two intervals (due to
@@ -84,17 +80,8 @@
  * that some properties (like the abbreviation) change between intervals
  * without other properties changing.
  *
- * #GTimeZone is available since GLib 2.26.
- */
-
-/**
- * GTimeZone:
- *
- * #GTimeZone is an opaque structure whose members cannot be accessed
- * directly.
- *
  * Since: 2.26
- **/
+ */
 
 /* IANA zoneinfo file format {{{1 */
 
@@ -102,6 +89,8 @@
 typedef struct { gchar bytes[8]; } gint64_be;
 typedef struct { gchar bytes[4]; } gint32_be;
 typedef struct { gchar bytes[4]; } guint32_be;
+
+#ifdef G_OS_UNIX
 
 static inline gint64 gint64_from_be (const gint64_be be) {
   gint64 tmp; memcpy (&tmp, &be, sizeof tmp); return GINT64_FROM_BE (tmp);
@@ -114,6 +103,8 @@ static inline gint32 gint32_from_be (const gint32_be be) {
 static inline guint32 guint32_from_be (const guint32_be be) {
   guint32 tmp; memcpy (&tmp, &be, sizeof tmp); return GUINT32_FROM_BE (tmp);
 }
+
+#endif
 
 /* The layout of an IANA timezone file header */
 struct tzhead
@@ -287,6 +278,7 @@ again:
 GTimeZone *
 g_time_zone_ref (GTimeZone *tz)
 {
+  g_return_val_if_fail (tz != NULL, NULL);
   g_assert (tz->ref_count > 0);
 
   g_atomic_int_inc (&tz->ref_count);
@@ -445,9 +437,7 @@ zone_for_constant_offset (GTimeZone *gtz, const gchar *name)
   gtz->transitions = NULL;
 }
 
-#ifdef G_OS_UNIX
-
-#if defined(__sun) && defined(__SVR4)
+#if defined(G_OS_UNIX) && defined(__sun) && defined(__SVR4)
 /*
  * only used by Illumos distros or Solaris < 11: parse the /etc/default/init
  * text file looking for TZ= followed by the timezone, possibly quoted
@@ -513,6 +503,7 @@ zone_identifier_illumos (void)
 }
 #endif /* defined(__sun) && defined(__SRVR) */
 
+#ifdef G_OS_UNIX
 /*
  * returns the path to the top of the Olson zoneinfo timezone hierarchy.
  */
@@ -709,7 +700,7 @@ init_zone_from_iana_info (GTimeZone *gtz,
   const struct tzhead *header = header_data;
   GTimeZone *footertz = NULL;
   guint extra_time_count = 0, extra_type_count = 0;
-  gint64 last_explicit_transition_time;
+  gint64 last_explicit_transition_time = 0;
 
   g_return_if_fail (size >= sizeof (struct tzhead) &&
                     memcmp (header, "TZif", 4) == 0);
@@ -2223,7 +2214,7 @@ interval_valid (GTimeZone *tz,
  * g_time_zone_adjust_time:
  * @tz: a #GTimeZone
  * @type: the #GTimeType of @time_
- * @time_: a pointer to a number of seconds since January 1, 1970
+ * @time_: (inout): a pointer to a number of seconds since January 1, 1970
  *
  * Finds an interval within @tz that corresponds to the given @time_,
  * possibly adjusting @time_ if required to fit into an interval.
