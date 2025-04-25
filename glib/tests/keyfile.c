@@ -382,7 +382,9 @@ test_comments (void)
     "key4 = value4\n"
     "# group comment\n"
     "# group comment, continued\n"
-    "[group2]\n";
+    "[group2]\n\n"
+    "[group3]\n"
+    "[group4]\n";
 
   const gchar *top_comment = " top comment\n top comment, continued";
   const gchar *group_comment = " group comment\n group comment, continued";
@@ -427,6 +429,12 @@ test_comments (void)
   check_name ("top comment", comment, top_comment, 0);
   g_free (comment);
 
+  g_key_file_remove_comment (keyfile, NULL, NULL, &error);
+  check_no_error (&error);
+  comment = g_key_file_get_comment (keyfile, NULL, NULL, &error);
+  check_no_error (&error);
+  g_assert_null (comment);
+
   comment = g_key_file_get_comment (keyfile, "group1", "key2", &error);
   check_no_error (&error);
   check_name ("key comment", comment, key_comment, 0);
@@ -448,10 +456,47 @@ test_comments (void)
   check_name ("group comment", comment, group_comment, 0);
   g_free (comment);
 
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/3047");
+
+  /* check if adding a key to group N preserve group comment of group N+1 */
+  g_key_file_set_string (keyfile, "group1", "key5", "value5");
+  comment = g_key_file_get_comment (keyfile, "group2", NULL, &error);
+  check_no_error (&error);
+  check_name ("group comment", comment, group_comment, 0);
+  g_free (comment);
+
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/104");
+
+  /* check if comments above another group than the first one are properly removed */
+  g_key_file_remove_comment (keyfile, "group2", NULL, &error);
+  check_no_error (&error);
+  comment = g_key_file_get_comment (keyfile, "group2", NULL, &error);
+  check_no_error (&error);
+  g_assert_null (comment);
+
   comment = g_key_file_get_comment (keyfile, "group3", NULL, &error);
+  check_no_error (&error);
+  check_name ("group comment", comment, "", 0);
+  g_free (comment);
+
+  comment = g_key_file_get_comment (keyfile, "group4", NULL, &error);
+  check_no_error (&error);
+  g_assert_null (comment);
+
+  comment = g_key_file_get_comment (keyfile, "group5", NULL, &error);
   check_error (&error,
                G_KEY_FILE_ERROR,
                G_KEY_FILE_ERROR_GROUP_NOT_FOUND);
+  g_assert_null (comment);
+
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/3047");
+
+  /* check if we don't add a blank line above new group if last value of preceding
+   * group was added via g_key_file_set_value() and contains line breaks */
+  g_key_file_set_value (keyfile, "group4", "key1", "value1\n\n# group comment");
+  g_key_file_set_string (keyfile, "group5", "key1", "value1");
+  comment = g_key_file_get_comment (keyfile, "group5", NULL, &error);
+  check_no_error (&error);
   g_assert_null (comment);
 
   g_key_file_free (keyfile);
@@ -535,16 +580,18 @@ test_string (void)
     "3",
   };
   const gchar *data =
-    "[valid]\n"
-    "key1=\\s\\n\\t\\r\\\\\n"
-    "key2=\"quoted\"\n"
-    "key3='quoted'\n"
-    "key4=\xe2\x89\xa0\xe2\x89\xa0\n"
-    "key5=  leading space\n"
-    "key6=trailing space  \n"
-    "[invalid]\n"
-    "key1=\\a\\b\\0800xff\n"
-    "key2=blabla\\\n";
+      "[valid]\n"
+      "key1=\\s\\n\\t\\r\\\\\n"
+      "key2=\"quoted\"\n"
+      "key3='quoted'\n"
+      "key4=\xe2\x89\xa0\xe2\x89\xa0\n"
+      "key5=  leading space\n"
+      "key6=trailing space  \n"
+      "[invalid]\n"
+      "key1=\\a\\b\\0800xff\n"
+      "key2=blabla\\\n"  /* escape at end of line */
+      "key3=\\ifoo\n"  /* invalid escape */
+      "key4=\\i\\hfoo\n";  /* invalid escape with multiple stacked errors */
 
   keyfile = load_data (data, 0);
 
@@ -560,6 +607,14 @@ test_string (void)
   g_free (value);
 
   value = g_key_file_get_string (keyfile, "invalid", "key2", &error);
+  check_error (&error, G_KEY_FILE_ERROR, G_KEY_FILE_ERROR_INVALID_VALUE);
+  g_free (value);
+
+  value = g_key_file_get_string (keyfile, "invalid", "key3", &error);
+  check_error (&error, G_KEY_FILE_ERROR, G_KEY_FILE_ERROR_INVALID_VALUE);
+  g_free (value);
+
+  value = g_key_file_get_string (keyfile, "invalid", "key4", &error);
   check_error (&error, G_KEY_FILE_ERROR, G_KEY_FILE_ERROR_INVALID_VALUE);
   g_free (value);
 
@@ -754,6 +809,40 @@ test_locale_string (void)
 
   g_key_file_free (keyfile);
 
+  setlocale (LC_ALL, old_locale);
+  g_free (old_locale);
+
+  /* test that C locale is handled properly (as gettext does) */
+
+  old_locale = g_strdup (setlocale (LC_ALL, NULL));
+  keyfile = load_data (data, G_KEY_FILE_KEEP_TRANSLATIONS);
+
+  g_key_file_set_locale_string (keyfile, "valid", "key1", "C", "v1_C");
+  check_locale_string_value (keyfile, "valid", "key1", "C", "v1_C");
+  check_string_value (keyfile, "valid", "key1", "v1_C");
+  check_string_locale_value (keyfile, "valid", "key1", "C", "C");
+
+  /*
+   * FIXME:
+   * - Tests using setenv() needs to be converted to spawn subprocesses.
+   * - Tests using setlocale() should use uselocale() instead.
+   */
+  g_setenv ("LANGUAGE", "C:it:de", TRUE);
+  setlocale (LC_ALL, "");
+  check_locale_string_value (keyfile, "valid", "key1", NULL, "v1_C");
+  check_string_locale_value (keyfile, "valid", "key1", NULL, "C");
+
+  g_setenv ("LANGUAGE", "it:C:de", TRUE);
+  setlocale (LC_ALL, "");
+  check_locale_string_value (keyfile, "valid", "key1", NULL, "v1_C");
+  check_string_locale_value (keyfile, "valid", "key1", NULL, "C");
+
+  g_setenv ("LANGUAGE", "it:de:C", TRUE);
+  setlocale (LC_ALL, "");
+  check_locale_string_value (keyfile, "valid", "key1", NULL, "v1-de");
+  check_string_locale_value (keyfile, "valid", "key1", NULL, "de");
+
+  g_key_file_free (keyfile);
   setlocale (LC_ALL, old_locale);
   g_free (old_locale);
 }
@@ -1321,8 +1410,15 @@ test_reload_idempotency (void)
     "[fifth]\n";
   GKeyFile *keyfile;
   GError *error = NULL;
-  gchar *data1, *data2;
+  gchar *data1, *data2, *comment;
   gsize len1, len2;
+
+  const gchar *key_comment = " A random comment in the first group";
+  const gchar *top_comment = " Top comment\n\n First comment";
+  const gchar *group_comment_1 = top_comment;
+  const gchar *group_comment_2 = " Second comment - one line";
+  const gchar *group_comment_3 = " Third comment - two lines\n Third comment - two lines";
+  const gchar *group_comment_4 = "\n";
 
   g_test_bug ("https://bugzilla.gnome.org/show_bug.cgi?id=420686");
 
@@ -1347,6 +1443,44 @@ test_reload_idempotency (void)
 
   data2 = g_key_file_to_data (keyfile, &len2, &error);
   g_assert_nonnull (data2);
+
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/2927");
+
+  /* check if comments are preserved on reload */
+  comment = g_key_file_get_comment (keyfile, "first", "anotherkey", &error);
+  check_no_error (&error);
+  g_assert_cmpstr (comment, ==, key_comment);
+  g_free (comment);
+
+  comment = g_key_file_get_comment (keyfile, NULL, NULL, &error);
+  check_no_error (&error);
+  g_assert_cmpstr (comment, ==, top_comment);
+  g_free (comment);
+
+  comment = g_key_file_get_comment (keyfile, "first", NULL, &error);
+  check_no_error (&error);
+  g_assert_cmpstr (comment, ==, group_comment_1);
+  g_free (comment);
+
+  comment = g_key_file_get_comment (keyfile, "second", NULL, &error);
+  check_no_error (&error);
+  g_assert_cmpstr (comment, ==, group_comment_2);
+  g_free (comment);
+
+  comment = g_key_file_get_comment (keyfile, "third", NULL, &error);
+  check_no_error (&error);
+  g_assert_cmpstr (comment, ==, group_comment_3);
+  g_free (comment);
+
+  comment = g_key_file_get_comment (keyfile, "fourth", NULL, &error);
+  check_no_error (&error);
+  g_assert_cmpstr (comment, ==, group_comment_4);
+  g_free (comment);
+
+  comment = g_key_file_get_comment (keyfile, "fifth", NULL, &error);
+  check_no_error (&error);
+  g_assert_null (comment);
+
   g_key_file_free (keyfile);
 
   g_assert_cmpstr (data1, ==, data2);
@@ -1400,6 +1534,30 @@ test_int64 (void)
   g_key_file_free (file);
 }
 
+#ifdef G_OS_UNIX
+static void
+copy_file (const char *source,
+           const char *dest)
+{
+  char *dest_dir = NULL;
+  guint8 *file_contents = NULL;
+  size_t file_contents_len = 0;
+  GError *local_error = NULL;
+
+  dest_dir = g_path_get_dirname (dest);
+  g_mkdir_with_parents (dest_dir, 0700);
+  g_free (dest_dir);
+
+  g_file_get_contents (source, (char **) &file_contents, &file_contents_len, &local_error);
+  g_assert_no_error (local_error);
+
+  g_file_set_contents (dest, (const char *) file_contents, file_contents_len, &local_error);
+  g_assert_no_error (local_error);
+
+  g_free (file_contents);
+}
+#endif  /* G_OS_UNIX */
+
 static void
 test_load (void)
 {
@@ -1407,11 +1565,20 @@ test_load (void)
   GError *error;
   gboolean bools[2] = { TRUE, FALSE };
   gboolean loaded;
+#ifdef G_OS_UNIX
+  char *xdg_data_home_test_file = NULL;
+#endif
 
   file = g_key_file_new ();
   error = NULL;
 #ifdef G_OS_UNIX
-  /* Uses the value of $XDG_DATA_HOME we set in main() */
+  /* Uses the value of $XDG_DATA_HOME set by G_TEST_OPTION_ISOLATE_DIRS in main(),
+   * so we need to copy the test file to that temporary directory */
+  xdg_data_home_test_file = g_build_filename (g_get_user_data_dir (), "keyfiletest.ini", NULL);
+  copy_file (g_test_get_filename (G_TEST_DIST, "keyfiletest.ini", NULL),
+             xdg_data_home_test_file);
+  g_free (xdg_data_home_test_file);
+
   loaded = g_key_file_load_from_data_dirs (file, "keyfiletest.ini", NULL, 0, &error);
 #else
   loaded = g_key_file_load_from_file (file, g_test_get_filename (G_TEST_DIST, "keyfiletest.ini", NULL), 0, &error);
@@ -1458,7 +1625,7 @@ test_save (void)
   ok = g_key_file_load_from_data (kf, data, strlen (data), 0, NULL);
   g_assert_true (ok);
 
-  file = g_strdup ("key_file_XXXXXX");
+  file = g_build_filename (g_get_tmp_dir (), "key_file_XXXXXX", NULL);
   fd = g_mkstemp (file);
   g_assert_cmpint (fd, !=, -1);
   ok = g_close (fd, &error);
@@ -1829,7 +1996,7 @@ test_free_when_not_last_ref (void)
 int
 main (int argc, char *argv[])
 {
-  g_test_init (&argc, &argv, NULL);
+  g_test_init (&argc, &argv, G_TEST_OPTION_ISOLATE_DIRS, NULL);
 
 #ifdef G_OS_UNIX
   g_setenv ("XDG_DATA_HOME", g_test_get_dir (G_TEST_DIST), TRUE);

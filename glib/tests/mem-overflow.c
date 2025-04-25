@@ -1,6 +1,8 @@
 /* Unit tests for g
  * Copyright (C) 2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LicenseRef-old-glib-tests
+ *
  * This work is provided "as is"; redistribution and modification
  * in whole or in part, in any medium, physical or electronic is
  * permitted without restriction.
@@ -69,11 +71,11 @@ MEM_OVERFLOW_TEST (new0_b, p = g_new0 (X, b))
 MEM_OVERFLOW_TEST (renew_a, p = g_malloc (1); p = g_renew (X, p, a))
 MEM_OVERFLOW_TEST (renew_b, p = g_malloc (1); p = g_renew (X, p, b))
 
-MEM_OVERFLOW_TEST_FULL (aligned_alloc_a, p = g_aligned_alloc (sizeof(X), a, 16), g_aligned_free)
-MEM_OVERFLOW_TEST_FULL (aligned_alloc_b, p = g_aligned_alloc (sizeof(X), b, 16), g_aligned_free)
+MEM_OVERFLOW_TEST_FULL (aligned_alloc_a, p = g_aligned_alloc (a, sizeof(X), 16), g_aligned_free)
+MEM_OVERFLOW_TEST_FULL (aligned_alloc_b, p = g_aligned_alloc (b, sizeof(X), 16), g_aligned_free)
 
-MEM_OVERFLOW_TEST_FULL (aligned_alloc0_a, p = g_aligned_alloc0 (sizeof(X), a, 16), g_aligned_free)
-MEM_OVERFLOW_TEST_FULL (aligned_alloc0_b, p = g_aligned_alloc0 (sizeof(X), b, 16), g_aligned_free)
+MEM_OVERFLOW_TEST_FULL (aligned_alloc0_a, p = g_aligned_alloc0 (a, sizeof(X), 16), g_aligned_free)
+MEM_OVERFLOW_TEST_FULL (aligned_alloc0_b, p = g_aligned_alloc0 (b, sizeof(X), 16), g_aligned_free)
 
 static void
 mem_overflow_malloc_0 (void)

@@ -41,10 +41,8 @@
 #include <errno.h>
 #include <fcntl.h>
 
-#define STRICT			/* Strict typing, please */
 #include <winsock2.h>
 #include <windows.h>
-#undef STRICT
 #ifndef G_WITH_CYGWIN
 #include <direct.h>
 #endif
@@ -123,8 +121,8 @@ g_win32_getlocale (void)
   const gchar *script = NULL;
 
   /* Let the user override the system settings through environment
-   * variables, as on POSIX systems. Note that in GTK+ applications
-   * since GTK+ 2.10.7 setting either LC_ALL or LANG also sets the
+   * variables, as on POSIX systems. Note that in GTK applications
+   * since GTK 2.10.7 setting either LC_ALL or LANG also sets the
    * Win32 locale and C library locale through code in gtkmain.c.
    */
   if (((ev = g_getenv ("LC_ALL")) != NULL && ev[0] != '\0')
@@ -397,7 +395,7 @@ get_package_directory_from_module (const gchar *module_name)
  *
  * It is strongly recommended that packagers of GLib-using libraries
  * for Windows do not store installation paths in the Registry to be
- * used by this function as that interfers with having several
+ * used by this function as that interferes with having several
  * parallel installations of the library. Enabling multiple
  * installations of different versions of some GLib-using library, or
  * GLib itself, is desirable for various reasons.
@@ -578,7 +576,9 @@ g_win32_check_windows_version (const gint major,
 
   /* Check for Service Pack Version >= 0 */
   g_return_val_if_fail (spver >= 0, FALSE);
-  g_return_val_if_fail (_g_win32_call_rtl_version (&osverinfo), FALSE);
+
+  if (!_g_win32_call_rtl_version (&osverinfo))
+    return FALSE;
 
   /* check the OS and Service Pack Versions */
   if (osverinfo.dwMajorVersion > (DWORD) major)

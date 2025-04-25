@@ -24,17 +24,18 @@
 #define __GIO_ENUM_TYPES_H__
 
 #include <glib-object.h>
+#include <gio/gio-visibility.h>
 
 G_BEGIN_DECLS
 /*** END file-header ***/
 
 /*** BEGIN file-production ***/
 
-/* enumerations from "@filename@" */
+/* enumerations from "@basename@" */
 /*** END file-production ***/
 
 /*** BEGIN value-header ***/
-GLIB_AVAILABLE_IN_ALL GType @enum_name@_get_type (void) G_GNUC_CONST;
+GIO_AVAILABLE_IN_ALL GType @enum_name@_get_type (void) G_GNUC_CONST;
 #define @ENUMPREFIX@_TYPE_@ENUMSHORT@ (@enum_name@_get_type ())
 /*** END value-header ***/
 

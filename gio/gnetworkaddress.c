@@ -46,11 +46,9 @@
 #define HAPPY_EYEBALLS_RESOLUTION_DELAY_MS 50
 
 /**
- * SECTION:gnetworkaddress
- * @short_description: A GSocketConnectable for resolving hostnames
- * @include: gio/gio.h
+ * GNetworkAddress:
  *
- * #GNetworkAddress provides an easy way to resolve a hostname and
+ * `GNetworkAddress` provides an easy way to resolve a hostname and
  * then attempt to connect to that host, handling the possibility of
  * multiple IP addresses and multiple address families.
  *
@@ -58,15 +56,8 @@
  * as this object is kept alive which may have unexpected results if
  * alive for too long.
  *
- * See #GSocketConnectable for an example of using the connectable
+ * See [iface@Gio.SocketConnectable] for an example of using the connectable
  * interface.
- */
-
-/**
- * GNetworkAddress:
- *
- * A #GSocketConnectable for resolving a hostname and connecting to
- * that host.
  */
 
 struct _GNetworkAddressPrivate {
@@ -125,27 +116,43 @@ g_network_address_class_init (GNetworkAddressClass *klass)
   gobject_class->get_property = g_network_address_get_property;
   gobject_class->finalize = g_network_address_finalize;
 
+  /**
+   * GNetworkAddress:hostname:
+   *
+   * Hostname to resolve.
+   *
+   * Since: 2.22
+   */
   g_object_class_install_property (gobject_class, PROP_HOSTNAME,
-                                   g_param_spec_string ("hostname",
-                                                        P_("Hostname"),
-                                                        P_("Hostname to resolve"),
+                                   g_param_spec_string ("hostname", NULL, NULL,
                                                         NULL,
                                                         G_PARAM_READWRITE |
                                                         G_PARAM_CONSTRUCT_ONLY |
                                                         G_PARAM_STATIC_STRINGS));
+
+  /**
+   * GNetworkAddress:port:
+   *
+   * Network port.
+   *
+   * Since: 2.22
+   */
   g_object_class_install_property (gobject_class, PROP_PORT,
-                                   g_param_spec_uint ("port",
-                                                      P_("Port"),
-                                                      P_("Network port"),
+                                   g_param_spec_uint ("port", NULL, NULL,
                                                       0, 65535, 0,
                                                       G_PARAM_READWRITE |
                                                       G_PARAM_CONSTRUCT_ONLY |
                                                       G_PARAM_STATIC_STRINGS));
 
+  /**
+   * GNetworkAddress:scheme:
+   *
+   * URI scheme.
+   *
+   * Since: 2.22
+   */
   g_object_class_install_property (gobject_class, PROP_SCHEME,
-                                   g_param_spec_string ("scheme",
-                                                        P_("Scheme"),
-                                                        P_("URI Scheme"),
+                                   g_param_spec_string ("scheme", NULL, NULL,
                                                         NULL,
                                                         G_PARAM_READWRITE |
                                                         G_PARAM_CONSTRUCT_ONLY |
@@ -486,10 +493,7 @@ g_network_address_parse (const gchar  *host_and_port,
 
       else
         {
-          struct servent *entry;
-
-          entry = getservbyname (port, "tcp");
-          if (entry == NULL)
+          if (!g_getservbyname_ntohs (port, "tcp", &portnum))
             {
               g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
                            "Unknown service '%s' specified in hostname '%s'",
@@ -500,8 +504,6 @@ g_network_address_parse (const gchar  *host_and_port,
               g_free (name);
               return NULL;
             }
-
-          portnum = g_ntohs (entry->s_port);
 
 #ifdef HAVE_ENDSERVENT
           endservent ();

@@ -709,8 +709,6 @@ g_io_win32_prepare (GSource *source,
   GIOWin32Channel *channel = (GIOWin32Channel *)watch->channel;
   int event_mask;
   
-  *timeout = -1;
-  
   if (channel->debug)
     g_print ("g_io_win32_prepare: source=%p channel=%p", source, channel);
 
@@ -1663,7 +1661,7 @@ g_io_channel_new_file (const gchar  *filename,
             mode_num |= MODE_PLUS;
             break;
           }
-        /* Fall through */
+        G_GNUC_FALLTHROUGH;
       default:
         g_warning ("Invalid GIOFileMode %s.", mode);
         return NULL;

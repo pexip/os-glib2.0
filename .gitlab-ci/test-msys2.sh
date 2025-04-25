@@ -1,29 +1,26 @@
 #!/bin/bash
 
-set -e
-
-export PATH="/c/msys64/$MSYSTEM/bin:$PATH"
-if [[ "$MSYSTEM" == "MINGW32" ]]; then
-    export MSYS2_ARCH="i686"
-else
-    export MSYS2_ARCH="x86_64"
-fi
+set -ex
 
 pacman --noconfirm -Suy
 
 pacman --noconfirm -S --needed \
     base-devel \
     lcov \
-    mingw-w64-$MSYS2_ARCH-ccache \
-    mingw-w64-$MSYS2_ARCH-gettext \
-    mingw-w64-$MSYS2_ARCH-libffi \
-    mingw-w64-$MSYS2_ARCH-meson \
-    mingw-w64-$MSYS2_ARCH-pcre2 \
-    mingw-w64-$MSYS2_ARCH-python3 \
-    mingw-w64-$MSYS2_ARCH-python-pip \
-    mingw-w64-$MSYS2_ARCH-toolchain \
-    mingw-w64-$MSYS2_ARCH-zlib \
-    mingw-w64-$MSYS2_ARCH-libelf
+    "${MINGW_PACKAGE_PREFIX}"-ccache \
+    "${MINGW_PACKAGE_PREFIX}"-gettext \
+    "${MINGW_PACKAGE_PREFIX}"-gi-docgen \
+    "${MINGW_PACKAGE_PREFIX}"-gobject-introspection \
+    "${MINGW_PACKAGE_PREFIX}"-libffi \
+    "${MINGW_PACKAGE_PREFIX}"-meson \
+    "${MINGW_PACKAGE_PREFIX}"-pcre2 \
+    "${MINGW_PACKAGE_PREFIX}"-python3 \
+    "${MINGW_PACKAGE_PREFIX}"-python-docutils \
+    "${MINGW_PACKAGE_PREFIX}"-python-pip \
+    "${MINGW_PACKAGE_PREFIX}"-toolchain \
+    "${MINGW_PACKAGE_PREFIX}"-zlib \
+    "${MINGW_PACKAGE_PREFIX}"-libelf \
+    "${MINGW_PACKAGE_PREFIX}"-gdb
 
 mkdir -p _coverage
 mkdir -p _ccache
@@ -31,31 +28,60 @@ CCACHE_BASEDIR="$(pwd)"
 CCACHE_DIR="${CCACHE_BASEDIR}/_ccache"
 export CCACHE_BASEDIR CCACHE_DIR
 
-pip3 install --upgrade --user meson==0.60.3
-
 PATH="$(cygpath "$USERPROFILE")/.local/bin:$HOME/.local/bin:$PATH"
-CFLAGS="-coverage -ftest-coverage -fprofile-arcs"
 DIR="$(pwd)"
 export PATH CFLAGS
 
-meson --werror --buildtype debug _build
-cd _build
-ninja
+# If msys2 doesn’t provide a new enough gobject-introspection package, build it
+# ourselves.
+# See https://gitlab.gnome.org/GNOME/glib/-/merge_requests/3746#note_2161354
+if [[ $(vercmp "$(pacman -Qi "${MINGW_PACKAGE_PREFIX}"-gobject-introspection | grep -Po '^Version\s*: \K.+')" "${GOBJECT_INTROSPECTION_TAG}") -lt 0 ]]; then
+    mkdir -p gobject-introspection
+    git clone --branch "${GOBJECT_INTROSPECTION_TAG}" https://gitlab.gnome.org/GNOME/gobject-introspection.git gobject-introspection
+    meson setup gobject-introspection gobject-introspection/build --prefix "${MINGW_PREFIX}"
+    meson install -C gobject-introspection/build
+fi
 
-lcov \
-    --quiet \
-    --config-file "${DIR}"/.lcovrc \
-    --directory "${DIR}/_build" \
-    --capture \
-    --initial \
-    --output-file "${DIR}/_coverage/${CI_JOB_NAME}-baseline.lcov"
+# FIXME: We can’t use ${MESON_COMMON_OPTIONS} here because this script installs
+# Meson 1.3. See the comment in .gitlab-ci.yml about the same problem on
+# FreeBSD.
+# shellcheck disable=SC2086
+meson setup \
+    --buildtype=debug \
+    --wrap-mode=nodownload \
+    --werror \
+    -Ddocumentation=true \
+    -Dintrospection=enabled \
+    -Dman-pages=enabled \
+    _build
 
-# FIXME: fix the test suite
-meson test --timeout-multiplier "${MESON_TEST_TIMEOUT_MULTIPLIER}" --no-suite flaky || true
+meson compile -C _build
 
-lcov \
-    --quiet \
-    --config-file "${DIR}"/.lcovrc \
-    --directory "${DIR}/_build" \
-    --capture \
-    --output-file "${DIR}/_coverage/${CI_JOB_NAME}.lcov"
+if [[ "$CFLAGS" == *"-coverage"* ]]; then
+    lcov \
+        --quiet \
+        --config-file "${DIR}"/.lcovrc \
+        --directory "${DIR}/_build" \
+        --capture \
+        --initial \
+        --output-file "${DIR}/_coverage/${CI_JOB_NAME}-baseline.lcov"
+fi
+
+meson test -C _build -v --timeout-multiplier "${MESON_TEST_TIMEOUT_MULTIPLIER}"
+meson test -C _build -v --timeout-multiplier "${MESON_TEST_TIMEOUT_MULTIPLIER}" \
+    --setup=unstable_tests --suite=failing --suite=flaky || true
+
+if [[ "$CFLAGS" == *"-coverage"* ]]; then
+    lcov \
+        --quiet \
+        --config-file "${DIR}"/.lcovrc \
+        --directory "${DIR}/_build" \
+        --capture \
+        --output-file "${DIR}/_coverage/${CI_JOB_NAME}.lcov"
+fi
+
+# Copy the built documentation to an artifact directory. The build for docs.gtk.org
+# can then pull it from there — see https://gitlab.gnome.org/GNOME/gtk/-/blob/docs-gtk-org/README.md
+mkdir -p _reference/
+mv _build/docs/reference/glib/glib-win32-2.0/ _reference/glib-win32/
+mv _build/docs/reference/gio/gio-win32-2.0/ _reference/gio-win32/

@@ -1,7 +1,32 @@
+glib_sources = []
+glib_sub_includedir = glib_includedir / 'glib'
+
 glibconfig_h = configure_file(input : 'glibconfig.h.in', output : 'glibconfig.h',
   install_dir : join_paths(get_option('libdir'), 'glib-2.0/include'),
   install_tag : 'devel',
   configuration : glibconfig_conf)
+glib_sources += glibconfig_h
+
+gversionmacros_h = custom_target(
+  input: 'gversionmacros.h.in',
+  output: 'gversionmacros.h',
+  command: [gen_visibility_macros, meson.project_version(), 'versions-macros', '@INPUT@', '@OUTPUT@'],
+  install: true,
+  install_dir: glib_sub_includedir,
+)
+
+glib_visibility_h = custom_target(
+  output: 'glib-visibility.h',
+  command: [gen_visibility_macros, meson.project_version(), 'visibility-macros', 'GLIB', '@OUTPUT@'],
+  install: true,
+  install_dir: glib_sub_includedir,
+)
+
+glib_built_headers = [gversionmacros_h, glib_visibility_h]
+glib_sources += glib_built_headers
+glib_c_args_internal = [
+  '-DGLIB_COMPILATION',
+]
 
 subdir('libcharset')
 
@@ -116,14 +141,18 @@ endif
 
 glib_headers = files(
   'glib.h',
-  'glib-unix.h',
   'glib-object.h',
 )
-install_headers(glib_headers, subdir : 'glib-2.0')
+install_headers(glib_headers, install_dir : glib_includedir)
 
-# Expose as variable to be used by gobject-introspection
-# when it includes GLib as a subproject
-glib_unix_h = files('glib-unix.h')
+if host_system != 'windows'
+  glib_unix_headers = files('glib-unix.h')
+  install_headers(glib_unix_headers, install_dir : glib_includedir)
+endif
+
+if host_system == 'windows'
+  install_headers([ 'msvc_recommended_pragmas.h' ], install_dir : glib_includedir)
+endif
 
 glib_deprecated_headers = files(
   'deprecated/gallocator.h',
@@ -133,7 +162,8 @@ glib_deprecated_headers = files(
   'deprecated/grel.h',
   'deprecated/gthread.h',
 )
-install_headers(glib_deprecated_headers, subdir : 'glib-2.0/glib/deprecated')
+install_headers(glib_deprecated_headers,
+  install_dir : glib_sub_includedir / 'deprecated')
 
 glib_sub_headers = files(
   'glib-autocleanups.h',
@@ -175,6 +205,7 @@ glib_sub_headers = files(
   'gmessages.h',
   'gnode.h',
   'goption.h',
+  'gpathbuf.h',
   'gpattern.h',
   'gpoll.h',
   'gprimes.h',
@@ -212,13 +243,17 @@ glib_sub_headers = files(
   'gvarianttype.h',
   'gvariant.h',
   'gversion.h',
-  'gversionmacros.h',
-  'gwin32.h',
   'gprintf.h',
 )
-install_headers(glib_sub_headers, subdir : 'glib-2.0/glib')
 
-deprecated_sources = files(
+install_headers(glib_sub_headers, install_dir : glib_sub_includedir)
+
+if host_system == 'windows'
+  glib_win32_headers = files('gwin32.h')
+  install_headers(glib_win32_headers, install_dir : glib_sub_includedir)
+endif
+
+glib_deprecated_sources = files(
   'deprecated/gallocator.c',
   'deprecated/gcache.c',
   'deprecated/gcompletion.c',
@@ -226,7 +261,7 @@ deprecated_sources = files(
   'deprecated/gthread-deprecated.c'
 )
 
-glib_sources = files(
+glib_sources += files(
   'garcbox.c',
   'garray.c',
   'gasyncqueue.c',
@@ -242,6 +277,7 @@ glib_sources = files(
   'gdataset.c',
   'gdate.c',
   'gdatetime.c',
+  'gdatetime-private.c',
   'gdir.c',
   'genviron.c',
   'gerror.c',
@@ -263,6 +299,7 @@ glib_sources = files(
   'gmessages.c',
   'gnode.c',
   'goption.c',
+  'gpathbuf.c',
   'gpattern.c',
   'gpoll.c',
   'gprimes.c',
@@ -279,6 +316,7 @@ glib_sources = files(
   'gshell.c',
   'gslice.c',
   'gslist.c',
+  'gspawn.c',
   'gstdio.c',
   'gstrfuncs.c',
   'gstring.c',
@@ -290,7 +328,6 @@ glib_sources = files(
   'gtimer.c',
   'gtimezone.c',
   'gtrace.c',
-  'gtrace-private.h',
   'gtranslit.c',
   'gtrashstack.c',
   'gtree.c',
@@ -300,9 +337,7 @@ glib_sources = files(
   'gunicollate.c',
   'gunidecomp.c',
   'guri.c',
-  'guriprivate.h',
   'gutils.c',
-  'gutilsprivate.h',
   'guuid.c',
   'gvariant.c',
   'gvariant-core.c',
@@ -318,7 +353,7 @@ glib_sources = files(
 platform_deps = []
 
 if host_system == 'windows'
-  if get_option('default_library') == 'shared'
+  if glib_build_shared
     glib_win_rc = configure_file(
       input: 'glib.rc.in',
       output: 'glib.rc',
@@ -333,7 +368,7 @@ if host_system == 'windows'
     glib_sources += files('dirent/wdirent.c')
   endif
 else
-  glib_sources += files('glib-unix.c', 'gspawn.c', 'giounix.c')
+  glib_sources += files('glib-unix.c', 'gspawn-posix.c', 'giounix.c')
   platform_deps = []
 endif
 
@@ -352,8 +387,6 @@ if glib_have_carbon
   platform_deps += [framework_dep]
 endif
 
-glib_sources += files('gthread-@0@.c'.format(threads_implementation))
-
 if enable_dtrace
   glib_dtrace_obj = dtrace_obj_gen.process('glib_probes.d')
   glib_dtrace_hdr = dtrace_hdr_gen.process('glib_probes.d')
@@ -368,10 +401,10 @@ if use_pcre2_static_flag
   pcre2_static_args = ['-DPCRE2_STATIC']
 endif
 
-glib_c_args = ['-DG_LOG_DOMAIN="GLib"', '-DGLIB_COMPILATION'] + pcre2_static_args + glib_hidden_visibility_args
+glib_c_args = ['-DG_LOG_DOMAIN="GLib"'] + glib_c_args_internal + pcre2_static_args
 libglib = library('glib-2.0',
   glib_dtrace_obj, glib_dtrace_hdr,
-  sources : [deprecated_sources, glib_sources],
+  sources : [glib_deprecated_sources, glib_sources],
   version : library_version,
   soversion : soversion,
   darwin_versions : darwin_versions,
@@ -380,14 +413,27 @@ libglib = library('glib-2.0',
   link_args : [noseh_link_args, glib_link_flags, win32_ldflags],
   include_directories : configinc,
   link_with: [charset_lib, gnulib_lib],
-  dependencies : [pcre2, thread_dep, librt] + libintl_deps + libiconv + platform_deps + [gnulib_libm_dependency, libm] + [libsysprof_capture_dep],
+  dependencies : [
+    atomic_dep,
+    gnulib_libm_dependency,
+    libiconv,
+    libintl_deps,
+    libm,
+    librt,
+    libsysprof_capture_dep,
+    pcre2,
+    platform_deps,
+    thread_dep,
+  ],
   c_args : glib_c_args,
   objc_args : glib_c_args,
+  gnu_symbol_visibility : 'hidden',
 )
 
 libglib_dep = declare_dependency(
   link_with : libglib,
   dependencies : libintl_deps,
+  sources : glib_built_headers,
   # We sadly need to export configinc here because everyone includes <glib/*.h>
   include_directories : [configinc, glibinc])
 
@@ -396,10 +442,20 @@ pkg.generate(libglib,
   libraries_private : [win32_ldflags],
   subdirs : ['glib-2.0'],
   extra_cflags : ['-I${libdir}/glib-2.0/include'] + win32_cflags,
-  variables : ['bindir=' + join_paths('${prefix}', get_option('bindir')),
-               'glib_genmarshal=' + join_paths('${bindir}', 'glib-genmarshal'),
-               'gobject_query=' + join_paths('${bindir}', 'gobject-query'),
-               'glib_mkenums=' + join_paths('${bindir}', 'glib-mkenums')],
+  variables : [
+    'glib_genmarshal=' + '${bindir}' / 'glib-genmarshal',
+    'gobject_query=' + '${bindir}' / 'gobject-query',
+    'glib_mkenums=' + '${bindir}' / 'glib-mkenums',
+    'glib_valgrind_suppressions=' + '${datadir}' /
+      valgrind_suppression_file_install_subdir /
+      fs.name(valgrind_suppression_file),
+  ],
+  uninstalled_variables : [
+    'glib_genmarshal=${prefix}/gobject/glib-genmarshal',
+    'gobject_query=${prefix}/gobject/gobject-query',
+    'glib_mkenums=${prefix}/gobject/glib-mkenums',
+    'glib_valgrind_suppressions=' + valgrind_suppression_file.full_path(),
+  ],
   version : glib_version,
   install_dir : glib_pkgconfigreldir,
   filebase : 'glib-2.0',
@@ -408,26 +464,30 @@ pkg.generate(libglib,
 )
 meson.override_dependency('glib-2.0', libglib_dep)
 
+# FIXME: This needs to be added to the `depends` of every invocation of
+# glib_compile_resources in the build process. We can drop this when
+# https://github.com/mesonbuild/meson/issues/13385 is fixed.
+gspawn_helpers = []
 # On Windows, glib needs a spawn helper for g_spawn* API
 if host_system == 'windows'
   if host_machine.cpu_family() == 'x86'
-    executable('gspawn-win32-helper', 'gspawn-win32-helper.c',
+    gspawn_helpers += executable('gspawn-win32-helper', 'gspawn-win32-helper.c',
       install : true,
       win_subsystem : 'windows',
       include_directories : configinc,
       dependencies : [libglib_dep])
-    executable('gspawn-win32-helper-console', 'gspawn-win32-helper.c',
+    gspawn_helpers += executable('gspawn-win32-helper-console', 'gspawn-win32-helper.c',
       install : true,
       c_args : ['-DHELPER_CONSOLE'],
       include_directories : configinc,
       dependencies : [libglib_dep])
   else
-    executable('gspawn-win64-helper', 'gspawn-win32-helper.c',
+    gspawn_helpers += executable('gspawn-win64-helper', 'gspawn-win32-helper.c',
       install : true,
       win_subsystem : 'windows',
       include_directories : configinc,
       dependencies : [libglib_dep])
-    executable('gspawn-win64-helper-console', 'gspawn-win32-helper.c',
+    gspawn_helpers += executable('gspawn-win64-helper-console', 'gspawn-win32-helper.c',
       install : true,
       c_args : ['-DHELPER_CONSOLE'],
       include_directories : configinc,
@@ -440,11 +500,14 @@ else
     c_args : ['-UG_DISABLE_ASSERT'],
     include_directories : configinc,
     dependencies : [libglib_dep])
+
+  # Provide tools for others when we're a subproject and they use the Meson GNOME module
+  meson.override_find_program('gtester', gtester)
 endif
 
 report_conf = configuration_data()
 report_conf.set('GLIB_VERSION', glib_version)
-report_conf.set('PYTHON', python_name)
+report_conf.set('PYTHON', python_shebang)
 configure_file(
   input: 'gtester-report.in',
   output: 'gtester-report',

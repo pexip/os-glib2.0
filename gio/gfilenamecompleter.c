@@ -32,15 +32,12 @@
 
 
 /**
- * SECTION:gfilenamecompleter
- * @short_description: Filename Completer
- * @include: gio/gio.h
+ * GFilenameCompleter:
  * 
  * Completes partial file and directory names given a partial string by
  * looking in the file system for clues. Can return a list of possible 
  * completion strings for widget implementations.
- * 
- **/
+ */
 
 enum {
   GOT_COMPLETION_DATA,
@@ -348,7 +345,7 @@ init_completion (GFilenameCompleter *completer,
   GFile *file, *parent;
   char *basename;
   char *t;
-  int len;
+  size_t len;
 
   *basename_out = NULL;
   

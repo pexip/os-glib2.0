@@ -2,6 +2,8 @@
  * Copyright (C) 2008 Red Hat, Inc.
  * Authors: Tomas Bzatek <tbzatek@redhat.com>
  *
+ * SPDX-License-Identifier: LicenseRef-old-glib-tests
+ *
  * This work is provided "as is"; redistribution and modification
  * in whole or in part, in any medium, physical or electronic is
  * permitted without restriction.
@@ -41,7 +43,7 @@
 static void
 test_assigned_values (GFileInfo *info)
 {
-  const char *name, *display_name, *mistake;
+  const char *name, *name_filepath, *display_name, *mistake;
   guint64 size;
   GFileType type;
   
@@ -54,12 +56,14 @@ test_assigned_values (GFileInfo *info)
   /*  Retrieve data back and compare */
   
   name = g_file_info_get_attribute_byte_string (info, G_FILE_ATTRIBUTE_STANDARD_NAME);
+  name_filepath = g_file_info_get_attribute_file_path (info, G_FILE_ATTRIBUTE_STANDARD_NAME);
   display_name = g_file_info_get_attribute_string (info, G_FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME);
   mistake = g_file_info_get_attribute_string (info, G_FILE_ATTRIBUTE_STANDARD_COPY_NAME);
   size = g_file_info_get_attribute_uint64 (info, G_FILE_ATTRIBUTE_STANDARD_SIZE);
   type = g_file_info_get_file_type (info);
   
   g_assert_cmpstr (name, ==, TEST_NAME);
+  g_assert_cmpstr (name_filepath, ==, name);
   g_assert_cmpstr (display_name, ==, TEST_DISPLAY_NAME);
   g_assert_null (mistake);
   g_assert_cmpint (size, ==, TEST_SIZE);
@@ -100,7 +104,12 @@ test_g_file_info (void)
   g_strfreev (attr_list);
 
   test_assigned_values (info);
-	
+
+  /* Test the file path encoding functions */
+  g_file_info_set_attribute_file_path (info, G_FILE_ATTRIBUTE_STANDARD_NAME, "something different");
+  g_assert_cmpstr (g_file_info_get_attribute_file_path (info, G_FILE_ATTRIBUTE_STANDARD_NAME), ==, "something different");
+  g_file_info_set_attribute_file_path (info, G_FILE_ATTRIBUTE_STANDARD_NAME, TEST_NAME);
+
   /*  Test dups */
   info_dup = g_file_info_dup (info);
   g_assert_nonnull (info_dup);
@@ -307,7 +316,7 @@ test_g_file_info_access_time (void)
   g_assert_nonnull (dt_usecs);
 
   ts = g_date_time_difference (dt_usecs, dt);
-  g_assert_cmpint (ts, >, 0);
+  g_assert_cmpint (ts, >=, 0);
   g_assert_cmpint (ts, <, G_USEC_PER_SEC);
 
   /* Try again with nanosecond precision. */
@@ -442,7 +451,7 @@ test_g_file_info_creation_time (void)
   g_assert_nonnull (dt_usecs);
 
   ts = g_date_time_difference (dt_usecs, dt);
-  g_assert_cmpint (ts, >, 0);
+  g_assert_cmpint (ts, >=, 0);
   g_assert_cmpint (ts, <, G_USEC_PER_SEC);
 
   /* Try again with nanosecond precision. */
@@ -1093,6 +1102,50 @@ test_xattrs (void)
   g_object_unref (file);
 }
 
+static void
+test_set_modified_date_time_precision (void)
+{
+  GDateTime *modified = NULL;
+  GFile *file = NULL;
+  GFileIOStream *stream = NULL;
+  GFileInfo *info = NULL;
+  GError *local_error = NULL;
+
+
+  g_test_summary ("Test that g_file_info_set_modified_date_time() preserves microseconds");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/3116");
+
+  file = g_file_new_tmp ("g-file-info-test-set-modified-date-time-precision-XXXXXX", &stream, &local_error);
+  g_assert_no_error (local_error);
+
+  modified = g_date_time_new_from_iso8601 ("2000-01-01T00:00:00.123456Z", NULL);
+
+  info = g_file_query_info (file,
+  G_FILE_ATTRIBUTE_TIME_MODIFIED ","
+        G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC ","
+        G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC, G_FILE_QUERY_INFO_NONE, NULL, &local_error);
+  g_assert_no_error (local_error);
+
+  g_file_info_set_modification_date_time (info, modified);
+  g_assert_true (g_file_set_attributes_from_info (file, info, G_FILE_QUERY_INFO_NONE, NULL, &local_error));
+  g_assert_no_error (local_error);
+
+  g_clear_object (&info);
+  g_clear_pointer (&modified, g_date_time_unref);
+
+  info = g_file_query_info (file,
+  G_FILE_ATTRIBUTE_TIME_MODIFIED ","
+        G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC ","
+        G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC, G_FILE_QUERY_INFO_NONE, NULL, &local_error);
+  g_assert_no_error (local_error);
+
+  g_assert_cmpuint (g_file_info_get_attribute_uint32 (info, G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC), ==, 123456);
+
+  g_clear_object (&stream);
+  g_clear_object (&info);
+  g_clear_object (&file);
+}
+
 int
 main (int   argc,
       char *argv[])
@@ -1107,6 +1160,7 @@ main (int   argc,
   g_test_add_func ("/g-file-info/internal-enhanced-stdio", test_internal_enhanced_stdio);
 #endif
   g_test_add_func ("/g-file-info/xattrs", test_xattrs);
+  g_test_add_func ("/g-file-info/set-modified-date-time-precision", test_set_modified_date_time_precision);
   
   return g_test_run();
 }

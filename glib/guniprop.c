@@ -573,7 +573,7 @@ g_unichar_toupper (gunichar c)
       gunichar val = ATTTABLE (c >> 8, c & 0xff);
       if (val >= 0x1000000)
 	{
-	  const gchar *p = special_case_table + val - 0x1000000;
+          const gchar *p = special_case_table + (val - 0x1000000);
           val = g_utf8_get_char (p);
 	}
       /* Some lowercase letters, e.g., U+000AA, FEMININE ORDINAL INDICATOR,
@@ -613,8 +613,8 @@ g_unichar_tolower (gunichar c)
       gunichar val = ATTTABLE (c >> 8, c & 0xff);
       if (val >= 0x1000000)
 	{
-	  const gchar *p = special_case_table + val - 0x1000000;
-	  return g_utf8_get_char (p);
+          const gchar *p = special_case_table + (val - 0x1000000);
+          return g_utf8_get_char (p);
 	}
       else
 	{
@@ -805,7 +805,7 @@ output_special_case (gchar *out_buffer,
 		     int    which)
 {
   const gchar *p = special_case_table + offset;
-  gint len;
+  size_t len;
 
   if (type != G_UNICODE_TITLECASE_LETTER)
     p = g_utf8_next_char (p);
@@ -1236,7 +1236,7 @@ g_utf8_casefold (const gchar *str,
 /**
  * g_unichar_get_mirror_char:
  * @ch: a Unicode character
- * @mirrored_ch: location to store the mirrored character
+ * @mirrored_ch: (out): location to store the mirrored character
  * 
  * In Unicode, some characters are "mirrored". This means that their
  * images are mirrored horizontally in text that is laid out from right
@@ -1526,6 +1526,15 @@ static const guint32 iso15924_tags[] =
     /* Unicode 15.0 additions */
     PACK ('K', 'a', 'w', 'i'), /* G_UNICODE_SCRIPT_KAWI */
     PACK ('N', 'a', 'g', 'm'), /* G_UNICODE_SCRIPT_NAG_MUNDARI */
+
+    /* Unicode 16.0 additions */
+    PACK ('T', 'o', 'd', 'r'), /* G_UNICODE_SCRIPT_TODHRI */
+    PACK ('G', 'a', 'r', 'a'), /* G_UNICODE_SCRIPT_GARAY */
+    PACK ('T', 'u', 't', 'g'), /* G_UNICODE_SCRIPT_TULU_TIGALARI */
+    PACK ('S', 'u', 'n', 'u'), /* G_UNICODE_SCRIPT_SUNUWAR */
+    PACK ('G', 'u', 'k', 'h'), /* G_UNICODE_SCRIPT_GURUNG_KHEMA */
+    PACK ('K', 'r', 'a', 'i'), /* G_UNICODE_SCRIPT_KIRAT_RAI */
+    PACK ('O', 'n', 'a', 'o'), /* G_UNICODE_SCRIPT_OL_ONAL */
 
 #undef PACK
 };

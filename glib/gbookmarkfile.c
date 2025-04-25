@@ -52,51 +52,6 @@
 #include "gutils.h"
 
 
-/**
- * SECTION:bookmarkfile
- * @title: Bookmark file parser
- * @short_description: parses files containing bookmarks
- *
- * GBookmarkFile lets you parse, edit or create files containing bookmarks
- * to URI, along with some meta-data about the resource pointed by the URI
- * like its MIME type, the application that is registering the bookmark and
- * the icon that should be used to represent the bookmark. The data is stored
- * using the
- * [Desktop Bookmark Specification](http://www.gnome.org/~ebassi/bookmark-spec).
- *
- * The syntax of the bookmark files is described in detail inside the
- * Desktop Bookmark Specification, here is a quick summary: bookmark
- * files use a sub-class of the XML Bookmark Exchange Language
- * specification, consisting of valid UTF-8 encoded XML, under the
- * <xbel> root element; each bookmark is stored inside a
- * <bookmark> element, using its URI: no relative paths can
- * be used inside a bookmark file. The bookmark may have a user defined
- * title and description, to be used instead of the URI. Under the
- * <metadata> element, with its owner attribute set to
- * `http://freedesktop.org`, is stored the meta-data about a resource
- * pointed by its URI. The meta-data consists of the resource's MIME
- * type; the applications that have registered a bookmark; the groups
- * to which a bookmark belongs to; a visibility flag, used to set the
- * bookmark as "private" to the applications and groups that has it
- * registered; the URI and MIME type of an icon, to be used when
- * displaying the bookmark inside a GUI.
- *
- * Here is an example of a bookmark file:
- * [bookmarks.xbel](https://gitlab.gnome.org/GNOME/glib/-/blob/HEAD/glib/tests/bookmarks.xbel)
- *
- * A bookmark file might contain more than one bookmark; each bookmark
- * is accessed through its URI.
- *
- * The important caveat of bookmark files is that when you add a new
- * bookmark you must also add the application that is registering it, using
- * g_bookmark_file_add_application() or g_bookmark_file_set_application_info().
- * If a bookmark has no applications then it won't be dumped when creating
- * the on disk representation, using g_bookmark_file_to_data() or
- * g_bookmark_file_to_file().
- *
- * The #GBookmarkFile parser was added in GLib 2.12.
- */
-
 /* XBEL 1.0 standard entities */
 #define XBEL_VERSION		"1.0"
 #define XBEL_DTD_NICK		"xbel"
@@ -287,6 +242,24 @@ bookmark_app_info_free (BookmarkAppInfo *app_info)
   g_slice_free (BookmarkAppInfo, app_info);
 }
 
+static BookmarkAppInfo *
+bookmark_app_info_copy (BookmarkAppInfo *app_info)
+{
+  BookmarkAppInfo *copy;
+
+  if (!app_info)
+    return NULL;
+
+  copy = bookmark_app_info_new (app_info->name);
+  copy->count = app_info->count;
+  copy->exec = g_strdup (app_info->exec);
+
+  if (app_info->stamp)
+    copy->stamp = g_date_time_ref (app_info->stamp);
+
+  return copy;
+}
+
 static gchar *
 bookmark_app_info_dump (BookmarkAppInfo *app_info)
 {
@@ -300,14 +273,27 @@ bookmark_app_info_dump (BookmarkAppInfo *app_info)
 
   name = g_markup_escape_text (app_info->name, -1);
   exec = g_markup_escape_text (app_info->exec, -1);
-  modified = g_date_time_format_iso8601 (app_info->stamp);
   count = g_strdup_printf ("%u", app_info->count);
+
+  if (app_info->stamp)
+    {
+      char *tmp;
+
+      tmp = g_date_time_format_iso8601 (app_info->stamp);
+      modified = g_strconcat (" " BOOKMARK_MODIFIED_ATTRIBUTE "=\"", tmp, "\"",
+                              NULL);
+      g_free (tmp);
+    }
+  else
+    {
+      modified = g_strdup ("");
+    }
 
   retval = g_strconcat ("          "
                         "<" BOOKMARK_NAMESPACE_NAME ":" BOOKMARK_APPLICATION_ELEMENT
                         " " BOOKMARK_NAME_ATTRIBUTE "=\"", name, "\""
-                        " " BOOKMARK_EXEC_ATTRIBUTE "=\"", exec, "\""
-                        " " BOOKMARK_MODIFIED_ATTRIBUTE "=\"", modified, "\""
+                        " " BOOKMARK_EXEC_ATTRIBUTE "=\"", exec, "\"",
+                        modified,
                         " " BOOKMARK_COUNT_ATTRIBUTE "=\"", count, "\"/>\n",
                         NULL);
 
@@ -367,6 +353,37 @@ bookmark_metadata_free (BookmarkMetadata *metadata)
   g_free (metadata->icon_mime);
 
   g_slice_free (BookmarkMetadata, metadata);
+}
+
+static BookmarkMetadata *
+bookmark_metadata_copy (BookmarkMetadata *metadata)
+{
+  BookmarkMetadata *copy;
+  GList *l;
+
+  if (!metadata)
+    return NULL;
+
+  copy = bookmark_metadata_new ();
+  copy->is_private = metadata->is_private;
+  copy->mime_type = g_strdup (metadata->mime_type);
+  copy->icon_href = g_strdup (metadata->icon_href);
+  copy->icon_mime = g_strdup (metadata->icon_mime);
+
+  copy->groups = g_list_copy_deep (metadata->groups, (GCopyFunc) g_strdup, NULL);
+  copy->applications =
+    g_list_copy_deep (metadata->applications, (GCopyFunc) bookmark_app_info_copy, NULL);
+
+  for (l = copy->applications; l; l = l->next)
+    {
+      BookmarkAppInfo *app_info = l->data;
+      g_hash_table_insert (copy->apps_by_name, app_info->name, app_info);
+    }
+
+  g_assert (g_hash_table_size (copy->apps_by_name) ==
+            g_hash_table_size (metadata->apps_by_name));
+
+  return copy;
 }
 
 static gchar *
@@ -543,6 +560,31 @@ bookmark_item_free (BookmarkItem *item)
   g_slice_free (BookmarkItem, item);
 }
 
+static BookmarkItem *
+bookmark_item_copy (BookmarkItem *item)
+{
+  BookmarkItem* copy;
+
+  if (!item)
+    return NULL;
+
+  copy = bookmark_item_new (item->uri);
+
+  copy->title = g_strdup (item->title);
+  copy->description = g_strdup (item->description);
+
+  copy->metadata = bookmark_metadata_copy (item->metadata);
+
+  if (item->added)
+    copy->added = g_date_time_ref (item->added);
+  if (item->modified)
+    copy->modified = g_date_time_ref (item->modified);
+  if (item->visited)
+    copy->visited = g_date_time_ref (item->visited);
+
+  return copy;
+}
+
 static void
 bookmark_item_touch_modified (BookmarkItem *item)
 {
@@ -696,12 +738,7 @@ g_bookmark_file_clear (GBookmarkFile *bookmark)
   g_list_free_full (bookmark->items, (GDestroyNotify) bookmark_item_free);
   bookmark->items = NULL;
 
-  if (bookmark->items_by_uri)
-    {
-      g_hash_table_destroy (bookmark->items_by_uri);
-
-      bookmark->items_by_uri = NULL;
-    }
+  g_clear_pointer (&bookmark->items_by_uri, g_hash_table_unref);
 }
 
 struct _ParseData
@@ -1669,6 +1706,42 @@ g_bookmark_file_new (void)
   g_bookmark_file_init (bookmark);
 
   return bookmark;
+}
+
+/**
+ * g_bookmark_file_copy:
+ * @bookmark: A #GBookmarkFile
+ *
+ * Deeply copies a @bookmark #GBookmarkFile object to a new one.
+ *
+ * Returns: (transfer full): the copy of @bookmark. Use
+ *   g_bookmark_free() when finished using it.
+ *
+ * Since: 2.76
+ */
+GBookmarkFile *
+g_bookmark_file_copy (GBookmarkFile *bookmark)
+{
+  GBookmarkFile *copy;
+  GList *l;
+
+  g_return_val_if_fail (bookmark != NULL, NULL);
+
+  copy = g_bookmark_file_new ();
+  copy->title = g_strdup (bookmark->title);
+  copy->description = g_strdup (bookmark->description);
+  copy->items = g_list_copy_deep (bookmark->items, (GCopyFunc) bookmark_item_copy, NULL);
+
+  for (l = copy->items; l; l = l->next)
+    {
+      BookmarkItem *item = l->data;
+      g_hash_table_insert (copy->items_by_uri, item->uri, item);
+    }
+
+  g_assert (g_hash_table_size (copy->items_by_uri) ==
+            g_hash_table_size (bookmark->items_by_uri));
+
+  return copy;
 }
 
 /**
