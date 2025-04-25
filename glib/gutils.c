@@ -79,14 +79,6 @@
 #endif
 
 
-/**
- * SECTION:misc_utils
- * @title: Miscellaneous Utility Functions
- * @short_description: a selection of portable utility functions
- *
- * These are portable utility functions.
- */
-
 #ifdef G_PLATFORM_WIN32
 #  include <windows.h>
 #  ifndef GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
@@ -204,7 +196,7 @@ g_find_program_in_path (const gchar *program)
       strchr (last_dot, '\\') != NULL ||
       strchr (last_dot, '/') != NULL)
     {
-      const gint program_length = strlen (program);
+      const size_t program_length = strlen (program);
       gchar *pathext = g_build_path (";",
 				     ".exe;.cmd;.bat;.com",
 				     g_getenv ("PATHEXT"),
@@ -275,7 +267,44 @@ gchar*
 g_find_program_in_path (const gchar *program)
 #endif
 {
-  const gchar *path, *p;
+  return g_find_program_for_path (program, NULL, NULL);
+}
+
+/**
+ * g_find_program_for_path:
+ * @program: (type filename): a program name in the GLib file name encoding
+ * @path: (type filename) (nullable): the current dir where to search program
+ * @working_dir: (type filename) (nullable): the working dir where to search
+ *   program
+ *
+ * Locates the first executable named @program in @path, in the
+ * same way that execvp() would locate it. Returns an allocated string
+ * with the absolute path name (taking in account the @working_dir), or
+ * %NULL if the program is not found in @path. If @program is already an
+ * absolute path, returns a copy of @program if @program exists and is
+ * executable, and %NULL otherwise.
+ *
+ * On Windows, if @path is %NULL, it looks for the file in the same way as
+ * CreateProcess()  would. This means first in the directory where the
+ * executing program was loaded from, then in the current directory, then in
+ * the Windows 32-bit system directory, then in the Windows directory, and
+ * finally in the directories in the `PATH` environment variable. If
+ * the program is found, the return value contains the full name
+ * including the type suffix.
+ *
+ * Returns: (type filename) (transfer full) (nullable): a newly-allocated
+ *   string with the absolute path, or %NULL
+ * Since: 2.76
+ **/
+char *
+g_find_program_for_path (const char *program,
+                         const char *path,
+                         const char *working_dir)
+{
+  const char *original_path = path;
+  const char *original_program = program;
+  char *program_path = NULL;
+  const gchar *p;
   gchar *name, *freeme;
 #ifdef G_OS_WIN32
   const gchar *path_copy;
@@ -290,34 +319,59 @@ g_find_program_in_path (const gchar *program)
 
   g_return_val_if_fail (program != NULL, NULL);
 
+  /* Use the working dir as program path if provided */
+  if (working_dir && !g_path_is_absolute (program))
+    {
+      program_path = g_build_filename (working_dir, program, NULL);
+      program = program_path;
+    }
+
   /* If it is an absolute path, or a relative path including subdirectories,
    * don't look in PATH.
    */
   if (g_path_is_absolute (program)
-      || strchr (program, G_DIR_SEPARATOR) != NULL
+      || strchr (original_program, G_DIR_SEPARATOR) != NULL
 #ifdef G_OS_WIN32
-      || strchr (program, '/') != NULL
+      || strchr (original_program, '/') != NULL
 #endif
       )
     {
       if (g_file_test (program, G_FILE_TEST_IS_EXECUTABLE) &&
 	  !g_file_test (program, G_FILE_TEST_IS_DIR))
         {
-          gchar *out = NULL, *cwd = NULL;
+          gchar *out = NULL;
 
           if (g_path_is_absolute (program))
-            return g_strdup (program);
+            {
+              out = g_strdup (program);
+            }
+          else
+            {
+              char *cwd = g_get_current_dir ();
+              out = g_build_filename (cwd, program, NULL);
+              g_free (cwd);
+            }
 
-          cwd = g_get_current_dir ();
-          out = g_build_filename (cwd, program, NULL);
-          g_free (cwd);
+          g_free (program_path);
+
           return g_steal_pointer (&out);
         }
       else
-        return NULL;
+        {
+          g_clear_pointer (&program_path, g_free);
+
+          if (g_path_is_absolute (original_program))
+            return NULL;
+        }
     }
-  
-  path = g_getenv ("PATH");
+
+  program = original_program;
+
+  if G_LIKELY (original_path == NULL)
+    path = g_getenv ("PATH");
+  else
+    path = original_path;
+
 #if defined(G_OS_UNIX)
   if (path == NULL)
     {
@@ -334,57 +388,65 @@ g_find_program_in_path (const gchar *program)
       path = "/bin:/usr/bin:.";
     }
 #else
-  n = GetModuleFileNameW (NULL, wfilename, MAXPATHLEN);
-  if (n > 0 && n < MAXPATHLEN)
-    filename = g_utf16_to_utf8 (wfilename, -1, NULL, NULL, NULL);
-  
-  n = GetSystemDirectoryW (wsysdir, MAXPATHLEN);
-  if (n > 0 && n < MAXPATHLEN)
-    sysdir = g_utf16_to_utf8 (wsysdir, -1, NULL, NULL, NULL);
-  
-  n = GetWindowsDirectoryW (wwindir, MAXPATHLEN);
-  if (n > 0 && n < MAXPATHLEN)
-    windir = g_utf16_to_utf8 (wwindir, -1, NULL, NULL, NULL);
-  
-  if (filename)
+  if G_LIKELY (original_path == NULL)
     {
-      appdir = g_path_get_dirname (filename);
-      g_free (filename);
-    }
-  
-  path = g_strdup (path);
+      n = GetModuleFileNameW (NULL, wfilename, MAXPATHLEN);
+      if (n > 0 && n < MAXPATHLEN)
+        filename = g_utf16_to_utf8 (wfilename, -1, NULL, NULL, NULL);
 
-  if (windir)
-    {
-      const gchar *tem = path;
-      path = g_strconcat (windir, ";", path, NULL);
-      g_free ((gchar *) tem);
-      g_free (windir);
+      n = GetSystemDirectoryW (wsysdir, MAXPATHLEN);
+      if (n > 0 && n < MAXPATHLEN)
+        sysdir = g_utf16_to_utf8 (wsysdir, -1, NULL, NULL, NULL);
+
+      n = GetWindowsDirectoryW (wwindir, MAXPATHLEN);
+      if (n > 0 && n < MAXPATHLEN)
+        windir = g_utf16_to_utf8 (wwindir, -1, NULL, NULL, NULL);
+
+      if (filename)
+        {
+          appdir = g_path_get_dirname (filename);
+          g_free (filename);
+        }
+
+      path = g_strdup (path);
+
+      if (windir)
+        {
+          const gchar *tem = path;
+          path = g_strconcat (windir, ";", path, NULL);
+          g_free ((gchar *) tem);
+          g_free (windir);
+        }
+
+      if (sysdir)
+        {
+          const gchar *tem = path;
+          path = g_strconcat (sysdir, ";", path, NULL);
+          g_free ((gchar *) tem);
+          g_free (sysdir);
+        }
+
+      {
+        const gchar *tem = path;
+        path = g_strconcat (".;", path, NULL);
+        g_free ((gchar *) tem);
+      }
+
+      if (appdir)
+        {
+          const gchar *tem = path;
+          path = g_strconcat (appdir, ";", path, NULL);
+          g_free ((gchar *) tem);
+          g_free (appdir);
+        }
+
+      path_copy = path;
     }
-  
-  if (sysdir)
+  else
     {
-      const gchar *tem = path;
-      path = g_strconcat (sysdir, ";", path, NULL);
-      g_free ((gchar *) tem);
-      g_free (sysdir);
-    }
-  
-  {
-    const gchar *tem = path;
-    path = g_strconcat (".;", path, NULL);
-    g_free ((gchar *) tem);
-  }
-  
-  if (appdir)
-    {
-      const gchar *tem = path;
-      path = g_strconcat (appdir, ";", path, NULL);
-      g_free ((gchar *) tem);
-      g_free (appdir);
+      path_copy = g_strdup (path);
     }
 
-  path_copy = path;
 #endif
   
   len = strlen (program) + 1;
@@ -401,6 +463,7 @@ g_find_program_in_path (const gchar *program)
   do
     {
       char *startp;
+      char *startp_path = NULL;
 
       path = p;
       p = my_strchrnul (path, G_SEARCHPATH_SEPARATOR);
@@ -412,6 +475,13 @@ g_find_program_in_path (const gchar *program)
         startp = name + 1;
       else
         startp = memcpy (name - (p - path), path, p - path);
+
+      /* Use the working dir as program path if provided */
+      if (working_dir && !g_path_is_absolute (startp))
+        {
+          startp_path = g_build_filename (working_dir, startp, NULL);
+          startp = startp_path;
+        }
 
       if (g_file_test (startp, G_FILE_TEST_IS_EXECUTABLE) &&
 	  !g_file_test (startp, G_FILE_TEST_IS_DIR))
@@ -425,15 +495,21 @@ g_find_program_in_path (const gchar *program)
             ret = g_build_filename (cwd, startp, NULL);
             g_free (cwd);
           }
+
+          g_free (program_path);
+          g_free (startp_path);
           g_free (freeme);
 #ifdef G_OS_WIN32
 	  g_free ((gchar *) path_copy);
 #endif
           return ret;
         }
+
+      g_free (startp_path);
     }
   while (*p++ != '\0');
-  
+
+  g_free (program_path);
   g_free (freeme);
 #ifdef G_OS_WIN32
   g_free ((gchar *) path_copy);
@@ -521,6 +597,7 @@ static  gchar   *g_user_state_dir = NULL;
 static  gchar   *g_user_runtime_dir = NULL;
 static  gchar  **g_system_config_dirs = NULL;
 static  gchar  **g_user_special_dirs = NULL;
+static  gchar   *g_tmp_dir = NULL;
 
 /* fifteen minutes of fame for everybody */
 #define G_USER_DIRS_EXPIRE      15 * 60
@@ -578,7 +655,7 @@ g_get_user_database_entry (void)
 {
   static UserDatabaseEntry *entry;
 
-  if (g_once_init_enter (&entry))
+  if (g_once_init_enter_pointer (&entry))
     {
       static UserDatabaseEntry e;
 
@@ -587,12 +664,12 @@ g_get_user_database_entry (void)
         struct passwd *pw = NULL;
         gpointer buffer = NULL;
         gint error;
-        gchar *logname;
+        const char *logname;
 
 #  if defined (HAVE_GETPWUID_R)
         struct passwd pwd;
 #    ifdef _SC_GETPW_R_SIZE_MAX
-        /* This reurns the maximum length */
+        /* This returns the maximum length */
         glong bufsize = sysconf (_SC_GETPW_R_SIZE_MAX);
 
         if (bufsize < 0)
@@ -601,7 +678,7 @@ g_get_user_database_entry (void)
         glong bufsize = 64;
 #    endif /* _SC_GETPW_R_SIZE_MAX */
 
-        logname = (gchar *) g_getenv ("LOGNAME");
+        logname = g_getenv ("LOGNAME");
 
         do
           {
@@ -702,7 +779,7 @@ g_get_user_database_entry (void)
       if (!e.real_name)
         e.real_name = g_strdup ("Unknown");
 
-      g_once_init_leave (&entry, &e);
+      g_once_init_leave_pointer (&entry, &e);
     }
 
   return entry;
@@ -864,6 +941,17 @@ g_get_home_dir (void)
   return home_dir;
 }
 
+void
+_g_unset_cached_tmp_dir (void)
+{
+  G_LOCK (g_utils_global);
+  /* We have to leak the old value, as user code could be retaining pointers
+   * to it. */
+  g_ignore_leak (g_tmp_dir);
+  g_tmp_dir = NULL;
+  G_UNLOCK (g_utils_global);
+}
+
 /**
  * g_get_tmp_dir:
  *
@@ -887,22 +975,33 @@ g_get_home_dir (void)
 const gchar *
 g_get_tmp_dir (void)
 {
-  static gchar *tmp_dir;
+  G_LOCK (g_utils_global);
 
-  if (g_once_init_enter (&tmp_dir))
+  if (g_tmp_dir == NULL)
     {
       gchar *tmp;
 
-#ifdef G_OS_WIN32
-      tmp = g_strdup (g_getenv ("TEMP"));
+      tmp = g_strdup (g_getenv ("G_TEST_TMPDIR"));
 
+      if (tmp == NULL || *tmp == '\0')
+        {
+          g_free (tmp);
+          tmp = g_strdup (g_getenv (
+#ifdef G_OS_WIN32
+            "TEMP"
+#else /* G_OS_WIN32 */
+            "TMPDIR"
+#endif /* G_OS_WIN32 */
+          ));
+        }
+
+#ifdef G_OS_WIN32
       if (tmp == NULL || *tmp == '\0')
         {
           g_free (tmp);
           tmp = get_windows_directory_root ();
         }
 #else /* G_OS_WIN32 */
-      tmp = g_strdup (g_getenv ("TMPDIR"));
 
 #ifdef P_tmpdir
       if (tmp == NULL || *tmp == '\0')
@@ -923,10 +1022,12 @@ g_get_tmp_dir (void)
         }
 #endif /* !G_OS_WIN32 */
 
-      g_once_init_leave (&tmp_dir, tmp);
+      g_tmp_dir = g_steal_pointer (&tmp);
     }
 
-  return tmp_dir;
+  G_UNLOCK (g_utils_global);
+
+  return g_tmp_dir;
 }
 
 /**
@@ -956,7 +1057,7 @@ g_get_host_name (void)
 {
   static gchar *hostname;
 
-  if (g_once_init_enter (&hostname))
+  if (g_once_init_enter_pointer (&hostname))
     {
       gboolean failed;
       gchar *utmp = NULL;
@@ -1013,13 +1114,12 @@ g_get_host_name (void)
         failed = TRUE;
 #endif
 
-      g_once_init_leave (&hostname, failed ? g_strdup ("localhost") : utmp);
+      g_once_init_leave_pointer (&hostname, failed ? g_strdup ("localhost") : utmp);
     }
 
   return hostname;
 }
 
-G_LOCK_DEFINE_STATIC (g_prgname);
 static const gchar *g_prgname = NULL; /* always a quark */
 
 /**
@@ -1029,7 +1129,7 @@ static const gchar *g_prgname = NULL; /* always a quark */
  * in contrast to g_get_application_name().
  *
  * If you are using #GApplication the program name is set in
- * g_application_run(). In case of GDK or GTK+ it is set in
+ * g_application_run(). In case of GDK or GTK it is set in
  * gdk_init(), which is called by gtk_init() and the
  * #GtkApplication::startup handler. The program name is found by
  * taking the last component of @argv[0].
@@ -1041,13 +1141,7 @@ static const gchar *g_prgname = NULL; /* always a quark */
 const gchar*
 g_get_prgname (void)
 {
-  const gchar* retval;
-
-  G_LOCK (g_prgname);
-  retval = g_prgname;
-  G_UNLOCK (g_prgname);
-
-  return retval;
+  return g_atomic_pointer_get (&g_prgname);
 }
 
 /**
@@ -1058,25 +1152,44 @@ g_get_prgname (void)
  * in contrast to g_set_application_name().
  *
  * If you are using #GApplication the program name is set in
- * g_application_run(). In case of GDK or GTK+ it is set in
+ * g_application_run(). In case of GDK or GTK it is set in
  * gdk_init(), which is called by gtk_init() and the
- * #GtkApplication::startup handler. The program name is found by
- * taking the last component of @argv[0].
+ * #GtkApplication::startup handler. By default, the program name is
+ * found by taking the last component of @argv[0].
  *
  * Since GLib 2.72, this function can be called multiple times
  * and is fully thread safe. Prior to GLib 2.72, this function
  * could only be called once per process.
+ *
+ * See the [GTK documentation](https://docs.gtk.org/gtk4/migrating-3to4.html#set-a-proper-application-id)
+ * for requirements on integrating g_set_prgname() with GTK applications.
  */
 void
 g_set_prgname (const gchar *prgname)
 {
-  GQuark qprgname = g_quark_from_string (prgname);
-  G_LOCK (g_prgname);
-  g_prgname = g_quark_to_string (qprgname);
-  G_UNLOCK (g_prgname);
+  prgname = g_intern_string (prgname);
+  g_atomic_pointer_set (&g_prgname, prgname);
 }
 
-G_LOCK_DEFINE_STATIC (g_application_name);
+/**
+ * g_set_prgname_once:
+ * @prgname: the name of the program.
+ *
+ * If g_get_prgname() is not set, this is the same as setting
+ * the name via g_set_prgname() and %TRUE is returned. Otherwise,
+ * does nothing and returns %FALSE. This is thread-safe.
+ *
+ * Returns: whether g_prgname was initialized by the call.
+ */
+gboolean
+g_set_prgname_once (const gchar *prgname)
+{
+  /* if @prgname is NULL, then this has the same effect as calling
+   * (g_get_prgname()==NULL). */
+  prgname = g_intern_string (prgname);
+  return g_atomic_pointer_compare_and_exchange (&g_prgname, NULL, prgname);
+}
+
 static gchar *g_application_name = NULL;
 
 /**
@@ -1098,16 +1211,14 @@ static gchar *g_application_name = NULL;
 const gchar *
 g_get_application_name (void)
 {
-  gchar* retval;
+  const char *retval;
 
-  G_LOCK (g_application_name);
-  retval = g_application_name;
-  G_UNLOCK (g_application_name);
+  retval = g_atomic_pointer_get (&g_application_name);
 
-  if (retval == NULL)
-    return g_get_prgname ();
-  
-  return retval;
+  if (retval)
+    return retval;
+
+  return g_get_prgname ();
 }
 
 /**
@@ -1131,17 +1242,17 @@ g_get_application_name (void)
 void
 g_set_application_name (const gchar *application_name)
 {
-  gboolean already_set = FALSE;
-	
-  G_LOCK (g_application_name);
-  if (g_application_name)
-    already_set = TRUE;
-  else
-    g_application_name = g_strdup (application_name);
-  G_UNLOCK (g_application_name);
+  char *name;
 
-  if (already_set)
-    g_warning ("g_set_application_name() called multiple times");
+  g_return_if_fail (application_name);
+
+  name = g_strdup (application_name);
+
+  if (!g_atomic_pointer_compare_and_exchange (&g_application_name, NULL, name))
+    {
+      g_warning ("g_set_application_name() called multiple times");
+      g_free (name);
+    }
 }
 
 #ifdef G_OS_WIN32
@@ -1767,6 +1878,7 @@ g_build_user_data_dir (void)
   if (!data_dir || !data_dir[0])
     {
       gchar *home_dir = g_build_home_dir ();
+      g_free (data_dir);
       data_dir = g_build_filename (home_dir, ".local", "share", NULL);
       g_free (home_dir);
     }
@@ -1831,6 +1943,7 @@ g_build_user_config_dir (void)
   if (!config_dir || !config_dir[0])
     {
       gchar *home_dir = g_build_home_dir ();
+      g_free (config_dir);
       config_dir = g_build_filename (home_dir, ".config", NULL);
       g_free (home_dir);
     }
@@ -1894,6 +2007,7 @@ g_build_user_cache_dir (void)
   if (!cache_dir || !cache_dir[0])
     {
       gchar *home_dir = g_build_home_dir ();
+      g_free (cache_dir);
       cache_dir = g_build_filename (home_dir, ".cache", NULL);
       g_free (home_dir);
     }
@@ -1956,6 +2070,7 @@ g_build_user_state_dir (void)
   if (!state_dir || !state_dir[0])
     {
       gchar *home_dir = g_build_home_dir ();
+      g_free (state_dir);
       state_dir = g_build_filename (home_dir, ".local/state", NULL);
       g_free (home_dir);
     }
@@ -2466,16 +2581,16 @@ g_win32_get_system_data_dirs_for_module_real (void (*address_of_function)(void))
   p = get_special_folder (&FOLDERID_ProgramData);
   if (p)
     g_array_append_val (data_dirs, p);
-  
+
   /* Documents and Settings\All Users\Documents */
   p = get_special_folder (&FOLDERID_PublicDocuments);
   if (p)
     g_array_append_val (data_dirs, p);
-	
+
   /* Using the above subfolders of Documents and Settings perhaps
    * makes sense from a Windows perspective.
    *
-   * But looking at the actual use cases of this function in GTK+
+   * But looking at the actual use cases of this function in GTK
    * and GNOME software, what we really want is the "share"
    * subdirectory of the installation directory for the package
    * our caller is a part of.
@@ -2804,7 +2919,7 @@ g_format_size (guint64 size)
  *     a strong "power of 2" basis, like RAM sizes or RAID stripe sizes.
  *     Network and storage sizes should be reported in the normal SI units.
  * @G_FORMAT_SIZE_BITS: set the size as a quantity in bits, rather than
- *     bytes, and return units in bits. For example, ‘Mb’ rather than ‘MB’.
+ *     bytes, and return units in bits. For example, ‘Mbit’ rather than ‘MB’.
  * @G_FORMAT_SIZE_ONLY_VALUE: return only value, without unit; this should
  *     not be used together with @G_FORMAT_SIZE_LONG_FORMAT
  *     nor @G_FORMAT_SIZE_ONLY_UNIT. Since: 2.74
@@ -2881,32 +2996,32 @@ g_format_size_full (guint64          size,
       { EXBIBYTE_FACTOR, N_("EiB") }
     },
     {
-      /* Translators: A unit symbol for size formatting, showing for example: "13.0 kb" */
-      { KILOBYTE_FACTOR, N_("kb") },
-      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Mb" */
-      { MEGABYTE_FACTOR, N_("Mb") },
-      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Gb" */
-      { GIGABYTE_FACTOR, N_("Gb") },
-      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Tb" */
-      { TERABYTE_FACTOR, N_("Tb") },
-      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Pb" */
-      { PETABYTE_FACTOR, N_("Pb") },
-      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Eb" */
-      { EXABYTE_FACTOR,  N_("Eb") }
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 kbit" */
+      { KILOBYTE_FACTOR, N_("kbit") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Mbit" */
+      { MEGABYTE_FACTOR, N_("Mbit") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Gbit" */
+      { GIGABYTE_FACTOR, N_("Gbit") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Tbit" */
+      { TERABYTE_FACTOR, N_("Tbit") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Pbit" */
+      { PETABYTE_FACTOR, N_("Pbit") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Ebit" */
+      { EXABYTE_FACTOR,  N_("Ebit") }
     },
     {
-      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Kib" */
-      { KIBIBYTE_FACTOR, N_("Kib") },
-      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Mib" */
-      { MEBIBYTE_FACTOR, N_("Mib") },
-      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Gib" */
-      { GIBIBYTE_FACTOR, N_("Gib") },
-      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Tib" */
-      { TEBIBYTE_FACTOR, N_("Tib") },
-      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Pib" */
-      { PEBIBYTE_FACTOR, N_("Pib") },
-      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Eib" */
-      { EXBIBYTE_FACTOR, N_("Eib") }
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Kibit" */
+      { KIBIBYTE_FACTOR, N_("Kibit") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Mibit" */
+      { MEBIBYTE_FACTOR, N_("Mibit") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Gibit" */
+      { GIBIBYTE_FACTOR, N_("Gibit") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Tibit" */
+      { TEBIBYTE_FACTOR, N_("Tibit") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Pibit" */
+      { PEBIBYTE_FACTOR, N_("Pibit") },
+      /* Translators: A unit symbol for size formatting, showing for example: "13.0 Eibit" */
+      { EXBIBYTE_FACTOR, N_("Eibit") }
     }
   };
 
@@ -3172,7 +3287,7 @@ g_check_setuid (void)
   if (errsv)
     g_error ("getauxval () failed: %s", g_strerror (errsv));
   return value;
-#elif defined(HAVE_ISSETUGID) && !defined(__BIONIC__)
+#elif defined(HAVE_ISSETUGID) && !defined(__ANDROID__)
   /* BSD: http://www.freebsd.org/cgi/man.cgi?query=issetugid&sektion=2 */
 
   /* Android had it in older versions but the new 64 bit ABI does not

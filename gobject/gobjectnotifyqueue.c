@@ -46,7 +46,7 @@ struct _GObjectNotifyContext
 {
   GQuark                       quark_notify_queue;
   GObjectNotifyQueueDispatcher dispatcher;
-  GTrashStack                 *_nqueue_trash; /* unused */
+  void                        *_nqueue_trash; /* unused */
 };
 struct _GObjectNotifyQueue
 {
@@ -113,8 +113,8 @@ g_object_notify_queue_thaw (GObject            *object,
   /* Just make sure we never get into some nasty race condition */
   if (G_UNLIKELY(nqueue->freeze_count == 0)) {
     G_UNLOCK(notify_lock);
-    g_warning ("%s: property-changed notification for %s(%p) is not frozen",
-	       G_STRFUNC, G_OBJECT_TYPE_NAME (object), object);
+    g_critical ("%s: property-changed notification for %s(%p) is not frozen",
+	        G_STRFUNC, G_OBJECT_TYPE_NAME (object), object);
     return;
   }
 
@@ -140,7 +140,7 @@ g_object_notify_queue_thaw (GObject            *object,
 }
 
 static inline void
-g_object_notify_queue_clear (GObject            *object,
+g_object_notify_queue_clear (GObject            *object G_GNUC_UNUSED,
 			     GObjectNotifyQueue *nqueue)
 {
   g_return_if_fail (nqueue->freeze_count > 0);
@@ -155,7 +155,7 @@ g_object_notify_queue_clear (GObject            *object,
 }
 
 static inline void
-g_object_notify_queue_add (GObject            *object,
+g_object_notify_queue_add (GObject            *object G_GNUC_UNUSED,
 			   GObjectNotifyQueue *nqueue,
 			   GParamSpec	      *pspec)
 {

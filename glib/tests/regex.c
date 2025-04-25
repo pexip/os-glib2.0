@@ -53,6 +53,10 @@
 /* A random value use to mark untouched integer variables. */
 #define UNTOUCHED -559038737
 
+/* Lengths of test strings in JIT stack tests */
+#define TEST_STRING_LEN 20000
+#define LARGE_TEST_STRING_LEN 200000
+
 static gint total;
 
 typedef struct {
@@ -1881,16 +1885,6 @@ test_lookbehind (void)
   g_match_info_free (match);
   g_regex_unref (regex);
 
-  regex = g_regex_new ("(?<!dogs?|cats?) x", G_REGEX_OPTIMIZE, G_REGEX_MATCH_DEFAULT, &error);
-  g_assert (regex == NULL);
-  g_assert_error (error, G_REGEX_ERROR, G_REGEX_ERROR_VARIABLE_LENGTH_LOOKBEHIND);
-  g_clear_error (&error);
-
-  regex = g_regex_new ("(?<=ab(c|de)) foo", G_REGEX_OPTIMIZE, G_REGEX_MATCH_DEFAULT, &error);
-  g_assert (regex == NULL);
-  g_assert_error (error, G_REGEX_ERROR, G_REGEX_ERROR_VARIABLE_LENGTH_LOOKBEHIND);
-  g_clear_error (&error);
-
   regex = g_regex_new ("(?<=abc|abde)foo", G_REGEX_OPTIMIZE, G_REGEX_MATCH_DEFAULT, &error);
   g_assert (regex);
   g_assert_no_error (error);
@@ -2513,6 +2507,28 @@ test_unmatched_named_subpattern (void)
   g_regex_unref (regex);
 }
 
+static void
+test_compiled_regex_after_jit_failure (void)
+{
+  GRegex *regex = NULL;
+  char string[LARGE_TEST_STRING_LEN];
+
+  g_test_summary ("Test that failed OPTIMIZE regex doesn't cause issues on subsequent matches");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/2824");
+
+  regex = g_regex_new ("^(?:[ \t\n]|[^[:cntrl:]])*$", G_REGEX_OPTIMIZE, 0, NULL);
+
+  /* Generate large enough string to cause JIT failure on this regex. */
+  memset (string, '*', LARGE_TEST_STRING_LEN);
+  string[LARGE_TEST_STRING_LEN - 1] = '\0';
+
+  g_assert_true (g_regex_match (regex, string, 0, NULL));
+  /* Second assert here is the key - does the first JIT overflow mess up our state? */
+  g_assert_true (g_regex_match (regex, string, 0, NULL));
+
+  g_regex_unref (regex);
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -2533,6 +2549,7 @@ main (int argc, char *argv[])
   g_test_add_func ("/regex/compile-errors", test_compile_errors);
   g_test_add_func ("/regex/jit-unsupported-matching", test_jit_unsupported_matching_options);
   g_test_add_func ("/regex/unmatched-named-subpattern", test_unmatched_named_subpattern);
+  g_test_add_func ("/regex/compiled-regex-after-jit-failure", test_compiled_regex_after_jit_failure);
 
   /* TEST_NEW(pattern, compile_opts, match_opts) */
   TEST_NEW("[A-Z]+", G_REGEX_CASELESS | G_REGEX_EXTENDED | G_REGEX_OPTIMIZE, G_REGEX_MATCH_NOTBOL | G_REGEX_MATCH_PARTIAL);
@@ -2737,6 +2754,19 @@ G_GNUC_END_IGNORE_DEPRECATIONS
   /* Invalid patterns. */
   TEST_MATCH_SIMPLE("\\", "a", 0, 0, FALSE);
   TEST_MATCH_SIMPLE("[", "", 0, 0, FALSE);
+
+  /* Test that JIT compiler has enough stack */
+  char test_string[TEST_STRING_LEN];
+  memset (test_string, '*', TEST_STRING_LEN);
+  test_string[TEST_STRING_LEN - 1] = '\0';
+  TEST_MATCH_SIMPLE ("^(?:[ \t\n]|[^[:cntrl:]])*$", test_string, 0, 0, TRUE);
+
+  /* Test that gregex falls back to unoptimized matching when reaching the JIT
+   * compiler stack limit */
+  char large_test_string[LARGE_TEST_STRING_LEN];
+  memset (large_test_string, '*', LARGE_TEST_STRING_LEN);
+  large_test_string[LARGE_TEST_STRING_LEN - 1] = '\0';
+  TEST_MATCH_SIMPLE ("^(?:[ \t\n]|[^[:cntrl:]])*$", large_test_string, 0, 0, TRUE);
 
   /* TEST_MATCH(pattern, compile_opts, match_opts, string,
    * 		string_len, start_position, match_opts2, expected) */

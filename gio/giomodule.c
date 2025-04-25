@@ -61,14 +61,14 @@
 #endif
 #include <glib/gstdio.h>
 
-#if defined(G_OS_UNIX) && !defined(HAVE_COCOA)
+#if defined(G_OS_UNIX) && !defined(__APPLE__)
 #include "gdesktopappinfo.h"
 #endif
 #ifdef HAVE_COCOA
 #include "gosxappinfo.h"
 #endif
 
-#ifdef HAVE_COCOA
+#ifdef __APPLE__
 #include <AvailabilityMacros.h>
 #endif
 
@@ -77,53 +77,47 @@
 #undef __GLIB_H_INSIDE__
 
 /**
- * SECTION:giomodule
- * @short_description: Loadable GIO Modules
- * @include: gio/gio.h
+ * GIOModule:
  *
  * Provides an interface and default functions for loading and unloading 
  * modules. This is used internally to make GIO extensible, but can also
  * be used by others to implement module loading.
- * 
- **/
+ */
 
 /**
- * SECTION:extensionpoints
- * @short_description: Extension Points
- * @include: gio.h
- * @see_also: [Extending GIO][extending-gio]
+ * GIOExtensionPoint:
  *
- * #GIOExtensionPoint provides a mechanism for modules to extend the
+ * `GIOExtensionPoint` provides a mechanism for modules to extend the
  * functionality of the library or application that loaded it in an 
- * organized fashion.  
+ * organized fashion.
  *
  * An extension point is identified by a name, and it may optionally
  * require that any implementation must be of a certain type (or derived
- * thereof). Use g_io_extension_point_register() to register an
- * extension point, and g_io_extension_point_set_required_type() to
+ * thereof). Use [func@Gio.IOExtensionPoint.register] to register an
+ * extension point, and [method@Gio.IOExtensionPoint.set_required_type] to
  * set a required type.
  *
- * A module can implement an extension point by specifying the #GType 
- * that implements the functionality. Additionally, each implementation
- * of an extension point has a name, and a priority. Use
- * g_io_extension_point_implement() to implement an extension point.
+ * A module can implement an extension point by specifying the
+ * [type@GObject.Type] that implements the functionality. Additionally, each
+ * implementation of an extension point has a name, and a priority. Use
+ * [func@Gio.IOExtensionPoint.implement] to implement an extension point.
  * 
- *  |[<!-- language="C" -->
- *  GIOExtensionPoint *ep;
+ * ```c
+ * GIOExtensionPoint *ep;
  *
- *  // Register an extension point
- *  ep = g_io_extension_point_register ("my-extension-point");
- *  g_io_extension_point_set_required_type (ep, MY_TYPE_EXAMPLE);
- *  ]|
+ * // Register an extension point
+ * ep = g_io_extension_point_register ("my-extension-point");
+ * g_io_extension_point_set_required_type (ep, MY_TYPE_EXAMPLE);
+ * ```
  *
- *  |[<!-- language="C" -->
- *  // Implement an extension point
- *  G_DEFINE_TYPE (MyExampleImpl, my_example_impl, MY_TYPE_EXAMPLE)
- *  g_io_extension_point_implement ("my-extension-point",
- *                                  my_example_impl_get_type (),
- *                                  "my-example",
- *                                  10);
- *  ]|
+ * ```c
+ * // Implement an extension point
+ * G_DEFINE_TYPE (MyExampleImpl, my_example_impl, MY_TYPE_EXAMPLE)
+ * g_io_extension_point_implement ("my-extension-point",
+ *                                 my_example_impl_get_type (),
+ *                                 "my-example",
+ *                                 10);
+ * ```
  *
  *  It is up to the code that registered the extension point how
  *  it uses the implementations that have been associated with it.
@@ -133,7 +127,7 @@
  *
  *  To avoid opening all modules just to find out what extension
  *  points they implement, GIO makes use of a caching mechanism,
- *  see [gio-querymodules][gio-querymodules].
+ *  see [gio-querymodules](gio-querymodules.html).
  *  You are expected to run this command after installing a
  *  GIO module.
  *
@@ -267,12 +261,6 @@ struct _GIOExtension {
   gint priority;
 };
 
-/**
- * GIOExtensionPoint:
- *
- * #GIOExtensionPoint is an opaque data structure and can only be accessed
- * using the following functions.
- */
 struct _GIOExtensionPoint {
   GType required_type;
   char *name;
@@ -430,9 +418,16 @@ is_valid_module_name (const gchar        *basename,
   gboolean result;
 
 #if !defined(G_OS_WIN32) && !defined(G_WITH_CYGWIN)
+  #if defined(__APPLE__)
+  if (!g_str_has_prefix (basename, "lib") ||
+      !(g_str_has_suffix (basename, ".so") ||
+        g_str_has_suffix (basename, ".dylib")))
+    return FALSE;
+  #else
   if (!g_str_has_prefix (basename, "lib") ||
       !g_str_has_suffix (basename, ".so"))
     return FALSE;
+  #endif
 #else
   if (!g_str_has_suffix (basename, ".dll"))
     return FALSE;
@@ -579,13 +574,15 @@ g_io_modules_scan_all_in_directory_with_scope (const char     *dirname,
 	    {
 	      /* Try to load and init types */
 	      if (g_type_module_use (G_TYPE_MODULE (module)))
-		g_type_module_unuse (G_TYPE_MODULE (module)); /* Unload */
+		{
+		  g_type_module_unuse (G_TYPE_MODULE (module)); /* Unload */
+		  /* module must remain alive, because the type system keeps weak refs */
+		  g_ignore_leak (module);
+		}
 	      else
-		{ /* Failure to load */
+		{
 		  g_printerr ("Failed to load module: %s\n", path);
 		  g_object_unref (module);
-		  g_free (path);
-		  continue;
 		}
 	    }
 
@@ -1096,8 +1093,9 @@ extern GType g_proxy_resolver_portal_get_type (void);
 extern GType g_network_monitor_portal_get_type (void);
 #endif
 
-#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1090
+#ifdef HAVE_COCOA
 extern GType g_cocoa_notification_backend_get_type (void);
+extern GType g_osx_network_monitor_get_type (void);
 #endif
 
 #ifdef G_PLATFORM_WIN32
@@ -1166,10 +1164,10 @@ void *
 _g_io_win32_get_module (void)
 {
   if (!gio_dll)
-    GetModuleHandleExA (GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                        GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                        (const char *) _g_io_win32_get_module,
-                        &gio_dll);
+    GetModuleHandleEx (GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                       GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       (LPCWSTR) _g_io_win32_get_module,
+                       &gio_dll);
   return gio_dll;
 }
 
@@ -1183,7 +1181,7 @@ _g_io_modules_ensure_extension_points_registered (void)
 
   if (g_once_init_enter (&registered_extensions))
     {
-#if defined(G_OS_UNIX) && !defined(HAVE_COCOA)
+#if defined(G_OS_UNIX) && !defined(__APPLE__)
 #if !GLIB_CHECK_VERSION (3, 0, 0)
       ep = g_io_extension_point_register (G_DESKTOP_APP_INFO_LOOKUP_EXTENSION_POINT_NAME);
       g_io_extension_point_set_required_type (ep, G_TYPE_DESKTOP_APP_INFO_LOOKUP);
@@ -1262,6 +1260,31 @@ get_gio_module_dir (void)
       g_free (install_dir);
 #else
       module_dir = g_strdup (GIO_MODULE_DIR);
+#ifdef __APPLE__
+#include "TargetConditionals.h"
+/* Only auto-relocate on macOS, not watchOS etc; older macOS SDKs only define TARGET_OS_MAC */
+#if (defined (TARGET_OS_OSX) && TARGET_OS_OSX) || \
+     (!defined (TARGET_OS_OSX) && defined (TARGET_OS_MAC) && TARGET_OS_MAC)
+#include <dlfcn.h>
+      {
+        g_autofree gchar *path = NULL;
+        g_autofree gchar *possible_dir = NULL;
+        Dl_info info;
+
+        if (dladdr (get_gio_module_dir, &info))
+          {
+            /* Gets path to the PREFIX/lib directory */
+            path = g_path_get_dirname (info.dli_fname);
+            possible_dir = g_build_filename (path, "gio", "modules", NULL);
+            if (g_file_test (possible_dir, G_FILE_TEST_IS_DIR))
+              {
+                g_free (module_dir);
+                module_dir = g_steal_pointer (&possible_dir);
+              }
+          }
+      }
+#endif
+#endif
 #endif
     }
 
@@ -1314,20 +1337,22 @@ _g_io_modules_ensure_loaded (void)
       g_type_ensure (g_memory_settings_backend_get_type ());
       g_type_ensure (g_keyfile_settings_backend_get_type ());
       g_type_ensure (g_power_profile_monitor_dbus_get_type ());
-#if defined(HAVE_INOTIFY_INIT1)
+#if defined(FILE_MONITOR_BACKEND_INOTIFY) || defined(FILE_MONITOR_BACKEND_LIBINOTIFY_KQUEUE)
       g_type_ensure (g_inotify_file_monitor_get_type ());
 #endif
-#if defined(HAVE_KQUEUE)
+#if defined(FILE_MONITOR_BACKEND_KQUEUE)
       g_type_ensure (g_kqueue_file_monitor_get_type ());
 #endif
 #ifdef G_OS_WIN32
       g_type_ensure (_g_win32_volume_monitor_get_type ());
       g_type_ensure (g_win32_file_monitor_get_type ());
-      g_type_ensure (g_registry_backend_get_type ());
+      g_type_ensure (g_registry_settings_backend_get_type ());
 #endif
 #ifdef HAVE_COCOA
+      g_type_ensure (g_cocoa_notification_backend_get_type ());
       g_type_ensure (g_nextstep_settings_backend_get_type ());
       g_type_ensure (g_osx_app_info_get_type ());
+      g_type_ensure (g_osx_network_monitor_get_type ());
 #endif
 #ifdef G_OS_UNIX
       g_type_ensure (_g_unix_volume_monitor_get_type ());
@@ -1340,9 +1365,6 @@ _g_io_modules_ensure_loaded (void)
       g_type_ensure (g_network_monitor_portal_get_type ());
       g_type_ensure (g_power_profile_monitor_portal_get_type ());
       g_type_ensure (g_proxy_resolver_portal_get_type ());
-#endif
-#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1090
-      g_type_ensure (g_cocoa_notification_backend_get_type ());
 #endif
 #ifdef G_OS_WIN32
       g_type_ensure (g_win32_notification_backend_get_type ());

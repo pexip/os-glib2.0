@@ -1,0 +1,15 @@
+#!/bin/sh
+# Copyright 2023 Collabora Ltd.
+# Copyright 2024 Simon McVittie
+# SPDX-License-Identifier: MIT
+
+set -eu
+
+DEB_HOST_GNU_TYPE='@DEB_HOST_GNU_TYPE@'
+TOOL_PATH='@TOOL_PATH@'
+
+if command -v "${DEB_HOST_GNU_TYPE}-cross-exe-wrapper" > /dev/null; then
+    exec "${DEB_HOST_GNU_TYPE}-cross-exe-wrapper" "${TOOL_PATH}" "$@"
+else
+    exec "${TOOL_PATH}" "$@"
+fi

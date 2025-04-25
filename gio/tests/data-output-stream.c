@@ -2,6 +2,8 @@
  * Copyright (C) 2008 Red Hat, Inc.
  * Authors: Tomas Bzatek <tbzatek@redhat.com>
  *
+ * SPDX-License-Identifier: LicenseRef-old-glib-tests
+ *
  * This work is provided "as is"; redistribution and modification
  * in whole or in part, in any medium, physical or electronic is
  * permitted without restriction.
@@ -61,7 +63,7 @@ test_read_lines (GDataStreamNewlineType newline_type)
   GError *error = NULL;
   gpointer data;
   char *lines;
-  int size;
+  size_t size;
   int i;
 
 #define TEST_STRING	"some_text"
@@ -97,7 +99,7 @@ test_read_lines (GDataStreamNewlineType newline_type)
   
   /*  compare data */
   size = strlen (data);
-  g_assert_cmpint (size, <, MAX_LINES_BUFF);
+  g_assert_cmpuint (size, <, MAX_LINES_BUFF);
   g_assert_cmpstr ((char*)data, ==, lines);
   
   g_object_unref (base_stream);

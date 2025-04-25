@@ -420,7 +420,7 @@ test_value_string (void)
   const gchar *static2 = "static2";
   const gchar *storedstr;
   const gchar *copystr;
-  gchar *str1, *str2;
+  gchar *str1, *str2, *stolen_str;
   GValue value = G_VALUE_INIT;
   GValue copy = G_VALUE_INIT;
 
@@ -513,7 +513,12 @@ test_value_string (void)
   g_assert_true (storedstr != static2);
   g_assert_cmpstr (storedstr, ==, static2);
 
+  /* Now check stealing the ownership of the contents */
+  stolen_str = g_value_steal_string (&value);
+  g_assert_null (g_value_get_string (&value));
   g_value_unset (&value);
+  g_assert_cmpstr (stolen_str, ==, static2);
+  g_free (stolen_str);
 
   /*
    * Static strings
@@ -543,6 +548,14 @@ test_value_string (void)
   storedstr = g_value_get_string (&value);
   g_assert_true (storedstr != static1);
   g_assert_cmpstr (storedstr, ==, static2);
+
+  /* Check if g_value_steal_string() can handle GValue
+   * with a static string */
+  stolen_str = g_value_steal_string (&value);
+  g_assert_true (stolen_str != static2);
+  g_assert_cmpstr (stolen_str, ==, static2);
+  g_assert_null (g_value_get_string (&value));
+  g_free (stolen_str);
 
   g_value_unset (&value);
 
@@ -587,6 +600,14 @@ test_value_string (void)
   storedstr = g_value_get_string (&value);
   g_assert_true (storedstr != static2);
   g_assert_cmpstr (storedstr, ==, static2);
+
+  /* Check if g_value_steal_string() can handle GValue
+   * with an interned string */
+  stolen_str = g_value_steal_string (&value);
+  g_assert_true (stolen_str != static2);
+  g_assert_cmpstr (stolen_str, ==, static2);
+  g_assert_null (g_value_get_string (&value));
+  g_free (stolen_str);
 
   g_value_unset (&value);
 }
@@ -641,6 +662,52 @@ test_valuearray_basic (void)
 
   g_value_array_free (a);
   g_value_array_free (a2);
+}
+
+static gint
+cmpint_with_data (gconstpointer a,
+                  gconstpointer b,
+                  gpointer      user_data)
+{
+  const GValue *aa = a;
+  const GValue *bb = b;
+
+  g_assert_cmpuint (GPOINTER_TO_UINT (user_data), ==, 123);
+
+  return g_value_get_int (aa) - g_value_get_int (bb);
+}
+
+static void
+test_value_array_sort_with_data (void)
+{
+  GValueArray *a, *a2;
+  GValue v = G_VALUE_INIT;
+
+  a = g_value_array_new (20);
+
+  /* Try sorting an empty array. */
+  a2 = g_value_array_sort_with_data (a, cmpint_with_data, GUINT_TO_POINTER (456));
+  g_assert_cmpuint (a->n_values, ==, 0);
+  g_assert_true (a2 == a);
+
+  /* Add some values and try sorting them. */
+  g_value_init (&v, G_TYPE_INT);
+  for (unsigned int i = 0; i < 100; i++)
+    {
+      g_value_set_int (&v, 100 - i);
+      g_value_array_append (a, &v);
+    }
+
+  g_assert_cmpint (a->n_values, ==, 100);
+
+  a2 = g_value_array_sort_with_data (a, cmpint_with_data, GUINT_TO_POINTER (123));
+
+  for (unsigned int i = 0; i < a->n_values - 1; i++)
+    g_assert_cmpint (g_value_get_int (&a->values[i]), <=, g_value_get_int (&a->values[i+1]));
+
+  g_assert_true (a2 == a);
+
+  g_value_array_free (a);
 }
 
 /* We create some dummy objects with this relationship:
@@ -719,6 +786,7 @@ test_value_transform_object (void)
 
           g_value_init (&src, types[s]);
           g_value_set_object (&src, object);
+          g_value_set_object (&src, g_value_get_object (&src));
 
           for (d = 0; d < G_N_ELEMENTS (types); d++)
             {
@@ -743,6 +811,7 @@ main (int argc, char *argv[])
 
   g_test_add_func ("/value/basic", test_value_basic);
   g_test_add_func ("/value/array/basic", test_valuearray_basic);
+  g_test_add_func ("/value/array/sort-with-data", test_value_array_sort_with_data);
   g_test_add_func ("/value/collection", test_collection);
   g_test_add_func ("/value/copying", test_copying);
   g_test_add_func ("/value/enum-transformation", test_enum_transformation);

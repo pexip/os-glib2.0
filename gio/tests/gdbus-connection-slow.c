@@ -113,7 +113,7 @@ test_connection_flush (void)
       g_source_remove (timeout_mainloop_id);
     }
 
-  g_dbus_connection_signal_unsubscribe (connection, signal_handler_id);
+  g_dbus_connection_signal_unsubscribe (connection, g_steal_handle_id (&signal_handler_id));
   g_object_unref (connection);
 
   session_bus_down ();
@@ -128,14 +128,12 @@ test_connection_flush (void)
 /* the test will fail if the service name has not appeared after this amount of seconds */
 #define LARGE_MESSAGE_TIMEOUT_SECONDS 10
 
-static gboolean
+static void
 large_message_timeout_cb (gpointer data)
 {
   (void)data;
 
   g_error ("Error: timeout waiting for dbus name to appear");
-
-  return G_SOURCE_REMOVE;
 }
 
 static void
@@ -200,9 +198,9 @@ test_connection_large_message (void)
   /* this is safe; testserver will exit once the bus goes away */
   g_assert (g_spawn_command_line_async (g_test_get_filename (G_TEST_BUILT, "gdbus-testserver", NULL), NULL));
 
-  timeout_id = g_timeout_add_seconds (LARGE_MESSAGE_TIMEOUT_SECONDS,
-                                      large_message_timeout_cb,
-                                      NULL);
+  timeout_id = g_timeout_add_seconds_once (LARGE_MESSAGE_TIMEOUT_SECONDS,
+                                           large_message_timeout_cb,
+                                           NULL);
 
   watcher_id = g_bus_watch_name (G_BUS_TYPE_SESSION,
                                  "com.example.TestService",
@@ -225,7 +223,7 @@ main (int   argc,
 {
   gint ret;
 
-  g_test_init (&argc, &argv, NULL);
+  g_test_init (&argc, &argv, G_TEST_OPTION_ISOLATE_DIRS, NULL);
 
   /* all the tests rely on a shared main loop */
   loop = g_main_loop_new (NULL, FALSE);

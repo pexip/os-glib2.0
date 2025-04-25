@@ -4,13 +4,13 @@
 #define g_assert_cmpflags(type,n1, cmp, n2) G_STMT_START { \
                                                type __n1 = (n1), __n2 = (n2); \
                                                if (__n1 cmp __n2) ; else \
-                                                 g_assertion_message_cmpnum (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
+                                                 g_assertion_message_cmpint (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
                                                                              #n1 " " #cmp " " #n2, __n1, #cmp, __n2, 'i'); \
                                             } G_STMT_END
 #define g_assert_cmpenum(type,n1, cmp, n2) G_STMT_START { \
                                                type __n1 = (n1), __n2 = (n2); \
                                                if (__n1 cmp __n2) ; else \
-                                                 g_assertion_message_cmpnum (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
+                                                 g_assertion_message_cmpint (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
                                                                              #n1 " " #cmp " " #n2, __n1, #cmp, __n2, 'i'); \
                                             } G_STMT_END
 
@@ -66,9 +66,9 @@ custom_marshal_VOID__INVOCATIONHINT (GClosure     *closure,
 static GType
 test_enum_get_type (void)
 {
-  static gsize static_g_define_type_id = 0;
+  static GType static_g_define_type_id = 0;
 
-  if (g_once_init_enter (&static_g_define_type_id))
+  if (g_once_init_enter_pointer (&static_g_define_type_id))
     {
       static const GEnumValue values[] = {
         { TEST_ENUM_NEGATIVE, "TEST_ENUM_NEGATIVE", "negative" },
@@ -79,7 +79,7 @@ test_enum_get_type (void)
       };
       GType g_define_type_id =
         g_enum_register_static (g_intern_static_string ("TestEnum"), values);
-      g_once_init_leave (&static_g_define_type_id, g_define_type_id);
+      g_once_init_leave_pointer (&static_g_define_type_id, g_define_type_id);
     }
 
   return static_g_define_type_id;
@@ -88,9 +88,9 @@ test_enum_get_type (void)
 static GType
 test_unsigned_enum_get_type (void)
 {
-  static gsize static_g_define_type_id = 0;
+  static GType static_g_define_type_id = 0;
 
-  if (g_once_init_enter (&static_g_define_type_id))
+  if (g_once_init_enter_pointer (&static_g_define_type_id))
     {
       static const GEnumValue values[] = {
         { TEST_UNSIGNED_ENUM_FOO, "TEST_UNSIGNED_ENUM_FOO", "foo" },
@@ -99,7 +99,7 @@ test_unsigned_enum_get_type (void)
       };
       GType g_define_type_id =
         g_enum_register_static (g_intern_static_string ("TestUnsignedEnum"), values);
-      g_once_init_leave (&static_g_define_type_id, g_define_type_id);
+      g_once_init_leave_pointer (&static_g_define_type_id, g_define_type_id);
     }
 
   return static_g_define_type_id;
@@ -1130,12 +1130,35 @@ hook_func (GSignalInvocationHint *ihint,
   return TRUE;
 }
 
+static gboolean
+hook_func_removal (GSignalInvocationHint *ihint,
+                   guint                  n_params,
+                   const GValue          *params,
+                   gpointer               data)
+{
+  gint *count = data;
+
+  (*count)++;
+
+  return FALSE;
+}
+
+static void
+simple_handler_remove_hook (GObject *sender,
+                            gpointer data)
+{
+  gulong *hook = data;
+
+  g_signal_remove_emission_hook (simple_id, *hook);
+}
+
 static void
 test_emission_hook (void)
 {
   GObject *test1, *test2;
   gint count = 0;
   gulong hook;
+  gulong connection_id;
 
   test1 = g_object_new (test_get_type (), NULL);
   test2 = g_object_new (test_get_type (), NULL);
@@ -1149,6 +1172,73 @@ test_emission_hook (void)
   g_signal_remove_emission_hook (simple_id, hook);
   g_signal_emit_by_name (test1, "simple");
   g_assert_cmpint (count, ==, 2);
+
+  count = 0;
+  hook = g_signal_add_emission_hook (simple_id, 0, hook_func_removal, &count, NULL);
+  g_assert_cmpint (count, ==, 0);
+  g_signal_emit_by_name (test1, "simple");
+  g_assert_cmpint (count, ==, 1);
+  g_signal_emit_by_name (test2, "simple");
+  g_assert_cmpint (count, ==, 1);
+
+  g_test_expect_message ("GLib-GObject", G_LOG_LEVEL_CRITICAL,
+                         "*simple* had no hook * to remove");
+  g_signal_remove_emission_hook (simple_id, hook);
+  g_test_assert_expected_messages ();
+
+  count = 0;
+  hook = g_signal_add_emission_hook (simple_id, 0, hook_func, &count, NULL);
+  connection_id = g_signal_connect (test1, "simple",
+                                    G_CALLBACK (simple_handler_remove_hook), &hook);
+  g_assert_cmpint (count, ==, 0);
+  g_signal_emit_by_name (test1, "simple");
+  g_assert_cmpint (count, ==, 1);
+  g_signal_emit_by_name (test2, "simple");
+  g_assert_cmpint (count, ==, 1);
+
+  g_test_expect_message ("GLib-GObject", G_LOG_LEVEL_CRITICAL,
+                         "*simple* had no hook * to remove");
+  g_signal_remove_emission_hook (simple_id, hook);
+  g_test_assert_expected_messages ();
+
+  g_clear_signal_handler (&connection_id, test1);
+
+  gulong hooks[10];
+  count = 0;
+
+  for (size_t i = 0; i < G_N_ELEMENTS (hooks); ++i)
+    hooks[i] = g_signal_add_emission_hook (simple_id, 0, hook_func, &count, NULL);
+
+  g_assert_cmpint (count, ==, 0);
+  g_signal_emit_by_name (test1, "simple");
+  g_assert_cmpint (count, ==, 10);
+  g_signal_emit_by_name (test2, "simple");
+  g_assert_cmpint (count, ==, 20);
+
+  for (size_t i = 0; i < G_N_ELEMENTS (hooks); ++i)
+    g_signal_remove_emission_hook (simple_id, hooks[i]);
+
+  g_signal_emit_by_name (test1, "simple");
+  g_assert_cmpint (count, ==, 20);
+
+  count = 0;
+
+  for (size_t i = 0; i < G_N_ELEMENTS (hooks); ++i)
+    hooks[i] = g_signal_add_emission_hook (simple_id, 0, hook_func_removal, &count, NULL);
+
+  g_assert_cmpint (count, ==, 0);
+  g_signal_emit_by_name (test1, "simple");
+  g_assert_cmpint (count, ==, 10);
+  g_signal_emit_by_name (test2, "simple");
+  g_assert_cmpint (count, ==, 10);
+
+  for (size_t i = 0; i < G_N_ELEMENTS (hooks); ++i)
+    {
+      g_test_expect_message ("GLib-GObject", G_LOG_LEVEL_CRITICAL,
+                         "*simple* had no hook * to remove");
+      g_signal_remove_emission_hook (simple_id, hooks[i]);
+      g_test_assert_expected_messages ();
+    }
 
   g_object_unref (test1);
   g_object_unref (test2);
@@ -1487,6 +1577,36 @@ test_block_handler (void)
 
   g_signal_handlers_unblock_matched (test2, G_SIGNAL_MATCH_FUNC, 0, 0, NULL, test_handler, NULL);
 
+  /* Test match by signal ID. */
+  g_assert_cmpuint (g_signal_handlers_block_matched (test1, G_SIGNAL_MATCH_ID, simple_id, 0, NULL, NULL, NULL), ==, 1);
+
+  g_signal_emit_by_name (test1, "simple");
+  g_signal_emit_by_name (test2, "simple");
+
+  g_assert_cmpint (count1, ==, 3);
+  g_assert_cmpint (count2, ==, 4);
+
+  g_assert_cmpuint (g_signal_handlers_unblock_matched (test1, G_SIGNAL_MATCH_ID, simple_id, 0, NULL, NULL, NULL), ==, 1);
+
+  /* Match types are conjunctive */
+  g_assert_cmpuint (g_signal_handlers_block_matched (test1, G_SIGNAL_MATCH_FUNC | G_SIGNAL_MATCH_DATA, 0, 0, NULL, test_handler, "will not match"), ==, 0);
+  g_assert_cmpuint (g_signal_handlers_block_matched (test1, G_SIGNAL_MATCH_FUNC | G_SIGNAL_MATCH_DATA, 0, 0, NULL, test_handler, &count1), ==, 1);
+  g_assert_cmpuint (g_signal_handlers_unblock_matched (test1, G_SIGNAL_MATCH_FUNC | G_SIGNAL_MATCH_DATA, 0, 0, NULL, test_handler, &count1), ==, 1);
+
+  /* Test g_signal_handlers_disconnect_matched for G_SIGNAL_MATCH_ID match */
+  g_assert_cmpuint (g_signal_handlers_disconnect_matched (test1,
+                                                          G_SIGNAL_MATCH_ID,
+                                                          simple_id, 0,
+                                                          NULL, NULL, NULL),
+                    ==,
+                    1);
+  g_assert_cmpuint (g_signal_handler_find (test1,
+                                           G_SIGNAL_MATCH_ID,
+                                           simple_id, 0,
+                                           NULL, NULL, NULL),
+                    ==,
+                    0);
+
   g_object_unref (test1);
   g_object_unref (test2);
 }
@@ -1546,13 +1666,13 @@ test_signal_disconnect_wrong_object (void)
                                 NULL);
 
   /* disconnect from the wrong object (same type), should warn */
-  g_test_expect_message ("GLib-GObject", G_LOG_LEVEL_WARNING,
+  g_test_expect_message ("GLib-GObject", G_LOG_LEVEL_CRITICAL,
                          "*: instance '*' has no handler with id '*'");
   g_signal_handler_disconnect (object2, signal_id);
   g_test_assert_expected_messages ();
 
   /* and from an object of the wrong type */
-  g_test_expect_message ("GLib-GObject", G_LOG_LEVEL_WARNING,
+  g_test_expect_message ("GLib-GObject", G_LOG_LEVEL_CRITICAL,
                          "*: instance '*' has no handler with id '*'");
   g_signal_handler_disconnect (object3, signal_id);
   g_test_assert_expected_messages ();
@@ -1586,7 +1706,7 @@ test_clear_signal_handler (void)
   if (g_test_undefined ())
     {
       handler = g_random_int_range (0x01, 0xFF);
-      g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_WARNING,
+      g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
                              "*instance '* has no handler with id *'");
       g_clear_signal_handler (&handler, test_obj);
       g_assert_cmpuint (handler, ==, 0);
@@ -1642,7 +1762,7 @@ test_lookup_invalid (void)
 
   g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
-  g_test_trap_assert_stderr ("*WARNING*unable to look up invalid signal name*");
+  g_test_trap_assert_stderr ("*CRITICAL*unable to look up invalid signal name*");
 }
 
 static void
@@ -1788,6 +1908,181 @@ test_signal_is_valid_name (void)
     g_assert_false (g_signal_is_valid_name (invalid_names[i]));
 }
 
+static void
+test_emitv (void)
+{
+  GArray *values;
+  GObject *test;
+  GValue return_value = G_VALUE_INIT;
+  gint count = 0;
+  guint signal_id;
+  gulong hook;
+  gulong id;
+
+  test = g_object_new (test_get_type (), NULL);
+
+  values = g_array_new (TRUE, TRUE, sizeof (GValue));
+  g_array_set_clear_func (values, (GDestroyNotify) g_value_unset);
+
+  g_array_set_size (values, 1);
+  g_value_init (&g_array_index (values, GValue, 0), G_TYPE_OBJECT);
+  g_value_set_object (&g_array_index (values, GValue, 0), test);
+  hook = g_signal_add_emission_hook (simple_id, 0, hook_func, &count, NULL);
+  g_assert_cmpint (count, ==, 0);
+  g_signal_emitv ((GValue *) values->data, simple_id, 0, NULL);
+  g_assert_cmpint (count, ==, 1);
+  g_signal_remove_emission_hook (simple_id, hook);
+
+  g_array_set_size (values, 20);
+  g_value_init (&g_array_index (values, GValue, 1), G_TYPE_INT);
+  g_value_set_int (&g_array_index (values, GValue, 1), 42);
+
+  g_value_init (&g_array_index (values, GValue, 2), G_TYPE_BOOLEAN);
+  g_value_set_boolean (&g_array_index (values, GValue, 2), TRUE);
+
+  g_value_init (&g_array_index (values, GValue, 3), G_TYPE_CHAR);
+  g_value_set_schar (&g_array_index (values, GValue, 3), 17);
+
+  g_value_init (&g_array_index (values, GValue, 4), G_TYPE_UCHAR);
+  g_value_set_uchar (&g_array_index (values, GValue, 4), 140);
+
+  g_value_init (&g_array_index (values, GValue, 5), G_TYPE_UINT);
+  g_value_set_uint (&g_array_index (values, GValue, 5), G_MAXUINT - 42);
+
+  g_value_init (&g_array_index (values, GValue, 6), G_TYPE_LONG);
+  g_value_set_long (&g_array_index (values, GValue, 6), -1117);
+
+  g_value_init (&g_array_index (values, GValue, 7), G_TYPE_ULONG);
+  g_value_set_ulong (&g_array_index (values, GValue, 7), G_MAXULONG - 999);
+
+  g_value_init (&g_array_index (values, GValue, 8), enum_type);
+  g_value_set_enum (&g_array_index (values, GValue, 8), MY_ENUM_VALUE);
+
+  g_value_init (&g_array_index (values, GValue, 9), flags_type);
+  g_value_set_flags (&g_array_index (values, GValue, 9),
+                     MY_FLAGS_FIRST_BIT | MY_FLAGS_THIRD_BIT | MY_FLAGS_LAST_BIT);
+
+  g_value_init (&g_array_index (values, GValue, 10), G_TYPE_FLOAT);
+  g_value_set_float (&g_array_index (values, GValue, 10), 0.25);
+
+  g_value_init (&g_array_index (values, GValue, 11), G_TYPE_DOUBLE);
+  g_value_set_double (&g_array_index (values, GValue, 11), 1.5);
+
+  g_value_init (&g_array_index (values, GValue, 12), G_TYPE_STRING);
+  g_value_set_string (&g_array_index (values, GValue, 12), "Test");
+
+  g_value_init (&g_array_index (values, GValue, 13), G_TYPE_PARAM_LONG);
+  g_value_take_param (&g_array_index (values, GValue, 13),
+                      g_param_spec_long	 ("param", "nick", "blurb", 0, 10, 4, 0));
+
+  g_value_init (&g_array_index (values, GValue, 14), G_TYPE_BYTES);
+  g_value_take_boxed (&g_array_index (values, GValue, 14),
+                      g_bytes_new_static ("Blah", 5));
+
+  g_value_init (&g_array_index (values, GValue, 15), G_TYPE_POINTER);
+  g_value_set_pointer (&g_array_index (values, GValue, 15), &enum_type);
+
+  g_value_init (&g_array_index (values, GValue, 16), test_get_type ());
+  g_value_set_object (&g_array_index (values, GValue, 16), test);
+
+  g_value_init (&g_array_index (values, GValue, 17), G_TYPE_VARIANT);
+  g_value_take_variant (&g_array_index (values, GValue, 17),
+                        g_variant_ref_sink (g_variant_new_uint16 (99)));
+
+  g_value_init (&g_array_index (values, GValue, 18), G_TYPE_INT64);
+  g_value_set_int64 (&g_array_index (values, GValue, 18), G_MAXINT64 - 1234);
+
+  g_value_init (&g_array_index (values, GValue, 19), G_TYPE_UINT64);
+  g_value_set_uint64 (&g_array_index (values, GValue, 19), G_MAXUINT64 - 123456);
+
+  id = g_signal_connect (test, "all-types", G_CALLBACK (all_types_handler_cb), &flags_type);
+  signal_id = g_signal_lookup ("all-types", test_get_type ());
+  g_assert_cmpuint (signal_id, >, 0);
+
+  count = 0;
+  hook = g_signal_add_emission_hook (signal_id, 0, hook_func, &count, NULL);
+  g_assert_cmpint (count, ==, 0);
+  g_signal_emitv ((GValue *) values->data, signal_id, 0, NULL);
+  g_assert_cmpint (count, ==, 1);
+  g_signal_remove_emission_hook (signal_id, hook);
+  g_clear_signal_handler (&id, test);
+
+
+  signal_id = g_signal_lookup ("generic-marshaller-int-return", test_get_type ());
+  g_assert_cmpuint (signal_id, >, 0);
+  g_array_set_size (values, 1);
+
+  id = g_signal_connect (test,
+                         "generic-marshaller-int-return",
+                         G_CALLBACK (on_generic_marshaller_int_return_signed_1),
+                         NULL);
+
+  count = 0;
+  hook = g_signal_add_emission_hook (signal_id, 0, hook_func, &count, NULL);
+  g_assert_cmpint (count, ==, 0);
+  g_value_init (&return_value, G_TYPE_INT);
+  g_signal_emitv ((GValue *) values->data, signal_id, 0, &return_value);
+  g_assert_cmpint (count, ==, 1);
+  g_assert_cmpint (g_value_get_int (&return_value), ==, -30);
+  g_signal_remove_emission_hook (signal_id, hook);
+  g_clear_signal_handler (&id, test);
+
+#ifdef G_ENABLE_DEBUG
+  g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                         "*return*value*generic-marshaller-int-return*NULL*");
+  g_signal_emitv ((GValue *) values->data, signal_id, 0, NULL);
+  g_test_assert_expected_messages ();
+
+  g_value_unset (&return_value);
+  g_value_init (&return_value, G_TYPE_FLOAT);
+  g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                         "*return*value*generic-marshaller-int-return*gfloat*");
+  g_signal_emitv ((GValue *) values->data, signal_id, 0, &return_value);
+  g_test_assert_expected_messages ();
+#endif
+
+  g_object_unref (test);
+  g_array_unref (values);
+}
+
+typedef struct
+{
+  GWeakRef wr;
+  gulong handler;
+} TestWeakRefDisconnect;
+
+static void
+weak_ref_disconnect_notify (gpointer  data,
+                            GObject  *where_object_was)
+{
+  TestWeakRefDisconnect *state = data;
+  g_assert_null (g_weak_ref_get (&state->wr));
+  state->handler = 0;
+}
+
+static void
+test_weak_ref_disconnect (void)
+{
+  TestWeakRefDisconnect state;
+  GObject *test;
+
+  test = g_object_new (test_get_type (), NULL);
+  g_weak_ref_init (&state.wr, test);
+  state.handler = g_signal_connect_data (test,
+                                         "simple",
+                                         G_CALLBACK (dont_reach),
+                                         &state,
+                                         (GClosureNotify) weak_ref_disconnect_notify,
+                                         0);
+  g_assert_cmpint (state.handler, >, 0);
+
+  g_object_unref (test);
+
+  g_assert_cmpint (state.handler, ==, 0);
+  g_assert_null (g_weak_ref_get (&state.wr));
+  g_weak_ref_clear (&state.wr);
+}
+
 /* --- */
 
 int
@@ -1809,6 +2104,7 @@ main (int argc,
   g_test_add_func ("/gobject/signals/custom-marshaller", test_custom_marshaller);
   g_test_add_func ("/gobject/signals/connect", test_connect);
   g_test_add_func ("/gobject/signals/emission-hook", test_emission_hook);
+  g_test_add_func ("/gobject/signals/emitv", test_emitv);
   g_test_add_func ("/gobject/signals/accumulator", test_accumulator);
   g_test_add_func ("/gobject/signals/accumulator-class", test_accumulator_class);
   g_test_add_func ("/gobject/signals/introspection", test_introspection);
@@ -1825,6 +2121,7 @@ main (int argc,
   g_test_add_data_func ("/gobject/signals/invalid-name/first-char", "7zip", test_signals_invalid_name);
   g_test_add_data_func ("/gobject/signals/invalid-name/empty", "", test_signals_invalid_name);
   g_test_add_func ("/gobject/signals/is-valid-name", test_signal_is_valid_name);
+  g_test_add_func ("/gobject/signals/weak-ref-disconnect", test_weak_ref_disconnect);
 
   return g_test_run ();
 }

@@ -129,12 +129,19 @@ test_basic (void)
 
 /* test_error */
 
+typedef struct {
+  GQuark expected_domain;
+  int expected_code;
+  char *expected_message;
+  gssize int_result;
+} TaskErrorResult;
+
 static void
 error_callback (GObject      *object,
                 GAsyncResult *result,
                 gpointer      user_data)
 {
-  gssize *result_out = user_data;
+  TaskErrorResult *result_inout = user_data;
   GError *error = NULL;
 
   g_assert (object == NULL);
@@ -143,13 +150,12 @@ error_callback (GObject      *object,
   g_assert (g_task_had_error (G_TASK (result)));
   g_assert_false (g_task_get_completed (G_TASK (result)));
 
-  *result_out = g_task_propagate_int (G_TASK (result), &error);
-  g_assert_error (error, G_IO_ERROR, G_IO_ERROR_FAILED);
+  result_inout->int_result = g_task_propagate_int (G_TASK (result), &error);
+  g_assert_error (error, result_inout->expected_domain, result_inout->expected_code);
+  g_assert_cmpstr (error->message, ==, result_inout->expected_message);
   g_error_free (error);
 
   g_assert (g_task_had_error (G_TASK (result)));
-
-  g_main_loop_quit (loop);
 }
 
 static gboolean
@@ -159,7 +165,7 @@ error_return (gpointer user_data)
 
   g_task_return_new_error (task,
                            G_IO_ERROR, G_IO_ERROR_FAILED,
-                           "Failed");
+                           "Failed %p", task);
   g_object_unref (task);
 
   return FALSE;
@@ -177,15 +183,17 @@ static void
 test_error (void)
 {
   GTask *task;
-  gssize result;
+  TaskErrorResult result;
   gboolean first_task_data_destroyed = FALSE;
   gboolean second_task_data_destroyed = FALSE;
-  gboolean notification_emitted = FALSE;
 
   task = g_task_new (NULL, NULL, error_callback, &result);
+  result = (TaskErrorResult){
+    .expected_domain = G_IO_ERROR,
+    .expected_code = G_IO_ERROR_FAILED,
+    .expected_message = g_strdup_printf ("Failed %p", task),
+  };
   g_object_add_weak_pointer (G_OBJECT (task), (gpointer *)&task);
-  g_signal_connect (task, "notify::completed",
-                    (GCallback) completed_cb, &notification_emitted);
 
   g_assert (first_task_data_destroyed == FALSE);
   g_task_set_task_data (task, &first_task_data_destroyed, error_destroy_notify);
@@ -197,12 +205,59 @@ test_error (void)
   g_assert (second_task_data_destroyed == FALSE);
 
   g_idle_add (error_return, task);
-  g_main_loop_run (loop);
+  wait_for_completed_notification (task);
 
-  g_assert_cmpint (result, ==, -1);
+  g_assert_cmpint (result.int_result, ==, -1);
   g_assert (second_task_data_destroyed == TRUE);
-  g_assert_true (notification_emitted);
   g_assert (task == NULL);
+  g_free (result.expected_message);
+}
+
+static void
+test_error_literal (void)
+{
+  GTask *task;
+  TaskErrorResult result;
+
+  task = g_task_new (NULL, NULL, error_callback, &result);
+  result = (TaskErrorResult){
+    .expected_domain = G_IO_ERROR,
+    .expected_code = G_IO_ERROR_FAILED,
+    .expected_message = "Literal Failure",
+  };
+
+  g_task_return_new_error_literal (task,
+                                   result.expected_domain,
+                                   result.expected_code,
+                                   "Literal Failure");
+
+  wait_for_completed_notification (task);
+  g_assert_cmpint (result.int_result, ==, -1);
+
+  g_assert_finalize_object (task);
+}
+
+static void
+test_error_literal_from_variable (void)
+{
+  GTask *task;
+  TaskErrorResult result;
+
+  task = g_task_new (NULL, NULL, error_callback, &result);
+  result = (TaskErrorResult){
+    .expected_domain = G_IO_ERROR,
+    .expected_code = G_IO_ERROR_FAILED,
+    .expected_message = "Literal Failure",
+  };
+
+  g_task_return_new_error_literal (task,
+                                   result.expected_domain,
+                                   result.expected_code,
+                                   result.expected_message);
+
+  wait_for_completed_notification (task);
+  g_assert_cmpint (result.int_result, ==, -1);
+  g_assert_finalize_object (task);
 }
 
 /* test_return_from_same_iteration: calling g_task_return_* from the
@@ -625,18 +680,40 @@ static void
 test_name (void)
 {
   GTask *t1 = NULL;
+  char *orig = g_strdup ("some task");
   gchar *name1 = NULL;
 
   t1 = g_task_new (NULL, NULL, name_callback, &name1);
-  g_task_set_name (t1, "some task");
+  (g_task_set_name) (t1, orig);
   g_task_return_boolean (t1, TRUE);
   g_object_unref (t1);
 
   g_main_loop_run (loop);
 
-  g_assert_cmpstr (name1, ==, "some task");
+  g_assert_cmpstr (name1, ==, orig);
 
   g_free (name1);
+  g_free (orig);
+}
+
+static void
+test_name_macro_wrapper (void)
+{
+  GTask *t1 = NULL;
+  char *orig = g_strdup ("some task");
+  gchar *name1 = NULL;
+
+  t1 = g_task_new (NULL, NULL, name_callback, &name1);
+  g_task_set_name (t1, orig);
+  g_task_return_boolean (t1, TRUE);
+  g_object_unref (t1);
+
+  g_main_loop_run (loop);
+
+  g_assert_cmpstr (name1, ==, orig);
+
+  g_free (name1);
+  g_free (orig);
 }
 
 static void
@@ -649,6 +726,44 @@ name_callback (GObject      *object,
 
   g_assert_null (*name_out);
   *name_out = g_strdup (g_task_get_name (G_TASK (result)));
+
+  g_task_propagate_boolean (G_TASK (result), &local_error);
+  g_assert_no_error (local_error);
+
+  g_main_loop_quit (loop);
+}
+
+static void static_name_callback (GObject      *object,
+                                  GAsyncResult *result,
+                                  gpointer      user_data);
+
+static void
+test_static_name (void)
+{
+  GTask *t1 = NULL;
+  char *orig = "some task";
+  char *name1 = NULL;
+
+  t1 = g_task_new (NULL, NULL, static_name_callback, &name1);
+  g_task_set_static_name (t1, orig);
+  g_task_return_boolean (t1, TRUE);
+  g_object_unref (t1);
+
+  g_main_loop_run (loop);
+
+  g_assert_true (name1 == orig);
+}
+
+static void
+static_name_callback (GObject      *object,
+                      GAsyncResult *result,
+                      gpointer      user_data)
+{
+  const char **name_out = user_data;
+  GError *local_error = NULL;
+
+  g_assert_null (*name_out);
+  *name_out = g_task_get_name (G_TASK (result));
 
   g_task_propagate_boolean (G_TASK (result), &local_error);
   g_assert_no_error (local_error);
@@ -1355,7 +1470,7 @@ test_run_in_thread_overflow (void)
   GCancellable *cancellable;
   GTask *task;
   gchar buf[NUM_OVERFLOW_TASKS + 1];
-  gint i;
+  size_t i;
 
   /* Queue way too many tasks and then sleep for a bit. The first 10
    * tasks will be dispatched to threads and will then block on
@@ -1401,13 +1516,13 @@ test_run_in_thread_overflow (void)
    * plausibly get (and we hope that if gtask is actually broken then
    * it will exceed those limits).
    */
-  g_assert_cmpint (i, >=, 10);
+  g_assert_cmpuint (i, >=, 10);
   if (g_test_slow ())
-    g_assert_cmpint (i, <, 50);
+    g_assert_cmpuint (i, <, 50);
   else
-    g_assert_cmpint (i, <, 20);
+    g_assert_cmpuint (i, <, 20);
 
-  g_assert_cmpint (i + strspn (buf + i, "X"), ==, NUM_OVERFLOW_TASKS);
+  g_assert_cmpuint (i + strspn (buf + i, "X"), ==, NUM_OVERFLOW_TASKS);
 }
 
 /* test_return_on_cancel */
@@ -2052,6 +2167,28 @@ test_return_value (void)
   g_assert_null (object);
 }
 
+static void
+test_return_prefixed_error (void)
+{
+  GTask *task;
+  GError *original_error = NULL;
+  GError *error = NULL;
+
+  g_set_error (&original_error, G_IO_ERROR, G_IO_ERROR_UNKNOWN, "oh no!");
+
+  task = g_task_new (NULL, NULL, NULL, NULL);
+  g_task_return_prefixed_error (task, original_error, "task %s: ", "failed");
+
+  wait_for_completed_notification (task);
+
+  g_assert_null (g_task_propagate_pointer (task, &error));
+  g_assert_error (error, G_IO_ERROR, G_IO_ERROR_UNKNOWN);
+  g_assert_cmpstr (error->message, ==, "task failed: oh no!");
+
+  g_assert_finalize_object (task);
+  g_clear_error (&error);
+}
+
 /* test_object_keepalive: GTask takes a ref on its source object */
 
 static GObject *keepalive_object;
@@ -2358,6 +2495,77 @@ test_return_value_first (void)
   g_test_trap_assert_stderr ("*CRITICAL*assertion '!task->ever_returned' failed*");
 }
 
+static gboolean
+source_cb (gpointer user_data)
+{
+  return G_SOURCE_REMOVE;
+}
+
+static void
+test_attach_source_set_name (void)
+{
+  guint calls = 0;
+  GTask *task = NULL;
+  GSource *source = NULL;
+  GSourceFuncs source_funcs = { NULL, NULL, NULL, NULL, NULL, NULL };
+
+  g_test_summary ("Test that attaching a source to a task will set the source’s name if unset");
+
+  task = g_task_new (NULL, NULL, task_complete_cb, &calls);
+  g_task_set_name (task, "test name");
+
+  source = g_source_new (&source_funcs, sizeof (GSource));
+  g_task_attach_source (task, source, source_cb);
+  g_assert_cmpstr (g_source_get_name (source), ==, "test name");
+  g_source_unref (source);
+
+  source = g_source_new (&source_funcs, sizeof (GSource));
+  g_source_set_name (source, "not the task name");
+  g_task_attach_source (task, source, source_cb);
+  g_assert_cmpstr (g_source_get_name (source), ==, "not the task name");
+  g_source_unref (source);
+
+  g_object_unref (task);
+}
+
+static void
+test_finalize_without_return (void)
+{
+  GTask *task = NULL;
+  guint n_calls = 0;
+
+  /* With a callback set. */
+  task = g_task_new (NULL, NULL, task_complete_cb, &n_calls);
+
+  g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                         "GTask * (source object: *, source tag: *) finalized without "
+                         "ever returning (using g_task_return_*()). This potentially "
+                         "indicates a bug in the program.");
+  g_object_unref (task);
+  g_test_assert_expected_messages ();
+
+  /* With a callback and task name set. */
+  task = g_task_new (NULL, NULL, task_complete_cb, &n_calls);
+  g_task_set_static_name (task, "oogly boogly");
+
+  g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                         "GTask oogly boogly (source object: *, source tag: *) finalized without "
+                         "ever returning (using g_task_return_*()). This potentially "
+                         "indicates a bug in the program.");
+  g_object_unref (task);
+  g_test_assert_expected_messages ();
+
+  /* Without a callback set. */
+  task = g_task_new (NULL, NULL, NULL, NULL);
+
+  g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_DEBUG,
+                         "GTask * (source object: *, source tag: *) finalized without "
+                         "ever returning (using g_task_return_*()). This potentially "
+                         "indicates a bug in the program.");
+  g_object_unref (task);
+  g_test_assert_expected_messages ();
+}
+
 int
 main (int argc, char **argv)
 {
@@ -2371,6 +2579,8 @@ main (int argc, char **argv)
 
   g_test_add_func ("/gtask/basic", test_basic);
   g_test_add_func ("/gtask/error", test_error);
+  g_test_add_func ("/gtask/error-literal", test_error_literal);
+  g_test_add_func ("/gtask/error-literal-from-variable", test_error_literal_from_variable);
   g_test_add_func ("/gtask/return-from-same-iteration", test_return_from_same_iteration);
   g_test_add_func ("/gtask/return-from-toplevel", test_return_from_toplevel);
   g_test_add_func ("/gtask/return-from-anon-thread", test_return_from_anon_thread);
@@ -2379,6 +2589,8 @@ main (int argc, char **argv)
   g_test_add_func ("/gtask/report-error", test_report_error);
   g_test_add_func ("/gtask/priority", test_priority);
   g_test_add_func ("/gtask/name", test_name);
+  g_test_add_func ("/gtask/name/macro-wrapper", test_name_macro_wrapper);
+  g_test_add_func ("/gtask/static-name", test_static_name);
   g_test_add_func ("/gtask/asynchronous-cancellation", test_asynchronous_cancellation);
   g_test_add_func ("/gtask/check-cancellable", test_check_cancellable);
   g_test_add_func ("/gtask/return-if-cancelled", test_return_if_cancelled);
@@ -2392,12 +2604,15 @@ main (int argc, char **argv)
   g_test_add_func ("/gtask/return-on-cancel-atomic", test_return_on_cancel_atomic);
   g_test_add_func ("/gtask/return-pointer", test_return_pointer);
   g_test_add_func ("/gtask/return-value", test_return_value);
+  g_test_add_func ("/gtask/return-prefixed-error", test_return_prefixed_error);
   g_test_add_func ("/gtask/object-keepalive", test_object_keepalive);
   g_test_add_func ("/gtask/legacy-error", test_legacy_error);
   g_test_add_func ("/gtask/return/in-idle/error-first", test_return_in_idle_error_first);
   g_test_add_func ("/gtask/return/in-idle/value-first", test_return_in_idle_value_first);
   g_test_add_func ("/gtask/return/error-first", test_return_error_first);
   g_test_add_func ("/gtask/return/value-first", test_return_value_first);
+  g_test_add_func ("/gtask/attach-source/set-name", test_attach_source_set_name);
+  g_test_add_func ("/gtask/finalize-without-return", test_finalize_without_return);
 
   ret = g_test_run();
 

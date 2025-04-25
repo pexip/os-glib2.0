@@ -408,8 +408,14 @@ test_entries (void)
     { "toggle", NULL,         NULL, "false", NULL,                { 0 } },
     { "volume", NULL,         NULL, "0",     change_volume_state, { 0 } },
   };
+  const GActionEntry entries2[] = {
+    { "foo",    activate_foo, NULL, NULL,    NULL,                { 0 } },
+    { "bar",    activate_bar, "s",  NULL,    NULL,                { 0 } },
+    { NULL },
+  };
   GSimpleActionGroup *actions;
   GVariant *state;
+  GStrv names;
 
   actions = g_simple_action_group_new ();
   g_simple_action_group_add_entries (actions, entries,
@@ -464,6 +470,25 @@ test_entries (void)
   state = g_action_group_get_action_state (G_ACTION_GROUP (actions), "volume");
   g_assert_cmpint (g_variant_get_int32 (state), ==, 7);
   g_variant_unref (state);
+
+  names = g_action_group_list_actions (G_ACTION_GROUP (actions));
+  g_assert_cmpuint (g_strv_length (names), ==, G_N_ELEMENTS (entries));
+  g_strfreev (names);
+
+  g_action_map_remove_action_entries (G_ACTION_MAP (actions), entries, G_N_ELEMENTS (entries));
+  names = g_action_group_list_actions (G_ACTION_GROUP (actions));
+  g_assert_cmpuint (g_strv_length (names), ==, 0);
+  g_strfreev (names);
+
+  /* Check addition and removal of %NULL terminated array */
+  g_action_map_add_action_entries (G_ACTION_MAP (actions), entries2, -1, NULL);
+  names = g_action_group_list_actions (G_ACTION_GROUP (actions));
+  g_assert_cmpuint (g_strv_length (names), ==, G_N_ELEMENTS (entries2) - 1);
+  g_strfreev (names);
+  g_action_map_remove_action_entries (G_ACTION_MAP (actions), entries2, -1);
+  names = g_action_group_list_actions (G_ACTION_GROUP (actions));
+  g_assert_cmpuint (g_strv_length (names), ==, 0);
+  g_strfreev (names);
 
   g_object_unref (actions);
 }
@@ -896,7 +921,6 @@ test_dbus_export (void)
   ensure_state (G_ACTION_GROUP (group), "lang", "'spanish'");
 
   /* check that various error conditions are rejected */
-  {
   struct
     {
       const gchar *action_name;
@@ -940,7 +964,6 @@ test_dbus_export (void)
       g_clear_error (&error);
       g_clear_object (&async_result);
     }
-  }
 
   /* check that setting an action’s state over D-Bus works */
   g_assert_cmpint (activation_count ("lang"), ==, 1);
@@ -973,7 +996,6 @@ test_dbus_export (void)
   ensure_state (G_ACTION_GROUP (group), "lang", "'portuguese'");
 
   /* check that various error conditions are rejected */
-  {
   struct
     {
       const gchar *action_name;
@@ -1013,7 +1035,6 @@ test_dbus_export (void)
       g_clear_error (&error);
       g_clear_object (&async_result);
     }
-  }
 
   /* test that the initial transfer works */
   g_assert_true (G_IS_DBUS_ACTION_GROUP (proxy));
@@ -1098,6 +1119,46 @@ test_dbus_export (void)
   g_signal_handler_disconnect (proxy, removed_signal_id);
   g_signal_handler_disconnect (proxy, state_changed_signal_id);
   g_object_unref (proxy);
+  g_object_unref (group);
+  g_object_unref (bus);
+
+  session_bus_down ();
+}
+
+static void
+test_dbus_export_error_handling (void)
+{
+  GDBusConnection *bus = NULL;
+  GSimpleActionGroup *group = NULL;
+  GError *local_error = NULL;
+  guint id1, id2;
+
+  g_test_summary ("Test that error handling of action group export failure works");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/3366");
+
+  session_bus_up ();
+  bus = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, NULL);
+
+  group = g_simple_action_group_new ();
+  g_simple_action_group_add_entries (group,
+                                     exported_entries,
+                                     G_N_ELEMENTS (exported_entries),
+                                     NULL);
+
+  id1 = g_dbus_connection_export_action_group (bus, "/", G_ACTION_GROUP (group), &local_error);
+  g_assert_no_error (local_error);
+  g_assert_cmpuint (id1, !=, 0);
+
+  /* Trigger a failure by trying to export on a path which is already in use */
+  id2 = g_dbus_connection_export_action_group (bus, "/", G_ACTION_GROUP (group), &local_error);
+  g_assert_error (local_error, G_IO_ERROR, G_IO_ERROR_EXISTS);
+  g_assert_cmpuint (id2, ==, 0);
+  g_clear_error (&local_error);
+
+  g_dbus_connection_unexport_action_group (bus, id1);
+
+  while (g_main_context_iteration (NULL, FALSE));
+
   g_object_unref (group);
   g_object_unref (bus);
 
@@ -1400,6 +1461,20 @@ test_property_actions (void)
   g_object_unref (group);
 }
 
+static void
+test_property_actions_no_properties (void)
+{
+  GPropertyAction *action;
+
+  g_test_expect_message ("GLib-GIO", G_LOG_LEVEL_CRITICAL, "*Attempted to use an empty property name for GPropertyAction*");
+  action = (GPropertyAction*) g_object_new_with_properties (G_TYPE_PROPERTY_ACTION, 0, NULL, NULL);
+
+  g_test_assert_expected_messages ();
+  g_assert_true (G_IS_PROPERTY_ACTION (action));
+
+  g_object_unref (action);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -1413,9 +1488,11 @@ main (int argc, char **argv)
   g_test_add_func ("/actions/entries", test_entries);
   g_test_add_func ("/actions/parse-detailed", test_parse_detailed);
   g_test_add_func ("/actions/dbus/export", test_dbus_export);
+  g_test_add_func ("/actions/dbus/export/error-handling", test_dbus_export_error_handling);
   g_test_add_func ("/actions/dbus/threaded", test_dbus_threaded);
   g_test_add_func ("/actions/dbus/bug679509", test_bug679509);
   g_test_add_func ("/actions/property", test_property_actions);
+  g_test_add_func ("/actions/no-properties", test_property_actions_no_properties);
 
   return g_test_run ();
 }

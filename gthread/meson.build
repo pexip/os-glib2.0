@@ -1,8 +1,8 @@
-# Just a skeleton lib for backwards compatibility since all the functionaliy
+# Just a skeleton lib for backwards compatibility since all the functionality
 # has been moved into glib now
 
 gthread_sources = ['gthread-impl.c']
-if host_system == 'windows'
+if host_system == 'windows' and glib_build_shared
   gthread_win_rc = configure_file(
     input: 'gthread.rc.in',
     output: 'gthread.rc',
@@ -19,7 +19,8 @@ libgthread = library('gthread-2.0',
   darwin_versions : darwin_versions,
   install : true,
   dependencies : [libglib_dep],
-  c_args : ['-DG_LOG_DOMAIN="GThread"' ] + glib_hidden_visibility_args,
+  c_args : ['-DG_LOG_DOMAIN="GThread"', glib_c_args_internal],
+  gnu_symbol_visibility : 'hidden',
   link_args : glib_link_flags,
 )
 
@@ -35,3 +36,7 @@ pkg.generate(libgthread,
 
 libgthread_dep = declare_dependency(link_with : libgthread)
 meson.override_dependency('gthread-2.0', libgthread_dep)
+
+if build_tests
+  subdir('tests')
+endif

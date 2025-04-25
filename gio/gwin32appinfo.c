@@ -29,6 +29,7 @@
 #include <string.h>
 
 #include "gcontenttype.h"
+#include "gappinfoprivate.h"
 #include "gwin32appinfo.h"
 #include "gappinfo.h"
 #include "gioerror.h"
@@ -858,7 +859,7 @@ build_registry_pathv (gunichar2 *output, gsize output_size, va_list components)
   if (output == NULL)
     return FALSE;
 
-  G_VA_COPY (lentest, components);
+  va_copy (lentest, components);
 
   for (length = 0, component = va_arg (lentest, gunichar2 *);
        component != NULL;
@@ -1549,7 +1550,7 @@ process_verbs_commands (GList             *verbs,
 
       if (verb_key)
         {
-          gsize verb_displayname_len;
+          size_t verb_displayname_size;
 
           got_value = g_win32_registry_key_get_value_w (verb_key,
                                                         g_win32_registry_get_os_dirs_w (),
@@ -1557,12 +1558,12 @@ process_verbs_commands (GList             *verbs,
                                                         L"MUIVerb",
                                                         &val_type,
                                                         (void **) &verb_displayname,
-                                                        &verb_displayname_len,
+                                                        &verb_displayname_size,
                                                         NULL);
 
           if (got_value &&
               val_type == G_WIN32_REGISTRY_VALUE_STR &&
-              verb_displayname_len > sizeof (gunichar2))
+              verb_displayname_size > sizeof (gunichar2))
             verb_displayname_u8 = g_utf16_to_utf8 (verb_displayname, -1, NULL, NULL, NULL);
 
           g_clear_pointer (&verb_displayname, g_free);
@@ -1575,12 +1576,12 @@ process_verbs_commands (GList             *verbs,
                                                             L"",
                                                             &val_type,
                                                             (void **) &verb_displayname,
-                                                            &verb_displayname_len,
+                                                            &verb_displayname_size,
                                                             NULL);
 
               if (got_value &&
                   val_type == G_WIN32_REGISTRY_VALUE_STR &&
-                  verb_displayname_len > sizeof (gunichar2))
+                  verb_displayname_size > sizeof (gunichar2))
                 verb_displayname_u8 = g_utf16_to_utf8 (verb_displayname, -1, NULL, NULL, NULL);
             }
 
@@ -1622,7 +1623,7 @@ process_uwp_verbs (GList                    *verbs,
       gboolean got_value;
       GWin32RegistryValueType val_type;
       gunichar2 *acid;
-      gsize acid_len;
+      size_t acid_size;
 
       key = _g_win32_registry_key_build_and_new_w (NULL, path_to_progid, progid,
                                                    L"\\", verb->shellpath, NULL);
@@ -1641,15 +1642,15 @@ process_uwp_verbs (GList                    *verbs,
                                                     L"ActivatableClassId",
                                                     &val_type,
                                                     (void **) &acid,
-                                                    &acid_len,
+                                                    &acid_size,
                                                     NULL);
 
       if (got_value &&
           val_type == G_WIN32_REGISTRY_VALUE_STR &&
-          acid_len > sizeof (gunichar2))
+          acid_size > sizeof (gunichar2))
         {
           /* TODO: default value of a shell subkey, if not empty,
-           * migh contain something like @{Some.Identifier_1234.456.678.789_some_words?ms-resource://Arbitrary.Path/Pointing/Somewhere}
+           * might contain something like @{Some.Identifier_1234.456.678.789_some_words?ms-resource://Arbitrary.Path/Pointing/Somewhere}
            * and it might be possible to turn it into a nice displayname.
            */
           uwp_handler_add_verb (handler_rec,
@@ -3100,6 +3101,9 @@ link_handlers_to_unregistered_apps (void)
           if (handler_verb->app != NULL)
             continue;
 
+          if (handler_verb->executable_folded == NULL)
+            continue;
+
           handler_exe_basename = g_utf8_find_basename (handler_verb->executable_folded, -1);
           g_hash_table_iter_init (&app_iter, apps_by_id);
 
@@ -3118,6 +3122,9 @@ link_handlers_to_unregistered_apps (void)
                   GWin32PrivateStat app_verb_exec_info;
                   const gchar *app_exe_basename;
                   app_verb = _verb_idx (app->verbs, ai);
+
+                  if (app_verb->executable_folded == NULL)
+                    continue;
 
                   app_exe_basename = g_utf8_find_basename (app_verb->executable_folded, -1);
 
@@ -3356,6 +3363,7 @@ static gboolean
 uwp_package_cb (gpointer         user_data,
                 const gunichar2 *full_package_name,
                 const gunichar2 *package_name,
+                const gunichar2 *display_name,
                 const gunichar2 *app_user_model_id,
                 gboolean         show_in_applist,
                 GPtrArray       *supported_extgroups,
@@ -3383,6 +3391,13 @@ uwp_package_cb (gpointer         user_data,
                         TRUE,
                         FALSE,
                         TRUE);
+
+  if (!app->pretty_name && !app->pretty_name_u8 && display_name)
+    {
+      char *display_name_u8 = g_utf16_to_utf8 (display_name, -1, NULL, NULL, NULL);
+      app->pretty_name = g_wcsdup (display_name, -1);
+      app->pretty_name_u8 = g_steal_pointer (&display_name_u8);
+    }
 
   extensions_considered = 0;
 
@@ -3654,10 +3669,7 @@ grab_registry_string (GWin32RegistryKey  *handler_appkey,
 
   /* There's no way for us to resolve "ms-resource:..." strings */
   if (value != NULL &&
-      value_size >= ms_resource_prefix_len &&
-      memcmp (value,
-              ms_resource_prefix,
-              ms_resource_prefix_len * sizeof (gunichar2)) == 0)
+      wcsncmp (value, ms_resource_prefix, ms_resource_prefix_len) == 0)
     g_clear_pointer (&value, g_free);
 
   if (value == NULL)
@@ -4020,9 +4032,9 @@ gio_win32_appinfo_init (gboolean do_wait)
       /* Trigger initial tree build. Fake data pointer. */
       g_thread_pool_push (gio_win32_appinfo_threadpool, (gpointer) keys_updated, NULL);
       /* Increment the DLL refcount */
-      GetModuleHandleExA (GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
-                          (const char *) gio_win32_appinfo_init,
-                          &gio_dll_extra);
+      GetModuleHandleEx (GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+                         (LPCWSTR) gio_win32_appinfo_init,
+                         &gio_dll_extra);
       /* gio DLL cannot be unloaded now */
 
       g_once_init_leave (&initialized, TRUE);
@@ -4239,7 +4251,7 @@ g_win32_app_info_get_name (GAppInfo *appinfo)
   else if (info->app && info->app->canonical_name_u8)
     return info->app->canonical_name_u8;
   else
-    return P_("Unnamed");
+    return _("Unnamed");
 }
 
 static const char *
@@ -4343,7 +4355,7 @@ expand_macro_single (char macro, file_or_uri *obj)
           const char *prefix = "file:///";
           const size_t prefix_len = strlen (prefix);
 
-          if (g_str_has_prefix (obj->uri, prefix) == 0 && obj->uri[prefix_len] != 0)
+          if (g_str_has_prefix (obj->uri, prefix) && obj->uri[prefix_len] != 0)
             {
               GFile *file = g_file_new_for_uri (obj->uri);
               result = g_file_get_path (file);
@@ -4775,7 +4787,7 @@ make_platform_data (GPid pid)
 {
   GVariantBuilder builder;
 
-  g_variant_builder_init (&builder, G_VARIANT_TYPE_ARRAY);
+  g_variant_builder_init_static (&builder, G_VARIANT_TYPE_ARRAY);
   /* pid handles are never bigger than 2^24 as per
    * https://docs.microsoft.com/en-us/windows/win32/sysinfo/kernel-objects,
    * so truncating to `int32` is valid.
@@ -4880,81 +4892,68 @@ emit_launch_failed (GAppLaunchContext *context,
     }
 }
 
-static gboolean
-g_win32_app_info_launch_uwp_internal (GWin32AppInfo           *info,
-                                      gboolean                 for_files,
-                                      IShellItemArray         *items,
-                                      GWin32AppInfoShellVerb  *shverb,
-                                      GAppLaunchContext       *launch_context,
-                                      GTask                   *from_task,
-                                      GError                 **error)
+typedef enum
 {
-  IApplicationActivationManager* paam = NULL;
-  gboolean com_initialized = FALSE;
-  gboolean result = FALSE;
+  /* PLAIN: just open the application, without arguments of any kind
+   *        corresponds to: LaunchActivatedEventArgs */
+  UWP_ACTIVATION_TYPE_PLAIN,
+
+  /* FILE: open the applications passing a set of files
+   *       corresponds to: FileActivatedEventArgs */
+  UWP_ACTIVATION_TYPE_FILE,
+
+  /* PROTOCOL: open the application passing a URI which describe an
+               app activity
+   *           corresponds to: ProtocolActivatedEventArgs */
+  UWP_ACTIVATION_TYPE_PROTOCOL,
+} UwpActivationType;
+
+static gboolean
+g_win32_app_info_launch_uwp_single (IApplicationActivationManager  *app_activation_manager,
+                                    UwpActivationType               activation_type,
+                                    IShellItemArray                *items,
+                                    const wchar_t                  *verb,
+                                    GWin32AppInfo                  *info,
+                                    GAppLaunchContext              *launch_context,
+                                    GTask                          *from_task,
+                                    GError                        **error)
+{
+  const wchar_t *canonical_name = (const wchar_t *) info->app->canonical_name;
   DWORD process_id = 0;
-  HRESULT hr;
-  const wchar_t *app_canonical_name = (const wchar_t *) info->app->canonical_name;
-
-  /* ApplicationActivationManager threading model is both,
-   * prefer the multithreaded apartment type, as we don't
-   * need anything of the STA here. */
-  hr = CoInitializeEx (NULL, COINIT_MULTITHREADED);
-  if (SUCCEEDED (hr))
-    com_initialized = TRUE;
-  else if (hr != RPC_E_CHANGED_MODE)
-    {
-      g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                   "Failed to initialize the COM support library for the thread: 0x%lx", hr);
-      goto cleanup;
-    }
-
-  /* It's best to instantiate ApplicationActivationManager out-of-proc,
-   * as documented on MSDN:
-   *
-   * An IApplicationActivationManager object creates a thread in its
-   * host process to serve any activated event arguments objects
-   * (LaunchActivatedEventArgs, FileActivatedEventArgs, and Protocol-
-   * ActivatedEventArgs) that are passed to the app. If the calling
-   * process is long-lived, you can create this object in-proc,
-   * based on the assumption that the event arguments will exist long
-   * enough for the target app to use them.
-   * However, if the calling process is spawned only to launch the
-   * target app, it should create the IApplicationActivationManager
-   * object out-of-process, by using CLSCTX_LOCAL_SERVER. This causes
-   * the object to be created in a Dllhost instance that automatically
-   * manages the object's lifetime based on outstanding references to
-   * the activated event argument objects.
-   */
-  hr = CoCreateInstance (&CLSID_ApplicationActivationManager, NULL,
-                         CLSCTX_LOCAL_SERVER,
-                         &IID_IApplicationActivationManager, (void **) &paam);
-  if (FAILED (hr))
-    {
-      g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                   "Failed to create ApplicationActivationManager: 0x%lx", hr);
-      goto cleanup;
-    }
+  HRESULT hr = S_OK;
 
   emit_launch_started (launch_context, info, from_task);
 
   /* The Activate methods return a process identifier (PID), so we should consider
    * those methods as potentially blocking */
-  if (items == NULL)
-    hr = IApplicationActivationManager_ActivateApplication (paam,
-                                                            app_canonical_name,
-                                                            NULL, AO_NONE,
-                                                            &process_id);
-  else if (for_files)
-    hr = IApplicationActivationManager_ActivateForFile (paam,
-                                                        app_canonical_name,
-                                                        items, shverb->verb_name,
-                                                        &process_id);
-  else
-    hr = IApplicationActivationManager_ActivateForProtocol (paam,
-                                                            app_canonical_name,
-                                                            items,
-                                                            &process_id);
+
+  switch (activation_type)
+    {
+    case UWP_ACTIVATION_TYPE_PLAIN:
+      g_assert (items == NULL);
+
+      hr = IApplicationActivationManager_ActivateApplication (app_activation_manager,
+                                                              canonical_name,
+                                                              NULL, AO_NONE,
+                                                              &process_id);
+      break;
+    case UWP_ACTIVATION_TYPE_PROTOCOL:
+      g_assert (items != NULL);
+
+      hr = IApplicationActivationManager_ActivateForProtocol (app_activation_manager,
+                                                              canonical_name,
+                                                              items,
+                                                              &process_id);
+      break;
+    case UWP_ACTIVATION_TYPE_FILE:
+      g_assert (items != NULL);
+
+      hr = IApplicationActivationManager_ActivateForFile (app_activation_manager,
+                                                          canonical_name,
+                                                          items, verb,
+                                                          &process_id);
+      break;
+    }
 
   if (FAILED (hr))
     {
@@ -4964,9 +4963,10 @@ g_win32_app_info_launch_uwp_internal (GWin32AppInfo           *info,
 
       emit_launch_failed (launch_context, info, from_task);
 
-      goto cleanup;
+      return FALSE;
     }
-  else if (launch_context)
+
+  if (launch_context)
     {
       DWORD access_rights = 0;
       HANDLE process_handle = NULL;
@@ -5014,7 +5014,150 @@ g_win32_app_info_launch_uwp_internal (GWin32AppInfo           *info,
       g_spawn_close_pid ((GPid) process_handle);
     }
 
-  result = TRUE;
+  return TRUE;
+}
+
+static gboolean
+g_win32_app_info_supports_files (GAppInfo *appinfo);
+
+static IShellItemArray *
+make_item_array (gboolean   for_files,
+                 GList     *objs,
+                 GError   **error);
+
+static inline GList
+make_single_entry_list (gpointer data)
+{
+  GList l = { NULL, NULL, NULL };
+  l.data = data;
+
+  return l;
+}
+
+static gboolean
+g_win32_app_info_launch_uwp_internal (GWin32AppInfo           *info,
+                                      gboolean                 for_files,
+                                      GList                   *objs,  /* (element-type file_or_uri) */
+                                      GWin32AppInfoShellVerb  *shverb,
+                                      GAppLaunchContext       *launch_context,
+                                      GTask                   *from_task,
+                                      GError                 **error)
+{
+  IApplicationActivationManager *paam = NULL;
+  gboolean com_initialized = FALSE;
+  gboolean result = FALSE;
+  HRESULT hr;
+
+  /* ApplicationActivationManager threading model is both,
+   * prefer the multithreaded apartment type, as we don't
+   * need anything of the STA here. */
+  hr = CoInitializeEx (NULL, COINIT_MULTITHREADED);
+  if (SUCCEEDED (hr))
+    com_initialized = TRUE;
+  else if (hr != RPC_E_CHANGED_MODE)
+    {
+      g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                   "Failed to initialize the COM support library for the thread: 0x%lx", hr);
+      goto cleanup;
+    }
+
+  /* It's best to instantiate ApplicationActivationManager out-of-proc,
+   * as documented on MSDN:
+   *
+   * An IApplicationActivationManager object creates a thread in its
+   * host process to serve any activated event arguments objects
+   * (LaunchActivatedEventArgs, FileActivatedEventArgs, and Protocol-
+   * ActivatedEventArgs) that are passed to the app. If the calling
+   * process is long-lived, you can create this object in-proc,
+   * based on the assumption that the event arguments will exist long
+   * enough for the target app to use them.
+   * However, if the calling process is spawned only to launch the
+   * target app, it should create the IApplicationActivationManager
+   * object out-of-process, by using CLSCTX_LOCAL_SERVER. This causes
+   * the object to be created in a Dllhost instance that automatically
+   * manages the object's lifetime based on outstanding references to
+   * the activated event argument objects.
+   */
+  hr = CoCreateInstance (&CLSID_ApplicationActivationManager, NULL,
+                         CLSCTX_LOCAL_SERVER,
+                         &IID_IApplicationActivationManager, (void **) &paam);
+  if (FAILED (hr))
+    {
+      g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                   "Failed to create ApplicationActivationManager: 0x%lx", hr);
+      goto cleanup;
+    }
+
+  if (!objs)
+    {
+      result = g_win32_app_info_launch_uwp_single (paam, UWP_ACTIVATION_TYPE_PLAIN, NULL, NULL,
+                                                   info, launch_context, from_task, error);
+    }
+  else if (for_files)
+    {
+      IShellItemArray *items = make_item_array (TRUE, objs, error);
+
+      if (!items)
+        goto cleanup;
+
+      result = g_win32_app_info_launch_uwp_single (paam, UWP_ACTIVATION_TYPE_FILE, items,
+                                                   shverb->verb_name,
+                                                   info, launch_context, from_task, error);
+
+      IShellItemArray_Release (items);
+    }
+  else
+    {
+      gboolean supports_files;
+      gboolean supports_file_uris;
+      gboolean outcome = TRUE;
+      GList *l;
+
+      supports_files = g_win32_app_info_supports_files (G_APP_INFO (info));
+      supports_file_uris = info->app &&
+                           info->app->supported_urls &&
+                           g_hash_table_lookup (info->app->supported_urls, "file");
+
+      for (l = objs; l != NULL; l = l->next)
+        {
+          file_or_uri *obj = (file_or_uri*) l->data;
+          GList single = make_single_entry_list (obj);
+          IShellItemArray *item = NULL;
+          UwpActivationType type;
+
+          /* Most UWP applications support opening files but do not support
+           * the file:// protocol in URI's. That's because the UWP platform
+           * has a specific activation for files (see FileActivatedEventArgs)
+           * which is different from protocol activation. Here we check for
+           * that. */
+
+          if (!supports_file_uris && supports_files && obj->file)
+            {
+              type = UWP_ACTIVATION_TYPE_FILE;
+              item = make_item_array (TRUE, &single, error);
+            }
+          else
+            {
+              type = UWP_ACTIVATION_TYPE_PROTOCOL;
+              item = make_item_array (FALSE, &single, error);
+            }
+
+          if (!item)
+            {
+              outcome = FALSE;
+              continue;
+            }
+
+          if (!g_win32_app_info_launch_uwp_single (paam, type,
+                                                   item, shverb->verb_name, info,
+                                                   launch_context, from_task, error))
+            outcome = FALSE;
+
+          IShellItemArray_Release (item);
+        }
+
+      result = outcome;
+    }
 
 cleanup:
 
@@ -5036,9 +5179,8 @@ cleanup:
 
 static gboolean
 g_win32_app_info_launch_internal (GWin32AppInfo      *info,
-                                  GList              *objs, /* non-UWP only */
+                                  GList              *objs,  /* (element-type file_or_uri) */
                                   gboolean            for_files, /* UWP only */
-                                  IShellItemArray    *items, /* UWP only */
                                   GAppLaunchContext  *launch_context,
                                   GSpawnFlags         spawn_flags,
                                   GTask              *from_task,
@@ -5069,11 +5211,11 @@ g_win32_app_info_launch_internal (GWin32AppInfo      *info,
     {
       if (info->app->is_uwp || info->handler == NULL)
         g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                     P_("The app ‘%s’ in the application object has no verbs"),
+                     _("The app ‘%s’ in the application object has no verbs"),
                      g_win32_appinfo_application_get_some_name (info->app));
       else if (info->handler->verbs->len == 0)
         g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                     P_("The app ‘%s’ and the handler ‘%s’ in the application object have no verbs"),
+                     _("The app ‘%s’ and the handler ‘%s’ in the application object have no verbs"),
                      g_win32_appinfo_application_get_some_name (info->app),
                      info->handler->handler_id_folded);
 
@@ -5083,7 +5225,7 @@ g_win32_app_info_launch_internal (GWin32AppInfo      *info,
   if (info->app->is_uwp)
     return g_win32_app_info_launch_uwp_internal (info,
                                                  for_files,
-                                                 items,
+                                                 objs,
                                                  shverb,
                                                  launch_context,
                                                  from_task,
@@ -5243,7 +5385,7 @@ g_win32_app_info_supports_files (GAppInfo *appinfo)
 
 static IShellItemArray *
 make_item_array (gboolean   for_files,
-                 GList     *files_or_uris,
+                 GList     *objs,  /* (element-type file_or_uri) */
                  GError   **error)
 {
   ITEMIDLIST **item_ids;
@@ -5253,19 +5395,20 @@ make_item_array (gboolean   for_files,
   gsize i;
   HRESULT hr;
 
-  count = g_list_length (files_or_uris);
+  count = g_list_length (objs);
 
   items = NULL;
   item_ids = g_new (ITEMIDLIST*, count);
 
-  for (i = 0, p = files_or_uris; p != NULL; p = p->next, i++)
+  for (i = 0, p = objs; p != NULL; p = p->next, i++)
     {
+      file_or_uri *obj = (file_or_uri*) p->data;
       wchar_t *file_or_uri_utf16;
 
       if (!for_files)
-        file_or_uri_utf16 = g_utf8_to_utf16 ((gchar *) p->data, -1, NULL, NULL, error);
+        file_or_uri_utf16 = g_utf8_to_utf16 (obj->uri, -1, NULL, NULL, error);
       else
-        file_or_uri_utf16 = g_utf8_to_utf16 (g_file_peek_path (G_FILE (p->data)), -1, NULL, NULL, error);
+        file_or_uri_utf16 = g_utf8_to_utf16 (obj->file, -1, NULL, NULL, error);
 
       if (file_or_uri_utf16 == NULL)
         break;
@@ -5336,38 +5479,19 @@ make_item_array (gboolean   for_files,
 
 static gboolean
 g_win32_app_info_launch_uris_impl (GAppInfo           *appinfo,
-                                   GList              *uris,
+                                   GList              *uris,  /* (element-type utf8) */
                                    GAppLaunchContext  *launch_context,
                                    GTask              *from_task,
                                    GError            **error)
 {
   gboolean res = FALSE;
   gboolean do_files;
-  GList *objs;
+  GList *objs = NULL;
   GWin32AppInfo *info = G_WIN32_APP_INFO (appinfo);
-
-  if (info->app != NULL && info->app->is_uwp)
-    {
-      IShellItemArray *items = NULL;
-
-      if (uris)
-        {
-          items = make_item_array (FALSE, uris, error);
-          if (items == NULL)
-            return res;
-        }
-
-      res = g_win32_app_info_launch_internal (info, NULL, FALSE, items, launch_context, 0, from_task, error);
-
-      if (items != NULL)
-        IShellItemArray_Release (items);
-
-      return res;
-    }
+  gboolean is_uwp;
 
   do_files = g_win32_app_info_supports_files (appinfo);
 
-  objs = NULL;
   while (uris)
     {
       file_or_uri *obj;
@@ -5389,14 +5513,16 @@ g_win32_app_info_launch_uris_impl (GAppInfo           *appinfo,
       objs = g_list_prepend (objs, obj);
       uris = uris->next;
     }
-
   objs = g_list_reverse (objs);
+
+  is_uwp = (info->app != NULL && info->app->is_uwp);
 
   res = g_win32_app_info_launch_internal (info,
                                           objs,
                                           FALSE,
-                                          NULL,
                                           launch_context,
+                                          is_uwp ?
+                                          0 :
                                           G_SPAWN_SEARCH_PATH,
                                           from_task,
                                           error);
@@ -5491,37 +5617,18 @@ g_win32_app_info_should_show (GAppInfo *appinfo)
 
 static gboolean
 g_win32_app_info_launch (GAppInfo           *appinfo,
-                         GList              *files,
+                         GList              *files,  /* (element-type GFile) */
                          GAppLaunchContext  *launch_context,
                          GError            **error)
 {
   gboolean res = FALSE;
   gboolean do_uris;
-  GList *objs;
+  GList *objs = NULL;
   GWin32AppInfo *info = G_WIN32_APP_INFO (appinfo);
-
-  if (info->app != NULL && info->app->is_uwp)
-    {
-      IShellItemArray *items = NULL;
-
-      if (files)
-        {
-          items = make_item_array (TRUE, files, error);
-          if (items == NULL)
-            return res;
-        }
-
-      res = g_win32_app_info_launch_internal (info, NULL, TRUE, items, launch_context, 0, NULL, error);
-
-      if (items != NULL)
-        IShellItemArray_Release (items);
-
-      return res;
-    }
+  gboolean is_uwp;
 
   do_uris = g_win32_app_info_supports_uris (appinfo);
 
-  objs = NULL;
   while (files)
     {
       file_or_uri *obj;
@@ -5534,14 +5641,16 @@ g_win32_app_info_launch (GAppInfo           *appinfo,
       objs = g_list_prepend (objs, obj);
       files = files->next;
     }
-
   objs = g_list_reverse (objs);
+
+  is_uwp = (info->app != NULL && info->app->is_uwp);
 
   res = g_win32_app_info_launch_internal (info,
                                           objs,
                                           TRUE,
-                                          NULL,
                                           launch_context,
+                                          is_uwp ?
+                                          0 :
                                           G_SPAWN_SEARCH_PATH,
                                           NULL,
                                           error);
@@ -5560,10 +5669,10 @@ g_win32_app_info_get_supported_types (GAppInfo *appinfo)
 }
 
 GAppInfo *
-g_app_info_create_from_commandline (const char           *commandline,
-                                    const char           *application_name,
-                                    GAppInfoCreateFlags   flags,
-                                    GError              **error)
+g_app_info_create_from_commandline_impl (const char           *commandline,
+                                         const char           *application_name,
+                                         GAppInfoCreateFlags   flags,
+                                         GError              **error)
 {
   GWin32AppInfo *info;
   GWin32AppInfoApplication *app;
@@ -5643,7 +5752,7 @@ g_win32_app_info_iface_init (GAppInfoIface *iface)
 }
 
 GAppInfo *
-g_app_info_get_default_for_uri_scheme (const char *uri_scheme)
+g_app_info_get_default_for_uri_scheme_impl (const char *uri_scheme)
 {
   GWin32AppInfoURLSchema *scheme = NULL;
   char *scheme_down;
@@ -5685,8 +5794,8 @@ g_app_info_get_default_for_uri_scheme (const char *uri_scheme)
 }
 
 GAppInfo *
-g_app_info_get_default_for_type (const char *content_type,
-                                 gboolean    must_support_uris)
+g_app_info_get_default_for_type_impl (const char *content_type,
+                                      gboolean    must_support_uris)
 {
   GWin32AppInfoFileExtension *ext = NULL;
   char *ext_down;
@@ -5747,7 +5856,7 @@ g_app_info_get_default_for_type (const char *content_type,
 }
 
 GList *
-g_app_info_get_all (void)
+g_app_info_get_all_impl (void)
 {
   GHashTableIter iter;
   gpointer value;
@@ -5776,7 +5885,7 @@ g_app_info_get_all (void)
 }
 
 GList *
-g_app_info_get_all_for_type (const char *content_type)
+g_app_info_get_all_for_type_impl (const char *content_type)
 {
   GWin32AppInfoFileExtension *ext = NULL;
   char *ext_down;
@@ -5846,21 +5955,21 @@ g_app_info_get_all_for_type (const char *content_type)
 }
 
 GList *
-g_app_info_get_fallback_for_type (const gchar *content_type)
+g_app_info_get_fallback_for_type_impl (const gchar *content_type)
 {
   /* TODO: fix this once gcontenttype support is improved */
   return g_app_info_get_all_for_type (content_type);
 }
 
 GList *
-g_app_info_get_recommended_for_type (const gchar *content_type)
+g_app_info_get_recommended_for_type_impl (const gchar *content_type)
 {
   /* TODO: fix this once gcontenttype support is improved */
   return g_app_info_get_all_for_type (content_type);
 }
 
 void
-g_app_info_reset_type_associations (const char *content_type)
+g_app_info_reset_type_associations_impl (const char *content_type)
 {
   /* nothing to do */
 }

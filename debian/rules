@@ -1,6 +1,6 @@
 #!/usr/bin/make -f
 
-binaries := $(shell dh_listpackages)
+built_binaries := $(shell dh_listpackages)
 
 export DEB_BUILD_MAINT_OPTIONS=hardening=+bindnow
 
@@ -23,6 +23,9 @@ include /usr/share/dpkg/default.mk
 
 DEB_CONFIGURE_EXTRA_FLAGS =
 
+# Can be dropped when we switch to dh compat 14
+DEB_CONFIGURE_EXTRA_FLAGS += -Dauto_features=enabled
+
 ifneq ($(DEB_HOST_ARCH),$(DEB_BUILD_ARCH))
 # Properties of glibc. These are the same for all Debian architectures,
 # and are auto-detected when doing a native build.
@@ -35,6 +38,9 @@ else
 DEB_CONFIGURE_EXTRA_FLAGS += --cross-file=$(CURDIR)/debian/meson/stack-grows-down.ini
 endif
 
+ifeq ($(DEB_HOST_ARCH_OS),linux)
+DEB_CONFIGURE_EXTRA_FLAGS += --cross-file=$(CURDIR)/debian/meson/linux.ini
+endif
 endif # cross-compiling
 
 ifneq ($(filter kfreebsd,$(DEB_HOST_ARCH_OS)),)
@@ -54,16 +60,37 @@ maintainer-update-unicode-data:
 	rm -f glib/gunidecomp.h
 	rm -f glib/tests/casefold.txt
 	rm -f glib/tests/casemap.txt
-	$(CURDIR)/tools/update-unicode-data.sh $(CURDIR)/unicode-data 15.0.0
+	$(CURDIR)/tools/update-unicode-data.sh $(CURDIR)/unicode-data 16.0.0
+
+execute_before_dh_auto_configure: cross-tools
+
+cross_tools = \
+	gi-compile-repository \
+	gi-decompile-typelib \
+	gi-inspect-typelib \
+	$(NULL)
+cross-tools: debian/emulated-g-ir-tool.in debian/rules
+	mkdir -p debian/cross-tools
+	set -e; for tool in $(cross_tools); do \
+		sed \
+			-e 's|@DEB_HOST_GNU_TYPE@|$(DEB_HOST_GNU_TYPE)|' \
+			-e 's|@TOOL_PATH@|/usr/lib/$(DEB_HOST_MULTIARCH)/glib-2.0/'"$$tool"'|' \
+			< $< > debian/cross-tool.tmp; \
+		chmod 0755 debian/cross-tool.tmp; \
+		mv debian/cross-tool.tmp debian/cross-tools/$(DEB_HOST_GNU_TYPE)-$$tool; \
+	done
 
 override_dh_auto_configure:
+	sed -e 's|@DEB_HOST_GNU_TYPE@|$(DEB_HOST_GNU_TYPE)|g' \
+		< debian/meson/exe-wrapper.ini.in \
+		> debian/meson/exe-wrapper.ini
 	dh_auto_configure \
 		--builddirectory=debian/build/deb \
 		-- \
 		$(DEB_CONFIGURE_EXTRA_FLAGS) \
 		$(DEB_CONFIGURE_FLAGS_deb) \
 		$(NULL)
-ifneq ($(filter %-udeb,$(binaries)),)
+ifneq ($(filter %-udeb,$(built_binaries)),)
 	dh_auto_configure \
 		--builddirectory=debian/build/udeb \
 		-- \
@@ -77,10 +104,16 @@ override_dh_clean:
 	       $(CURDIR)/debian/install
 	dh_clean -Xorg.gtk.test.gschema.xml.orig -Xorg.gtk.test.gschema.override.orig
 
+override_dh_gnome_clean:
 
 override_dh_makeshlibs:
+ifneq ($(filter libglib2.0-tests,$(built_binaries)),)
 	dh_makeshlibs -plibglib2.0-tests -n
+endif
 	dh_makeshlibs --remaining-packages --add-udeb=libglib2.0-udeb -- -c4
+
+override_dh_strip_nondeterminism:
+	dh_strip_nondeterminism -Xinstalled-tests
 
 # (Ubuntu-specific)
 # Don't strip translations from the installed tests; makes them environment dependent.
@@ -102,16 +135,13 @@ handle_test_failure := true
 endif
 
 # Upstream test timeouts assume an otherwise unloaded system, but that
-# isn't necessarily the case for a porterbox or multiple parallel builds
+# isn't necessarily the case for a porterbox or multiple parallel builds.
+# Keep the timeout reasonably short for architectures where interactive
+# debugging is more likely, but extend it a lot on architectures that might
+# be very slow or using qemu for buildds.
+ifneq ($(filter amd64 i386,$(DEB_HOST_ARCH_CPU)),)
 test_timeout_multiplier = 3
-
-ifneq ($(filter arm hppa mips% sparc%,$(DEB_HOST_ARCH_CPU)),)
-$(info Slow architecture detected, increasing test timeout)
-test_timeout_multiplier = 5
-endif
-
-ifneq ($(filter m68k riscv64 sh4,$(DEB_HOST_ARCH_CPU)),)
-$(info Architecture with qemu buildds detected, increasing test timeout a lot)
+else
 test_timeout_multiplier = 20
 endif
 
@@ -127,7 +157,6 @@ ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 		-u LD_PRELOAD \
 		DEB_BUILD_TIME_TESTS=1 \
 		LC_ALL=C.UTF-8 \
-		MESON_TESTTHREADS=1 \
 	debian/tests/run-with-locales \
 		--generate de_DE=ISO-8859-1 \
 		--generate de_DE.utf8 \
@@ -160,9 +189,9 @@ ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 		--generate tt_RU.utf8 \
 		--generate tt_RU@iqtelif=UTF-8 \
 		-- \
-	meson test -C debian/build/deb \
-		--no-rebuild \
-		--num-processes 1 \
+	dh_auto_test \
+		-B debian/build/deb \
+		-- \
 		--timeout-multiplier $(test_timeout_multiplier) \
 		--no-suite flaky \
 		--verbose \
@@ -174,32 +203,18 @@ ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 		-u LD_PRELOAD \
 		DEB_BUILD_TIME_TESTS=1 \
 		LC_ALL=C.UTF-8 \
-		MESON_TESTTHREADS=1 \
-	meson test -C debian/build/deb \
-		--no-rebuild \
-		--num-processes 1 \
+	dh_auto_test \
+		-B debian/build/deb \
+		-- \
 		--timeout-multiplier $(test_timeout_multiplier) \
 		--suite flaky \
 		--verbose \
 	|| true
 endif
 
-# Skip most build-time tests if all we are building is documentation;
-# running them once per architecture is plenty. As an exception, do run the
-# documentation completeness checks, which won't normally be run on
-# architecture-specific buildds (except in Ubuntu).
+# Skip build-time tests if all we are building is documentation;
+# running them once per architecture is plenty.
 override_dh_auto_test-indep:
-	meson test -C debian/build/deb \
-		--no-rebuild \
-		--num-processes 1 \
-		--timeout-multiplier $(test_timeout_multiplier) \
-		--verbose \
-		gio-doc-check glib-doc-check gobject-doc-check \
-	|| $(handle_test_failure)
-
-# Let's get failing tests' stdout and stderr so we have some information when
-# a build fails
-export VERBOSE=1
 
 ifeq ($(DEB_HOST_ARCH_OS),linux)
 enable_libmount := enabled
@@ -211,76 +226,160 @@ endif
 
 DEB_CONFIGURE_FLAGS_deb := \
 	--default-library both \
-	-Dinstalled_tests=true \
-	-Dlibelf=enabled \
+	-Ddtrace=disabled \
+	-Dgir_dir_prefix=lib/${DEB_HOST_MULTIARCH} \
+	-Dglib_debug=disabled \
 	-Dlibmount=$(enable_libmount) \
-	-Dman=true \
 	-Dmultiarch=true \
 	-Dselinux=$(enable_selinux) \
-	-Dsystemtap=true \
+	-Dsystemtap=disabled \
 	-Dxattr=$(have_non_stub_xattr) \
 	$(NULL)
 
-ifneq ($(filter libglib2.0-doc,$(binaries)),)
-DEB_CONFIGURE_FLAGS_deb += -Dgtk_doc=true
+ifneq ($(filter gir1.2-% %-doc,$(built_binaries)),)
+ifneq ($(DEB_HOST_ARCH),$(DEB_BUILD_ARCH))
+DEB_CONFIGURE_FLAGS_deb += --cross-file=$(DEB_HOST_GNU_TYPE)-gobject-introspection.ini
+# GLib insists on having an exe_wrapper when we enable introspection,
+# even though in Debian, we happen to know that our g-ir-scanner
+# automatically uses qemu
+DEB_CONFIGURE_FLAGS_deb += --cross-file=$(CURDIR)/debian/meson/exe-wrapper.ini
+endif
 else
-DEB_CONFIGURE_FLAGS_deb += -Dgtk_doc=false
+DEB_CONFIGURE_FLAGS_deb += -Dintrospection=disabled
+endif
+
+ifneq ($(filter libglib2.0-tests,$(built_binaries)),)
+DEB_CONFIGURE_FLAGS_deb += -Dinstalled_tests=true
+else
+DEB_CONFIGURE_FLAGS_deb += -Dinstalled_tests=false
+endif
+
+ifneq ($(filter %-doc,$(built_binaries)),)
+DEB_CONFIGURE_FLAGS_deb += -Ddocumentation=true
+else
+DEB_CONFIGURE_FLAGS_deb += -Ddocumentation=false
+endif
+
+ifeq ($(filter nodoc,$(DEB_BUILD_PROFILES)),)
+DEB_CONFIGURE_FLAGS_deb += -Dman-pages=enabled
+else
+DEB_CONFIGURE_FLAGS_deb += -Dman-pages=disabled
+endif
+
+ifneq ($(filter pkg.glib2.0.nosysprof,$(DEB_BUILD_PROFILES)),)
+DEB_CONFIGURE_FLAGS_deb += -Dsysprof=disabled
+else
+ifeq ($(filter amd64 arm64 armel armhf i386 mips64el ppc64el riscv64 s390x hppa loong64 powerpc ppc64 sh4,$(DEB_HOST_ARCH)),)
+DEB_CONFIGURE_FLAGS_deb += -Dsysprof=disabled
+endif
 endif
 
 DEB_CONFIGURE_FLAGS_udeb := \
 	--default-library shared \
-	-Dgtk_doc=false \
+	-Ddocumentation=false \
+	-Ddtrace=disabled \
+	-Dglib_debug=disabled \
 	-Dinstalled_tests=false \
+	-Dintrospection=disabled \
+	-Dlibelf=disabled \
 	-Dlibmount=disabled \
+	-Dman-pages=disabled \
 	-Dselinux=disabled \
+	-Dsysprof=disabled \
+	-Dsystemtap=disabled \
 	-Dxattr=$(have_non_stub_xattr) \
 	$(NULL)
 
 override_dh_auto_build:
+	# GResource files don't contain any executable code, only an embeddable
+	# data blob, so compiler flags that would affect the behaviour of
+	# executable code (ABIs, hardening, optimizations, debug info) are
+	# not relevant.
+	@echo 'blhc: ignore-line-regexp: .*/glib-compile-resources\s+--compiler=.*'
+	# One test uses the C compiler to convert a binary blob into a raw
+	# object; again, there is no executable code involved, so compiler
+	# options that affect executable code aren't interesting.
+	@echo 'blhc: ignore-line-regexp: .*-Wl,-b,binary\s+-nostdlib\s+gio/tests/test5\.gresource.*'
 	mkdir -p debian/tmp-xdg-runtime-dir
 	dh_auto_build --builddirectory=debian/build/deb
-ifneq ($(filter %-udeb,$(binaries)),)
+ifneq ($(filter %-udeb,$(built_binaries)),)
 	dh_auto_build --builddirectory=debian/build/udeb
 endif
 
 override_dh_auto_install:
-	set -e; for script in postinst postrm triggers; do \
-		sed -e"s/#MULTIARCH#/$(DEB_HOST_MULTIARCH)/g" \
-		    -e"s/#ARCH#/$(DEB_HOST_ARCH)/g" \
-		    debian/libglib2.0-0.$$script.in \
-		    > debian/libglib2.0-0.$$script ; \
-	done
-ifneq ($(filter %-udeb,$(binaries)),)
+ifneq ($(filter %-udeb,$(built_binaries)),)
 	dh_auto_install -plibglib2.0-udeb --builddirectory=debian/build/udeb --destdir=debian/install/udeb
 endif
-	dh_auto_install --remaining-packages --builddirectory=debian/build/deb --destdir=debian/install/deb
+	dh_auto_install --remaining-packages --builddirectory=debian/build/deb
+	sed -i \
+		-e 's|^girdir=\(.*\)|girdir=$${datadir}/gir-1.0|' \
+		debian/tmp/usr/lib/*/pkgconfig/girepository-2.0.pc
+ifneq ($(filter %-doc,$(built_binaries)),)
+	sed -i \
+		-e 's|https\?://docs\.gtk\.org/gio/|../gio-2.0/|' \
+		-e 's|https\?://docs\.gtk\.org/gio-unix/|../gio-unix-2.0/|' \
+		-e 's|https\?://docs\.gtk\.org/glib/|../glib-2.0/|' \
+		-e 's|https\?://docs\.gtk\.org/glib-unix/|../glib-unix-2.0/|' \
+		-e 's|https\?://docs\.gtk\.org/gmodule/|../gmodule-2.0/|' \
+		-e 's|https\?://docs\.gtk\.org/gobject/|../gobject-2.0/|' \
+		debian/tmp/usr/share/doc/*-2.0/urlmap.js
+	sed -i \
+		-e 's|src="\.\./urlmap.js"|src="urlmap.js"|' \
+		debian/tmp/usr/share/doc/*-2.0/*.html
+endif
 
 override_dh_python3:
 	# dh_python3 can't process both a private directory and /usr/bin
 	# in the same invocation
-	dh_python3 -plibglib2.0-dev-bin /usr/share/glib-2.0/codegen
+	dh_python3 -plibgio-2.0-dev-bin /usr/share/glib-2.0/codegen
+	dh_python3 -plibgio-2.0-dev-bin /usr/share/glib-2.0/gdb
 	dh_python3 -plibglib2.0-tests --no-ext-rename /usr/libexec/installed-tests/glib
 	dh_python3
 
 override_dh_install:
+ifneq ($(filter gir1.2-%,$(built_binaries)),)
+	# The build currently installs to /usr/share/gir-1.0 even though we
+	# specified lib/${DEB_HOST_MULTIARCH} as our gir_dir_prefix
+	if ! [ -d debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/gir-1.0 ]; then \
+		mv debian/tmp/usr/share/gir-1.0 debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/; \
+	fi
+else
+	rm -fr debian/tmp/usr/lib/*/gir-1.0
+	rm -fr debian/tmp/usr/lib/*/girepository-1.0
+	rm -fr debian/tmp/usr/share/gir-1.0
+endif
 	# Unwanted bits from the .deb build
-	rm -fr debian/install/deb/usr/share/glib-2.0/codegen/__pycache__
-ifneq ($(filter %-udeb,$(binaries)),)
+	rm -fr debian/tmp/usr/share/glib-2.0/codegen/__pycache__
+ifneq ($(filter %-udeb,$(built_binaries)),)
 	# Unwanted bits from the .udeb build
+	rm -fr debian/install/udeb/usr/include
 	rm -f debian/install/udeb/usr/lib/*/*.so
+	rm -f debian/install/udeb/usr/lib/*/libgirepository*.so.*
+	rm -fr debian/install/udeb/usr/lib/*/gir-1.0
+	rm -fr debian/install/udeb/usr/lib/*/girepository-1.0
+	rm -fr debian/install/udeb/usr/lib/*/pkgconfig
 	rm -fr debian/install/udeb/usr/libexec/gio-launch-desktop
 	rm -fr debian/install/udeb/usr/share/gdb
 	rm -fr debian/install/udeb/usr/share/gettext/its
+	rm -fr debian/install/udeb/usr/share/gir-1.0
 	rm -fr debian/install/udeb/usr/share/glib-2.0/codegen
 	rm -fr debian/install/udeb/usr/share/glib-2.0/gdb
 	rm -fr debian/install/udeb/usr/share/glib-2.0/valgrind
 	rm -fr debian/install/udeb/usr/share/man
 	dh_install -plibglib2.0-udeb --sourcedir=debian/install/udeb
 endif
-ifneq ($(filter %-tests,$(binaries)),)
-	sed -i -e '/^#!.*/,1 d' debian/install/deb/usr/libexec/installed-tests/glib/taptestrunner.py
+ifneq ($(filter %-tests,$(built_binaries)),)
+	sed -i -e '/^#!.*/,1 d' debian/tmp/usr/libexec/installed-tests/glib/taptestrunner.py
 endif
-	dh_install --remaining-packages --sourcedir=debian/install/deb
+	dh_install --remaining-packages
+
+ifeq ($(filter nodoc,$(DEB_BUILD_PROFILES)),)
+execute_after_dh_installman-arch:
+	install -d debian/girepository-tools/usr/share/man/man1
+	set -e; for tool in $(cross_tools); do \
+		ln -s "$$tool.1.gz" "debian/girepository-tools/usr/share/man/man1/$(DEB_HOST_GNU_TYPE)-$$tool.1.gz"; \
+	done
+endif
 
 override_dh_dwz:
 	dh_dwz -Nlibglib2.0-udeb
@@ -289,14 +388,26 @@ override_dh_dwz:
 # quite right for installed-tests
 override_dh_fixperms:
 	dh_fixperms -Xusr/libexec/installed-tests
-ifneq ($(filter %-tests,$(binaries)),)
+ifneq ($(filter %-tests,$(built_binaries)),)
 	chmod --changes u=rw,og=r debian/libglib2.0-tests/usr/libexec/installed-tests/*/*.so
 	chmod --changes u=rw,og=r debian/libglib2.0-tests/usr/libexec/installed-tests/*/*/*.so
 	chmod --recursive --changes a+rX,u+w,og-w debian/libglib2.0-tests/usr/libexec/installed-tests
 endif
 
 override_dh_missing:
-	dh_missing --sourcedir=debian/install/deb
-ifneq ($(filter %-udeb,$(binaries)),)
+	dh_missing
+ifneq ($(filter %-udeb,$(built_binaries)),)
 	dh_missing --sourcedir=debian/install/udeb
 endif
+
+execute_before_dh_installdeb-arch:
+	set -e; for script in triggers; do \
+		sed -e"s/#DEB_HOST_MULTIARCH#/$(DEB_HOST_MULTIARCH)/g" \
+		    debian/libglib2.0-0t64.$$script.in \
+		    > debian/libglib2.0-0t64.$$script ; \
+	done
+
+override_dh_gencontrol-arch:
+	dh_gencontrol -pgirepository-tools -- \
+		-Vlocal:DEB-HOST-GNU-TYPE=$(DEB_HOST_GNU_TYPE)
+	dh_gencontrol --remaining-packages

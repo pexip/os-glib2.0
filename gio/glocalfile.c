@@ -51,6 +51,10 @@
 #define O_BINARY 0
 #endif
 
+#ifndef O_CLOEXEC
+#define O_CLOEXEC 0
+#endif
+
 #include "gfileattribute.h"
 #include "glocalfile.h"
 #include "glocalfileinfo.h"
@@ -82,6 +86,9 @@
 #define FILE_READ_ONLY_VOLUME           0x00080000
 #endif
 
+#ifndef S_ISREG
+#define S_ISREG(m) (((m) & _S_IFMT) == _S_IFREG)
+#endif
 #ifndef S_ISDIR
 #define S_ISDIR(m) (((m) & _S_IFMT) == _S_IFDIR)
 #endif
@@ -98,7 +105,7 @@
 static void g_local_file_file_iface_init (GFileIface *iface);
 
 static GFileAttributeInfoList *local_writable_attributes = NULL;
-static /* GFileAttributeInfoList * */ gsize local_writable_namespaces = 0;
+static GFileAttributeInfoList *local_writable_namespaces = NULL;
 
 struct _GLocalFile
 {
@@ -472,7 +479,7 @@ static const char *
 match_prefix (const char *path, 
               const char *prefix)
 {
-  int prefix_len;
+  size_t prefix_len;
 
   prefix_len = strlen (prefix);
   if (strncmp (path, prefix, prefix_len) != 0)
@@ -787,6 +794,7 @@ get_mount_info (GFileInfo             *fs_info,
   dev_t *dev;
   GUnixMountEntry *mount;
   guint64 cache_time;
+  gboolean is_remote = FALSE;
 
   if (g_lstat (path, &buf) != 0)
     return;
@@ -798,7 +806,7 @@ get_mount_info (GFileInfo             *fs_info,
 					     g_free, NULL);
 
 
-  if (g_unix_mounts_changed_since (mount_info_hash_cache_time))
+  if (g_unix_mount_entries_changed_since (mount_info_hash_cache_time))
     g_hash_table_remove_all (mount_info_hash);
   
   got_info = g_hash_table_lookup_extended (mount_info_hash,
@@ -818,13 +826,15 @@ get_mount_info (GFileInfo             *fs_info,
       if (mountpoint == NULL)
 	mountpoint = g_strdup ("/");
 
-      mount = g_unix_mount_at (mountpoint, &cache_time);
+      mount = g_unix_mount_entry_at (mountpoint, &cache_time);
       if (mount)
 	{
-	  if (g_unix_mount_is_readonly (mount))
+	  if (g_unix_mount_entry_is_readonly (mount))
 	    mount_info |= MOUNT_INFO_READONLY;
+          if (is_remote_fs_type (g_unix_mount_entry_get_fs_type (mount)))
+            is_remote = TRUE;
 	  
-	  g_unix_mount_free (mount);
+	  g_unix_mount_entry_free (mount);
 	}
 
       g_free (mountpoint);
@@ -838,8 +848,14 @@ get_mount_info (GFileInfo             *fs_info,
       G_UNLOCK (mount_info_hash);
     }
 
-  if (mount_info & MOUNT_INFO_READONLY)
-    g_file_info_set_attribute_boolean (fs_info, G_FILE_ATTRIBUTE_FILESYSTEM_READONLY, TRUE);
+  if (g_file_attribute_matcher_matches (matcher,
+                                        G_FILE_ATTRIBUTE_FILESYSTEM_READONLY))
+    g_file_info_set_attribute_boolean (fs_info, G_FILE_ATTRIBUTE_FILESYSTEM_READONLY,
+                                       (mount_info & MOUNT_INFO_READONLY));
+
+  if (g_file_attribute_matcher_matches (matcher,
+                                        G_FILE_ATTRIBUTE_FILESYSTEM_REMOTE))
+    g_file_info_set_attribute_boolean (fs_info, G_FILE_ATTRIBUTE_FILESYSTEM_REMOTE, is_remote);
 }
 
 #endif
@@ -1073,6 +1089,8 @@ g_local_file_query_filesystem_info (GFile         *file,
   fstype = statfs_buffer.f_fstypename;
 #elif defined(HAVE_STRUCT_STATVFS_F_BASETYPE)
   fstype = statfs_buffer.f_basetype;
+#elif defined(HAVE_STRUCT_STATVFS_F_TYPE)
+  fstype = get_fs_type (statfs_buffer.f_type);
 #else
   fstype = NULL;
 #endif
@@ -1085,7 +1103,9 @@ g_local_file_query_filesystem_info (GFile         *file,
 #endif /* G_OS_WIN32 */
 
   if (g_file_attribute_matcher_matches (attribute_matcher,
-					G_FILE_ATTRIBUTE_FILESYSTEM_READONLY))
+                                        G_FILE_ATTRIBUTE_FILESYSTEM_READONLY) ||
+      g_file_attribute_matcher_matches (attribute_matcher,
+                                        G_FILE_ATTRIBUTE_FILESYSTEM_REMOTE))
     {
 #ifdef G_OS_WIN32
       get_filesystem_readonly (info, local->filename);
@@ -1093,13 +1113,6 @@ g_local_file_query_filesystem_info (GFile         *file,
       get_mount_info (info, local->filename, attribute_matcher);
 #endif /* G_OS_WIN32 */
     }
-
-#ifndef G_OS_WIN32
-  if (g_file_attribute_matcher_matches (attribute_matcher,
-                                        G_FILE_ATTRIBUTE_FILESYSTEM_REMOTE))
-    g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_FILESYSTEM_REMOTE,
-                                       is_remote_fs_type (fstype));
-#endif
 
   g_file_attribute_matcher_unref (attribute_matcher);
   
@@ -1246,6 +1259,19 @@ g_local_file_query_info (GFile                *file,
   return info;
 }
 
+/* FIXME: faccessat() is available on FreeBSD but appears to not work correctly
+ * here. This needs diagnosing; https://gitlab.gnome.org/GNOME/glib/-/issues/3495 */
+#if defined(HAVE_FACCESSAT) && !defined(__FreeBSD__)
+static gboolean
+g_local_file_query_exists (GFile        *file,
+                           GCancellable *cancellable)
+{
+  GLocalFile *local = G_LOCAL_FILE (file);
+
+  return faccessat (0, local->filename, F_OK, AT_EACCESS | AT_SYMLINK_NOFOLLOW) == 0;
+}
+#endif
+
 static GFileAttributeInfoList *
 g_local_file_query_settable_attributes (GFile         *file,
 					GCancellable  *cancellable,
@@ -1263,7 +1289,7 @@ g_local_file_query_writable_namespaces (GFile         *file,
   GVfsClass *class;
   GVfs *vfs;
 
-  if (g_once_init_enter (&local_writable_namespaces))
+  if (g_once_init_enter_pointer (&local_writable_namespaces))
     {
       /* Writable namespaces: */
 
@@ -1286,7 +1312,7 @@ g_local_file_query_writable_namespaces (GFile         *file,
       if (class->add_writable_namespaces)
 	class->add_writable_namespaces (vfs, list);
 
-      g_once_init_leave (&local_writable_namespaces, (gsize)list);
+      g_once_init_leave_pointer (&local_writable_namespaces, list);
     }
   list = (GFileAttributeInfoList *)local_writable_namespaces;
 
@@ -1348,7 +1374,7 @@ g_local_file_read (GFile         *file,
   int fd, ret;
   GLocalFileStat buf;
   
-  fd = g_open (local->filename, O_RDONLY|O_BINARY, 0);
+  fd = g_open (local->filename, O_RDONLY | O_BINARY | O_CLOEXEC, 0);
   if (fd == -1)
     {
       int errsv = errno;
@@ -1794,27 +1820,31 @@ ignore_trash_mount (GUnixMountEntry *mount)
 {
   GUnixMountPoint *mount_point = NULL;
   const gchar *mount_options;
-  gboolean retval = TRUE;
 
-  if (g_unix_mount_is_system_internal (mount))
-    return TRUE;
-
-  mount_options = g_unix_mount_get_options (mount);
+  mount_options = g_unix_mount_entry_get_options (mount);
   if (mount_options == NULL)
     {
-      mount_point = g_unix_mount_point_at (g_unix_mount_get_mount_path (mount),
+      mount_point = g_unix_mount_point_at (g_unix_mount_entry_get_mount_path (mount),
                                            NULL);
       if (mount_point != NULL)
         mount_options = g_unix_mount_point_get_options (mount_point);
+
+      g_clear_pointer (&mount_point, g_unix_mount_point_free);
     }
 
-  if (mount_options == NULL ||
-      strstr (mount_options, "x-gvfs-notrash") == NULL)
-    retval = FALSE;
+  if (mount_options != NULL)
+    {
+      if (strstr (mount_options, "x-gvfs-trash") != NULL)
+        return FALSE;
 
-  g_clear_pointer (&mount_point, g_unix_mount_point_free);
+      if (strstr (mount_options, "x-gvfs-notrash") != NULL)
+        return TRUE;
+    }
 
-  return retval;
+  if (g_unix_mount_entry_is_system_internal (mount))
+    return TRUE;
+
+  return FALSE;
 }
 
 static gboolean
@@ -1823,14 +1853,14 @@ ignore_trash_path (const gchar *topdir)
   GUnixMountEntry *mount;
   gboolean retval = TRUE;
 
-  mount = g_unix_mount_at (topdir, NULL);
+  mount = g_unix_mount_entry_at (topdir, NULL);
   if (mount == NULL)
     goto out;
 
   retval = ignore_trash_mount (mount);
 
  out:
-  g_clear_pointer (&mount, g_unix_mount_free);
+  g_clear_pointer (&mount, g_unix_mount_entry_free);
 
   return retval;
 }
@@ -1921,7 +1951,7 @@ _g_local_file_has_trash_dir (const char *dirname, dev_t dir_dev)
   return res;
 }
 
-#ifdef G_OS_UNIX
+#ifndef G_OS_WIN32
 gboolean
 _g_local_file_is_lost_found_dir (const char *path, dev_t path_dev)
 {
@@ -1984,6 +2014,8 @@ g_local_file_trash (GFile         *file,
   GVfsClass *class;
   GVfs *vfs;
   int errsv;
+  size_t basename_len;
+  GError *my_error = NULL;
 
   if (glib_should_use_portal ())
     return g_trash_portal_trash_file (file, error);
@@ -2211,41 +2243,90 @@ g_local_file_trash (GFile         *file,
   g_free (trashdir);
 
   basename = g_path_get_basename (local->filename);
+  basename_len = strlen (basename);
   i = 1;
   trashname = NULL;
   infofile = NULL;
-  do {
-    g_free (trashname);
-    g_free (infofile);
-    
-    trashname = get_unique_filename (basename, i++);
-    infoname = g_strconcat (trashname, ".trashinfo", NULL);
-    infofile = g_build_filename (infodir, infoname, NULL);
-    g_free (infoname);
+  while (TRUE)
+    {
+      g_free (trashname);
+      g_free (infofile);
 
-    fd = g_open (infofile, O_CREAT | O_EXCL, 0666);
-    errsv = errno;
-  } while (fd == -1 && errsv == EEXIST);
+      /* Make sure we can create a unique info file */
+      trashname = get_unique_filename (basename, i++);
+      infoname = g_strconcat (trashname, ".trashinfo", NULL);
+      infofile = g_build_filename (infodir, infoname, NULL);
+      g_free (infoname);
+
+      fd = g_open (infofile, O_CREAT | O_EXCL | O_CLOEXEC, 0666);
+      errsv = errno;
+
+      if (fd == -1)
+        {
+          if (errsv == EEXIST)
+            continue;
+          else if (errsv == ENAMETOOLONG)
+            {
+              if (basename_len <= strlen (".trashinfo"))
+                break; /* fail with ENAMETOOLONG */
+              basename_len -= strlen (".trashinfo");
+              basename[basename_len] = '\0';
+              i = 1;
+              continue;
+            }
+          else
+            break; /* fail with other error */
+        }
+
+      (void) g_close (fd, NULL);
+
+      /* Make sure we can write the info file */
+      if (!g_file_set_contents_full (infofile, NULL, 0,
+                                     G_FILE_SET_CONTENTS_CONSISTENT | G_FILE_SET_CONTENTS_ONLY_EXISTING,
+                                     0600, &my_error))
+        {
+          g_unlink (infofile);
+          if (g_error_matches (my_error,
+                               G_FILE_ERROR,
+                               G_FILE_ERROR_NAMETOOLONG))
+            {
+              if (basename_len <= strlen (".XXXXXX"))
+                break; /* fail with ENAMETOOLONG */
+              basename_len -= strlen (".XXXXXX");
+              basename[basename_len] = '\0';
+              i = 1;
+              g_clear_error (&my_error);
+              continue;
+            }
+          else
+            break; /* fail with other error */
+        }
+
+      /* file created */
+      break;
+    }
 
   g_free (basename);
   g_free (infodir);
 
-  if (fd == -1)
+  if (fd == -1 || my_error)
     {
-      errsv = errno;
-
       g_free (filesdir);
       g_free (topdir);
       g_free (trashname);
       g_free (infofile);
 
-      g_set_io_error (error,
-		      _("Unable to create trashing info file for %s: %s"),
-                      file, errsv);
+      if (my_error)
+        g_propagate_error (error, my_error);
+      else
+        {
+          g_set_io_error (error,
+                          _("Unable to create trashing info file for %s: %s"),
+                          file, errsv);
+        }
+
       return FALSE;
     }
-
-  (void) g_close (fd, NULL);
 
   /* Write the full content of the info file before trashing to make
    * sure someone doesn't read an empty file.  See #749314
@@ -2273,10 +2354,23 @@ g_local_file_trash (GFile         *file,
   data = g_strdup_printf ("[Trash Info]\nPath=%s\nDeletionDate=%s\n",
 			  original_name_escaped, delete_time);
   g_free (delete_time);
+  g_clear_pointer (&original_name_escaped, g_free);
 
-  g_file_set_contents_full (infofile, data, -1,
+  if (!g_file_set_contents_full (infofile, data, -1,
                             G_FILE_SET_CONTENTS_CONSISTENT | G_FILE_SET_CONTENTS_ONLY_EXISTING,
-                            0600, NULL);
+                            0600, error))
+    {
+      g_unlink (infofile);
+
+      g_free (data);
+      g_free (filesdir);
+      g_free (trashname);
+      g_free (infofile);
+
+      return FALSE;
+    }
+
+  g_clear_pointer (&data, g_free);
 
   /* TODO: Maybe we should verify that you can delete the file from the trash
    * before moving it? OTOH, that is hard, as it needs a recursive scan
@@ -2321,9 +2415,6 @@ g_local_file_trash (GFile         *file,
   /* TODO: Do we need to update mtime/atime here after the move? */
 
   g_free (infofile);
-  g_free (data);
-  
-  g_free (original_name_escaped);
   g_free (trashname);
   
   return TRUE;
@@ -2603,6 +2694,8 @@ is_remote_fs_type (const gchar *fsname)
         return TRUE;
       if (strcmp (fsname, "smb2") == 0)
         return TRUE;
+      if (strcmp (fsname, "fuse.sshfs") == 0)
+        return TRUE;
     }
 
   return FALSE;
@@ -2760,6 +2853,39 @@ g_local_file_measure_size_of_contents (gint           fd,
                                        MeasureState  *state,
                                        GError       **error);
 
+/*
+ * _g_stat_is_size_usable:
+ * @buf: a #GLocalFileStat.
+ *
+ * Checks if the file type is such that the `st_size` field of `struct stat` is
+ * well-defined by POSIX.
+ * (see https://pubs.opengroup.org/onlinepubs/009696799/basedefs/sys/stat.h.html)
+ *
+ * This behaviour is aligned with `du` from GNU Coreutils 9.2+
+ * (see https://lists.gnu.org/archive/html/bug-coreutils/2023-03/msg00007.html)
+ * and makes apparent size sums well-defined; formerly, they depended on the
+ * implementation, and could differ across filesystems.
+ *
+ * Returns: %TRUE if the size field is well-defined, %FALSE otherwise.
+ **/
+inline static gboolean
+_g_stat_is_size_usable (const GLocalFileStat *buf)
+{
+#ifndef HAVE_STATX
+  /* Memory objects are defined by POSIX, but are not supported by statx nor Windows */
+#ifdef S_TYPEISSHM
+  if (S_TYPEISSHM (buf))
+    return TRUE;
+#endif
+#ifdef S_TYPEISTMO
+  if (S_TYPEISTMO (buf))
+    return TRUE;
+#endif
+#endif
+
+  return S_ISREG (_g_stat_mode (buf)) || S_ISLNK (_g_stat_mode (buf));
+}
+
 static gboolean
 g_local_file_measure_size_of_file (gint           parent_fd,
                                    GSList        *name,
@@ -2819,6 +2945,7 @@ g_local_file_measure_size_of_file (gint           parent_fd,
     state->disk_usage += _g_stat_blocks (&buf) * G_GUINT64_CONSTANT (512);
   else
 #endif
+  if (_g_stat_is_size_usable (&buf))
     state->disk_usage += _g_stat_size (&buf);
 
   if (S_ISDIR (_g_stat_mode (&buf)))
@@ -2868,9 +2995,9 @@ g_local_file_measure_size_of_file (gint           parent_fd,
 
 #ifdef AT_FDCWD
 #ifdef HAVE_OPEN_O_DIRECTORY
-      dir_fd = openat (parent_fd, name->data, O_RDONLY|O_DIRECTORY);
+      dir_fd = openat (parent_fd, name->data, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 #else
-      dir_fd = openat (parent_fd, name->data, O_RDONLY);
+      dir_fd = openat (parent_fd, name->data, O_RDONLY | O_CLOEXEC);
 #endif
       errsv = errno;
       if (dir_fd < 0)
@@ -3028,6 +3155,9 @@ g_local_file_file_iface_init (GFileIface *iface)
   iface->monitor_dir = g_local_file_monitor_dir;
   iface->monitor_file = g_local_file_monitor_file;
   iface->measure_disk_usage = g_local_file_measure_disk_usage;
+#if defined(HAVE_FACCESSAT) && !defined(__FreeBSD__)
+  iface->query_exists = g_local_file_query_exists;
+#endif
 
   iface->supports_thread_contexts = TRUE;
 }

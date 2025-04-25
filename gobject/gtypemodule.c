@@ -26,41 +26,40 @@
 
 
 /**
- * SECTION:gtypemodule
- * @short_description: Type loading modules
- * @see_also: #GTypePlugin, #GModule
- * @title: GTypeModule
+ * GTypeModule:
+ * @name: the name of the module
  *
- * #GTypeModule provides a simple implementation of the #GTypePlugin
+ * `GTypeModule` provides a simple implementation of the `GTypePlugin`
  * interface.
  *
- * The model of #GTypeModule is a dynamically loaded module which
+ * The model of `GTypeModule` is a dynamically loaded module which
  * implements some number of types and interface implementations.
  *
  * When the module is loaded, it registers its types and interfaces
- * using g_type_module_register_type() and g_type_module_add_interface().
+ * using [method@GObject.TypeModule.register_type] and
+ * [method@GObject.TypeModule.add_interface].
  * As long as any instances of these types and interface implementations
  * are in use, the module is kept loaded. When the types and interfaces
  * are gone, the module may be unloaded. If the types and interfaces
  * become used again, the module will be reloaded. Note that the last
  * reference cannot be released from within the module code, since that
- * would lead to the caller's code being unloaded before g_object_unref()
+ * would lead to the caller's code being unloaded before `g_object_unref()`
  * returns to it.
  *
  * Keeping track of whether the module should be loaded or not is done by
  * using a use count - it starts at zero, and whenever it is greater than
  * zero, the module is loaded. The use count is maintained internally by
  * the type system, but also can be explicitly controlled by
- * g_type_module_use() and g_type_module_unuse(). Typically, when loading
- * a module for the first type, g_type_module_use() will be used to load
- * it so that it can initialize its types. At some later point, when the
- * module no longer needs to be loaded except for the type
- * implementations it contains, g_type_module_unuse() is called.
+ * [method@GObject.TypeModule.use] and [method@GObject.TypeModule.unuse].
+ * Typically, when loading a module for the first type, `g_type_module_use()`
+ * will be used to load it so that it can initialize its types. At some later
+ * point, when the module no longer needs to be loaded except for the type
+ * implementations it contains, `g_type_module_unuse()` is called.
  *
- * #GTypeModule does not actually provide any implementation of module
+ * `GTypeModule` does not actually provide any implementation of module
  * loading and unloading. To create a particular module type you must
- * derive from #GTypeModule and implement the load and unload functions
- * in #GTypeModuleClass.
+ * derive from `GTypeModule` and implement the load and unload functions
+ * in `GTypeModuleClass`.
  */
 
 typedef struct _ModuleTypeInfo ModuleTypeInfo;
@@ -101,7 +100,7 @@ g_type_module_dispose (GObject *object)
   
   if (module->type_infos || module->interface_infos)
     {
-      g_warning (G_STRLOC ": unsolicitated invocation of g_object_run_dispose() on GTypeModule");
+      g_critical (G_STRLOC ": unsolicitated invocation of g_object_run_dispose() on GTypeModule");
 
       g_object_ref (object);
     }
@@ -115,6 +114,10 @@ g_type_module_finalize (GObject *object)
   GTypeModule *module = G_TYPE_MODULE (object);
 
   g_free (module->name);
+
+  /* in case a subclass does not chain-up to parent in dispose() */
+  g_assert (module->type_infos == NULL);
+  g_assert (module->interface_infos == NULL);
 
   G_OBJECT_CLASS (parent_class)->finalize (object);
 }
@@ -259,9 +262,9 @@ g_type_module_use (GTypeModule *module)
 	  ModuleTypeInfo *type_info = tmp_list->data;
 	  if (!type_info->loaded)
 	    {
-	      g_warning ("plugin '%s' failed to register type '%s'",
-			 module->name ? module->name : "(unknown)",
-			 g_type_name (type_info->type));
+	      g_critical ("plugin '%s' failed to register type '%s'",
+			  module->name ? module->name : "(unknown)",
+			  g_type_name (type_info->type));
 	      module->use_count--;
 	      return FALSE;
 	    }
@@ -315,9 +318,8 @@ g_type_module_use_plugin (GTypePlugin *plugin)
 
   if (!g_type_module_use (module))
     {
-      g_warning ("Fatal error - Could not reload previously loaded plugin '%s'",
-		 module->name ? module->name : "(unknown)");
-      exit (1);
+      g_error ("Fatal error - Could not reload previously loaded plugin '%s'",
+		module->name ? module->name : "(unknown)");
     }
 }
 
@@ -406,7 +408,7 @@ g_type_module_register_type (GTypeModule     *module,
 
       if (old_plugin != G_TYPE_PLUGIN (module))
 	{
-	  g_warning ("Two different plugins tried to register '%s'.", type_name);
+	  g_critical ("Two different plugins tried to register '%s'.", type_name);
 	  return 0;
 	}
     }
@@ -419,10 +421,10 @@ g_type_module_register_type (GTypeModule     *module,
 	{
 	  const gchar *parent_type_name = g_type_name (parent_type);
 	  
-	  g_warning ("Type '%s' recreated with different parent type."
-		     "(was '%s', now '%s')", type_name,
-		     g_type_name (module_type_info->parent_type),
-		     parent_type_name ? parent_type_name : "(unknown)");
+	  g_critical ("Type '%s' recreated with different parent type."
+		      "(was '%s', now '%s')", type_name,
+		      g_type_name (module_type_info->parent_type),
+		      parent_type_name ? parent_type_name : "(unknown)");
 	  return 0;
 	}
 
@@ -488,14 +490,14 @@ g_type_module_add_interface (GTypeModule          *module,
 
       if (!old_plugin)
 	{
-	  g_warning ("Interface '%s' for '%s' was previously registered statically or for a parent type.",
-		     g_type_name (interface_type), g_type_name (instance_type));
+	  g_critical ("Interface '%s' for '%s' was previously registered statically or for a parent type.",
+		      g_type_name (interface_type), g_type_name (instance_type));
 	  return;
 	}
       else if (old_plugin != G_TYPE_PLUGIN (module))
 	{
-	  g_warning ("Two different plugins tried to register interface '%s' for '%s'.",
-		     g_type_name (interface_type), g_type_name (instance_type));
+	  g_critical ("Two different plugins tried to register interface '%s' for '%s'.",
+		      g_type_name (interface_type), g_type_name (instance_type));
 	  return;
 	}
       

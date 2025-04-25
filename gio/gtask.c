@@ -33,518 +33,530 @@
 #include <string.h>
 
 /**
- * SECTION:gtask
- * @short_description: Cancellable synchronous or asynchronous task
- *     and result
- * @include: gio/gio.h
- * @see_also: #GAsyncResult
+ * GTask:
  *
- * A #GTask represents and manages a cancellable "task".
+ * A `GTask` represents and manages a cancellable ‘task’.
  *
  * ## Asynchronous operations
  *
- * The most common usage of #GTask is as a #GAsyncResult, to
+ * The most common usage of `GTask` is as a [iface@Gio.AsyncResult], to
  * manage data during an asynchronous operation. You call
- * g_task_new() in the "start" method, followed by
- * g_task_set_task_data() and the like if you need to keep some
+ * [ctor@Gio.Task.new] in the ‘start’ method, followed by
+ * [method@Gio.Task.set_task_data] and the like if you need to keep some
  * additional data associated with the task, and then pass the
  * task object around through your asynchronous operation.
  * Eventually, you will call a method such as
- * g_task_return_pointer() or g_task_return_error(), which will
- * save the value you give it and then invoke the task's callback
- * function in the
- * [thread-default main context][g-main-context-push-thread-default]
+ * [method@Gio.Task.return_pointer] or [method@Gio.Task.return_error], which
+ * will save the value you give it and then invoke the task’s callback
+ * function in the thread-default main context (see
+ * [method@GLib.MainContext.push_thread_default])
  * where it was created (waiting until the next iteration of the main
- * loop first, if necessary). The caller will pass the #GTask back to
- * the operation's finish function (as a #GAsyncResult), and you can
- * use g_task_propagate_pointer() or the like to extract the
+ * loop first, if necessary). The caller will pass the `GTask` back to
+ * the operation’s finish function (as a [iface@Gio.AsyncResult]), and you can
+ * use [method@Gio.Task.propagate_pointer] or the like to extract the
  * return value.
  *
- * Using #GTask requires the thread-default #GMainContext from when the
- * #GTask was constructed to be running at least until the task has completed
- * and its data has been freed.
+ * Using `GTask` requires the thread-default [struct@GLib.MainContext] from when
+ * the `GTask` was constructed to be running at least until the task has
+ * completed and its data has been freed.
  *
- * Here is an example for using GTask as a GAsyncResult:
- * |[<!-- language="C" -->
- *     typedef struct {
- *       CakeFrostingType frosting;
- *       char *message;
- *     } DecorationData;
+ * If a `GTask` has been constructed and its callback set, it is an error to
+ * not call `g_task_return_*()` on it. GLib will warn at runtime if this happens
+ * (since 2.76).
  *
- *     static void
- *     decoration_data_free (DecorationData *decoration)
+ * Here is an example for using `GTask` as a [iface@Gio.AsyncResult]:
+ * ```c
+ * typedef struct {
+ *   CakeFrostingType frosting;
+ *   char *message;
+ * } DecorationData;
+ *
+ * static void
+ * decoration_data_free (DecorationData *decoration)
+ * {
+ *   g_free (decoration->message);
+ *   g_slice_free (DecorationData, decoration);
+ * }
+ *
+ * static void
+ * baked_cb (Cake     *cake,
+ *           gpointer  user_data)
+ * {
+ *   GTask *task = user_data;
+ *   DecorationData *decoration = g_task_get_task_data (task);
+ *   GError *error = NULL;
+ *
+ *   if (cake == NULL)
  *     {
- *       g_free (decoration->message);
- *       g_slice_free (DecorationData, decoration);
+ *       g_task_return_new_error (task, BAKER_ERROR, BAKER_ERROR_NO_FLOUR,
+ *                                "Go to the supermarket");
+ *       g_object_unref (task);
+ *       return;
  *     }
  *
- *     static void
- *     baked_cb (Cake     *cake,
- *               gpointer  user_data)
+ *   if (!cake_decorate (cake, decoration->frosting, decoration->message, &error))
  *     {
- *       GTask *task = user_data;
- *       DecorationData *decoration = g_task_get_task_data (task);
- *       GError *error = NULL;
+ *       g_object_unref (cake);
+ *       // g_task_return_error() takes ownership of error
+ *       g_task_return_error (task, error);
+ *       g_object_unref (task);
+ *       return;
+ *     }
  *
- *       if (cake == NULL)
- *         {
- *           g_task_return_new_error (task, BAKER_ERROR, BAKER_ERROR_NO_FLOUR,
- *                                    "Go to the supermarket");
- *           g_object_unref (task);
- *           return;
- *         }
+ *   g_task_return_pointer (task, cake, g_object_unref);
+ *   g_object_unref (task);
+ * }
  *
- *       if (!cake_decorate (cake, decoration->frosting, decoration->message, &error))
- *         {
- *           g_object_unref (cake);
- *           // g_task_return_error() takes ownership of error
- *           g_task_return_error (task, error);
- *           g_object_unref (task);
- *           return;
- *         }
+ * void
+ * baker_bake_cake_async (Baker               *self,
+ *                        guint                radius,
+ *                        CakeFlavor           flavor,
+ *                        CakeFrostingType     frosting,
+ *                        const char          *message,
+ *                        GCancellable        *cancellable,
+ *                        GAsyncReadyCallback  callback,
+ *                        gpointer             user_data)
+ * {
+ *   GTask *task;
+ *   DecorationData *decoration;
+ *   Cake  *cake;
  *
+ *   task = g_task_new (self, cancellable, callback, user_data);
+ *   if (radius < 3)
+ *     {
+ *       g_task_return_new_error (task, BAKER_ERROR, BAKER_ERROR_TOO_SMALL,
+ *                                "%ucm radius cakes are silly",
+ *                                radius);
+ *       g_object_unref (task);
+ *       return;
+ *     }
+ *
+ *   cake = _baker_get_cached_cake (self, radius, flavor, frosting, message);
+ *   if (cake != NULL)
+ *     {
+ *       // _baker_get_cached_cake() returns a reffed cake
  *       g_task_return_pointer (task, cake, g_object_unref);
  *       g_object_unref (task);
+ *       return;
  *     }
  *
- *     void
- *     baker_bake_cake_async (Baker               *self,
- *                            guint                radius,
- *                            CakeFlavor           flavor,
- *                            CakeFrostingType     frosting,
- *                            const char          *message,
- *                            GCancellable        *cancellable,
- *                            GAsyncReadyCallback  callback,
- *                            gpointer             user_data)
- *     {
- *       GTask *task;
- *       DecorationData *decoration;
- *       Cake  *cake;
+ *   decoration = g_slice_new (DecorationData);
+ *   decoration->frosting = frosting;
+ *   decoration->message = g_strdup (message);
+ *   g_task_set_task_data (task, decoration, (GDestroyNotify) decoration_data_free);
  *
- *       task = g_task_new (self, cancellable, callback, user_data);
- *       if (radius < 3)
- *         {
- *           g_task_return_new_error (task, BAKER_ERROR, BAKER_ERROR_TOO_SMALL,
- *                                    "%ucm radius cakes are silly",
- *                                    radius);
- *           g_object_unref (task);
- *           return;
- *         }
+ *   _baker_begin_cake (self, radius, flavor, cancellable, baked_cb, task);
+ * }
  *
- *       cake = _baker_get_cached_cake (self, radius, flavor, frosting, message);
- *       if (cake != NULL)
- *         {
- *           // _baker_get_cached_cake() returns a reffed cake
- *           g_task_return_pointer (task, cake, g_object_unref);
- *           g_object_unref (task);
- *           return;
- *         }
+ * Cake *
+ * baker_bake_cake_finish (Baker         *self,
+ *                         GAsyncResult  *result,
+ *                         GError       **error)
+ * {
+ *   g_return_val_if_fail (g_task_is_valid (result, self), NULL);
  *
- *       decoration = g_slice_new (DecorationData);
- *       decoration->frosting = frosting;
- *       decoration->message = g_strdup (message);
- *       g_task_set_task_data (task, decoration, (GDestroyNotify) decoration_data_free);
- *
- *       _baker_begin_cake (self, radius, flavor, cancellable, baked_cb, task);
- *     }
- *
- *     Cake *
- *     baker_bake_cake_finish (Baker         *self,
- *                             GAsyncResult  *result,
- *                             GError       **error)
- *     {
- *       g_return_val_if_fail (g_task_is_valid (result, self), NULL);
- *
- *       return g_task_propagate_pointer (G_TASK (result), error);
- *     }
- * ]|
+ *   return g_task_propagate_pointer (G_TASK (result), error);
+ * }
+ * ```
  *
  * ## Chained asynchronous operations
  *
- * #GTask also tries to simplify asynchronous operations that
+ * `GTask` also tries to simplify asynchronous operations that
  * internally chain together several smaller asynchronous
- * operations. g_task_get_cancellable(), g_task_get_context(),
- * and g_task_get_priority() allow you to get back the task's
- * #GCancellable, #GMainContext, and [I/O priority][io-priority]
- * when starting a new subtask, so you don't have to keep track
- * of them yourself. g_task_attach_source() simplifies the case
+ * operations. [method@Gio.Task.get_cancellable], [method@Gio.Task.get_context],
+ * and [method@Gio.Task.get_priority] allow you to get back the task’s
+ * [class@Gio.Cancellable], [struct@GLib.MainContext], and
+ * [I/O priority](iface.AsyncResult.html#io-priority)
+ * when starting a new subtask, so you don’t have to keep track
+ * of them yourself. [method@Gio.Task.attach_source] simplifies the case
  * of waiting for a source to fire (automatically using the correct
- * #GMainContext and priority).
+ * [struct@GLib.MainContext] and priority).
  *
  * Here is an example for chained asynchronous operations:
- *   |[<!-- language="C" -->
- *     typedef struct {
- *       Cake *cake;
- *       CakeFrostingType frosting;
- *       char *message;
- *     } BakingData;
+ * ```c
+ * typedef struct {
+ *   Cake *cake;
+ *   CakeFrostingType frosting;
+ *   char *message;
+ * } BakingData;
  *
- *     static void
- *     decoration_data_free (BakingData *bd)
+ * static void
+ * decoration_data_free (BakingData *bd)
+ * {
+ *   if (bd->cake)
+ *     g_object_unref (bd->cake);
+ *   g_free (bd->message);
+ *   g_slice_free (BakingData, bd);
+ * }
+ *
+ * static void
+ * decorated_cb (Cake         *cake,
+ *               GAsyncResult *result,
+ *               gpointer      user_data)
+ * {
+ *   GTask *task = user_data;
+ *   GError *error = NULL;
+ *
+ *   if (!cake_decorate_finish (cake, result, &error))
  *     {
- *       if (bd->cake)
- *         g_object_unref (bd->cake);
- *       g_free (bd->message);
- *       g_slice_free (BakingData, bd);
- *     }
- *
- *     static void
- *     decorated_cb (Cake         *cake,
- *                   GAsyncResult *result,
- *                   gpointer      user_data)
- *     {
- *       GTask *task = user_data;
- *       GError *error = NULL;
- *
- *       if (!cake_decorate_finish (cake, result, &error))
- *         {
- *           g_object_unref (cake);
- *           g_task_return_error (task, error);
- *           g_object_unref (task);
- *           return;
- *         }
- *
- *       // baking_data_free() will drop its ref on the cake, so we have to
- *       // take another here to give to the caller.
- *       g_task_return_pointer (task, g_object_ref (cake), g_object_unref);
+ *       g_object_unref (cake);
+ *       g_task_return_error (task, error);
  *       g_object_unref (task);
+ *       return;
  *     }
  *
- *     static gboolean
- *     decorator_ready (gpointer user_data)
+ *   // baking_data_free() will drop its ref on the cake, so we have to
+ *   // take another here to give to the caller.
+ *   g_task_return_pointer (task, g_object_ref (cake), g_object_unref);
+ *   g_object_unref (task);
+ * }
+ *
+ * static gboolean
+ * decorator_ready (gpointer user_data)
+ * {
+ *   GTask *task = user_data;
+ *   BakingData *bd = g_task_get_task_data (task);
+ *
+ *   cake_decorate_async (bd->cake, bd->frosting, bd->message,
+ *                        g_task_get_cancellable (task),
+ *                        decorated_cb, task);
+ *
+ *   return G_SOURCE_REMOVE;
+ * }
+ *
+ * static void
+ * baked_cb (Cake     *cake,
+ *           gpointer  user_data)
+ * {
+ *   GTask *task = user_data;
+ *   BakingData *bd = g_task_get_task_data (task);
+ *   GError *error = NULL;
+ *
+ *   if (cake == NULL)
  *     {
- *       GTask *task = user_data;
- *       BakingData *bd = g_task_get_task_data (task);
- *
- *       cake_decorate_async (bd->cake, bd->frosting, bd->message,
- *                            g_task_get_cancellable (task),
- *                            decorated_cb, task);
- *
- *       return G_SOURCE_REMOVE;
+ *       g_task_return_new_error (task, BAKER_ERROR, BAKER_ERROR_NO_FLOUR,
+ *                                "Go to the supermarket");
+ *       g_object_unref (task);
+ *       return;
  *     }
  *
- *     static void
- *     baked_cb (Cake     *cake,
- *               gpointer  user_data)
+ *   bd->cake = cake;
+ *
+ *   // Bail out now if the user has already cancelled
+ *   if (g_task_return_error_if_cancelled (task))
  *     {
- *       GTask *task = user_data;
- *       BakingData *bd = g_task_get_task_data (task);
- *       GError *error = NULL;
- *
- *       if (cake == NULL)
- *         {
- *           g_task_return_new_error (task, BAKER_ERROR, BAKER_ERROR_NO_FLOUR,
- *                                    "Go to the supermarket");
- *           g_object_unref (task);
- *           return;
- *         }
- *
- *       bd->cake = cake;
- *
- *       // Bail out now if the user has already cancelled
- *       if (g_task_return_error_if_cancelled (task))
- *         {
- *           g_object_unref (task);
- *           return;
- *         }
- *
- *       if (cake_decorator_available (cake))
- *         decorator_ready (task);
- *       else
- *         {
- *           GSource *source;
- *
- *           source = cake_decorator_wait_source_new (cake);
- *           // Attach @source to @task's GMainContext and have it call
- *           // decorator_ready() when it is ready.
- *           g_task_attach_source (task, source, decorator_ready);
- *           g_source_unref (source);
- *         }
+ *       g_object_unref (task);
+ *       return;
  *     }
  *
- *     void
- *     baker_bake_cake_async (Baker               *self,
- *                            guint                radius,
- *                            CakeFlavor           flavor,
- *                            CakeFrostingType     frosting,
- *                            const char          *message,
- *                            gint                 priority,
- *                            GCancellable        *cancellable,
- *                            GAsyncReadyCallback  callback,
- *                            gpointer             user_data)
+ *   if (cake_decorator_available (cake))
+ *     decorator_ready (task);
+ *   else
  *     {
- *       GTask *task;
- *       BakingData *bd;
+ *       GSource *source;
  *
- *       task = g_task_new (self, cancellable, callback, user_data);
- *       g_task_set_priority (task, priority);
- *
- *       bd = g_slice_new0 (BakingData);
- *       bd->frosting = frosting;
- *       bd->message = g_strdup (message);
- *       g_task_set_task_data (task, bd, (GDestroyNotify) baking_data_free);
- *
- *       _baker_begin_cake (self, radius, flavor, cancellable, baked_cb, task);
+ *       source = cake_decorator_wait_source_new (cake);
+ *       // Attach @source to @task’s GMainContext and have it call
+ *       // decorator_ready() when it is ready.
+ *       g_task_attach_source (task, source, decorator_ready);
+ *       g_source_unref (source);
  *     }
+ * }
  *
- *     Cake *
- *     baker_bake_cake_finish (Baker         *self,
- *                             GAsyncResult  *result,
- *                             GError       **error)
- *     {
- *       g_return_val_if_fail (g_task_is_valid (result, self), NULL);
+ * void
+ * baker_bake_cake_async (Baker               *self,
+ *                        guint                radius,
+ *                        CakeFlavor           flavor,
+ *                        CakeFrostingType     frosting,
+ *                        const char          *message,
+ *                        gint                 priority,
+ *                        GCancellable        *cancellable,
+ *                        GAsyncReadyCallback  callback,
+ *                        gpointer             user_data)
+ * {
+ *   GTask *task;
+ *   BakingData *bd;
  *
- *       return g_task_propagate_pointer (G_TASK (result), error);
- *     }
- * ]|
+ *   task = g_task_new (self, cancellable, callback, user_data);
+ *   g_task_set_priority (task, priority);
+ *
+ *   bd = g_slice_new0 (BakingData);
+ *   bd->frosting = frosting;
+ *   bd->message = g_strdup (message);
+ *   g_task_set_task_data (task, bd, (GDestroyNotify) baking_data_free);
+ *
+ *   _baker_begin_cake (self, radius, flavor, cancellable, baked_cb, task);
+ * }
+ *
+ * Cake *
+ * baker_bake_cake_finish (Baker         *self,
+ *                         GAsyncResult  *result,
+ *                         GError       **error)
+ * {
+ *   g_return_val_if_fail (g_task_is_valid (result, self), NULL);
+ *
+ *   return g_task_propagate_pointer (G_TASK (result), error);
+ * }
+ * ```
  *
  * ## Asynchronous operations from synchronous ones
  *
- * You can use g_task_run_in_thread() to turn a synchronous
+ * You can use [method@Gio.Task.run_in_thread] to turn a synchronous
  * operation into an asynchronous one, by running it in a thread.
- * When it completes, the result will be dispatched to the
- * [thread-default main context][g-main-context-push-thread-default]
- * where the #GTask was created.
+ * When it completes, the result will be dispatched to the thread-default
+ * main context (see [method@GLib.MainContext.push_thread_default])
+ * where the `GTask` was created.
  *
  * Running a task in a thread:
- *   |[<!-- language="C" -->
- *     typedef struct {
- *       guint radius;
- *       CakeFlavor flavor;
- *       CakeFrostingType frosting;
- *       char *message;
- *     } CakeData;
+ * ```c
+ * typedef struct {
+ *   guint radius;
+ *   CakeFlavor flavor;
+ *   CakeFrostingType frosting;
+ *   char *message;
+ * } CakeData;
  *
- *     static void
- *     cake_data_free (CakeData *cake_data)
- *     {
- *       g_free (cake_data->message);
- *       g_slice_free (CakeData, cake_data);
- *     }
+ * static void
+ * cake_data_free (CakeData *cake_data)
+ * {
+ *   g_free (cake_data->message);
+ *   g_slice_free (CakeData, cake_data);
+ * }
  *
- *     static void
- *     bake_cake_thread (GTask         *task,
- *                       gpointer       source_object,
- *                       gpointer       task_data,
- *                       GCancellable  *cancellable)
- *     {
- *       Baker *self = source_object;
- *       CakeData *cake_data = task_data;
- *       Cake *cake;
- *       GError *error = NULL;
+ * static void
+ * bake_cake_thread (GTask         *task,
+ *                   gpointer       source_object,
+ *                   gpointer       task_data,
+ *                   GCancellable  *cancellable)
+ * {
+ *   Baker *self = source_object;
+ *   CakeData *cake_data = task_data;
+ *   Cake *cake;
+ *   GError *error = NULL;
  *
- *       cake = bake_cake (baker, cake_data->radius, cake_data->flavor,
- *                         cake_data->frosting, cake_data->message,
- *                         cancellable, &error);
- *       if (cake)
- *         g_task_return_pointer (task, cake, g_object_unref);
- *       else
- *         g_task_return_error (task, error);
- *     }
+ *   cake = bake_cake (baker, cake_data->radius, cake_data->flavor,
+ *                     cake_data->frosting, cake_data->message,
+ *                     cancellable, &error);
+ *   if (cake)
+ *     g_task_return_pointer (task, cake, g_object_unref);
+ *   else
+ *     g_task_return_error (task, error);
+ * }
  *
- *     void
- *     baker_bake_cake_async (Baker               *self,
- *                            guint                radius,
- *                            CakeFlavor           flavor,
- *                            CakeFrostingType     frosting,
- *                            const char          *message,
- *                            GCancellable        *cancellable,
- *                            GAsyncReadyCallback  callback,
- *                            gpointer             user_data)
- *     {
- *       CakeData *cake_data;
- *       GTask *task;
+ * void
+ * baker_bake_cake_async (Baker               *self,
+ *                        guint                radius,
+ *                        CakeFlavor           flavor,
+ *                        CakeFrostingType     frosting,
+ *                        const char          *message,
+ *                        GCancellable        *cancellable,
+ *                        GAsyncReadyCallback  callback,
+ *                        gpointer             user_data)
+ * {
+ *   CakeData *cake_data;
+ *   GTask *task;
  *
- *       cake_data = g_slice_new (CakeData);
- *       cake_data->radius = radius;
- *       cake_data->flavor = flavor;
- *       cake_data->frosting = frosting;
- *       cake_data->message = g_strdup (message);
- *       task = g_task_new (self, cancellable, callback, user_data);
- *       g_task_set_task_data (task, cake_data, (GDestroyNotify) cake_data_free);
- *       g_task_run_in_thread (task, bake_cake_thread);
- *       g_object_unref (task);
- *     }
+ *   cake_data = g_slice_new (CakeData);
+ *   cake_data->radius = radius;
+ *   cake_data->flavor = flavor;
+ *   cake_data->frosting = frosting;
+ *   cake_data->message = g_strdup (message);
+ *   task = g_task_new (self, cancellable, callback, user_data);
+ *   g_task_set_task_data (task, cake_data, (GDestroyNotify) cake_data_free);
+ *   g_task_run_in_thread (task, bake_cake_thread);
+ *   g_object_unref (task);
+ * }
  *
- *     Cake *
- *     baker_bake_cake_finish (Baker         *self,
- *                             GAsyncResult  *result,
- *                             GError       **error)
- *     {
- *       g_return_val_if_fail (g_task_is_valid (result, self), NULL);
+ * Cake *
+ * baker_bake_cake_finish (Baker         *self,
+ *                         GAsyncResult  *result,
+ *                         GError       **error)
+ * {
+ *   g_return_val_if_fail (g_task_is_valid (result, self), NULL);
  *
- *       return g_task_propagate_pointer (G_TASK (result), error);
- *     }
- * ]|
+ *   return g_task_propagate_pointer (G_TASK (result), error);
+ * }
+ * ```
  *
  * ## Adding cancellability to uncancellable tasks
  * 
- * Finally, g_task_run_in_thread() and g_task_run_in_thread_sync()
- * can be used to turn an uncancellable operation into a
- * cancellable one. If you call g_task_set_return_on_cancel(),
- * passing %TRUE, then if the task's #GCancellable is cancelled,
- * it will return control back to the caller immediately, while
- * allowing the task thread to continue running in the background
- * (and simply discarding its result when it finally does finish).
+ * Finally, [method@Gio.Task.run_in_thread] and
+ * [method@Gio.Task.run_in_thread_sync] can be used to turn an uncancellable
+ * operation into a cancellable one. If you call
+ * [method@Gio.Task.set_return_on_cancel], passing `TRUE`, then if the task’s
+ * [class@Gio.Cancellable] is cancelled, it will return control back to the
+ * caller immediately, while allowing the task thread to continue running in the
+ * background (and simply discarding its result when it finally does finish).
  * Provided that the task thread is careful about how it uses
  * locks and other externally-visible resources, this allows you
- * to make "GLib-friendly" asynchronous and cancellable
+ * to make ‘GLib-friendly’ asynchronous and cancellable
  * synchronous variants of blocking APIs.
  *
  * Cancelling a task:
- *   |[<!-- language="C" -->
- *     static void
- *     bake_cake_thread (GTask         *task,
- *                       gpointer       source_object,
- *                       gpointer       task_data,
- *                       GCancellable  *cancellable)
+ * ```c
+ * static void
+ * bake_cake_thread (GTask         *task,
+ *                   gpointer       source_object,
+ *                   gpointer       task_data,
+ *                   GCancellable  *cancellable)
+ * {
+ *   Baker *self = source_object;
+ *   CakeData *cake_data = task_data;
+ *   Cake *cake;
+ *   GError *error = NULL;
+ *
+ *   cake = bake_cake (baker, cake_data->radius, cake_data->flavor,
+ *                     cake_data->frosting, cake_data->message,
+ *                     &error);
+ *   if (error)
  *     {
- *       Baker *self = source_object;
- *       CakeData *cake_data = task_data;
- *       Cake *cake;
- *       GError *error = NULL;
- *
- *       cake = bake_cake (baker, cake_data->radius, cake_data->flavor,
- *                         cake_data->frosting, cake_data->message,
- *                         &error);
- *       if (error)
- *         {
- *           g_task_return_error (task, error);
- *           return;
- *         }
- *
- *       // If the task has already been cancelled, then we don't want to add
- *       // the cake to the cake cache. Likewise, we don't  want to have the
- *       // task get cancelled in the middle of updating the cache.
- *       // g_task_set_return_on_cancel() will return %TRUE here if it managed
- *       // to disable return-on-cancel, or %FALSE if the task was cancelled
- *       // before it could.
- *       if (g_task_set_return_on_cancel (task, FALSE))
- *         {
- *           // If the caller cancels at this point, their
- *           // GAsyncReadyCallback won't be invoked until we return,
- *           // so we don't have to worry that this code will run at
- *           // the same time as that code does. But if there were
- *           // other functions that might look at the cake cache,
- *           // then we'd probably need a GMutex here as well.
- *           baker_add_cake_to_cache (baker, cake);
- *           g_task_return_pointer (task, cake, g_object_unref);
- *         }
+ *       g_task_return_error (task, error);
+ *       return;
  *     }
  *
- *     void
- *     baker_bake_cake_async (Baker               *self,
- *                            guint                radius,
- *                            CakeFlavor           flavor,
- *                            CakeFrostingType     frosting,
- *                            const char          *message,
- *                            GCancellable        *cancellable,
- *                            GAsyncReadyCallback  callback,
- *                            gpointer             user_data)
+ *   // If the task has already been cancelled, then we don’t want to add
+ *   // the cake to the cake cache. Likewise, we don’t  want to have the
+ *   // task get cancelled in the middle of updating the cache.
+ *   // g_task_set_return_on_cancel() will return %TRUE here if it managed
+ *   // to disable return-on-cancel, or %FALSE if the task was cancelled
+ *   // before it could.
+ *   if (g_task_set_return_on_cancel (task, FALSE))
  *     {
- *       CakeData *cake_data;
- *       GTask *task;
- *
- *       cake_data = g_slice_new (CakeData);
- *
- *       ...
- *
- *       task = g_task_new (self, cancellable, callback, user_data);
- *       g_task_set_task_data (task, cake_data, (GDestroyNotify) cake_data_free);
- *       g_task_set_return_on_cancel (task, TRUE);
- *       g_task_run_in_thread (task, bake_cake_thread);
+ *       // If the caller cancels at this point, their
+ *       // GAsyncReadyCallback won’t be invoked until we return,
+ *       // so we don’t have to worry that this code will run at
+ *       // the same time as that code does. But if there were
+ *       // other functions that might look at the cake cache,
+ *       // then we’d probably need a GMutex here as well.
+ *       baker_add_cake_to_cache (baker, cake);
+ *       g_task_return_pointer (task, cake, g_object_unref);
  *     }
+ * }
  *
- *     Cake *
- *     baker_bake_cake_sync (Baker               *self,
- *                           guint                radius,
- *                           CakeFlavor           flavor,
- *                           CakeFrostingType     frosting,
- *                           const char          *message,
- *                           GCancellable        *cancellable,
- *                           GError             **error)
- *     {
- *       CakeData *cake_data;
- *       GTask *task;
- *       Cake *cake;
+ * void
+ * baker_bake_cake_async (Baker               *self,
+ *                        guint                radius,
+ *                        CakeFlavor           flavor,
+ *                        CakeFrostingType     frosting,
+ *                        const char          *message,
+ *                        GCancellable        *cancellable,
+ *                        GAsyncReadyCallback  callback,
+ *                        gpointer             user_data)
+ * {
+ *   CakeData *cake_data;
+ *   GTask *task;
  *
- *       cake_data = g_slice_new (CakeData);
+ *   cake_data = g_slice_new (CakeData);
  *
- *       ...
+ *   ...
  *
- *       task = g_task_new (self, cancellable, NULL, NULL);
- *       g_task_set_task_data (task, cake_data, (GDestroyNotify) cake_data_free);
- *       g_task_set_return_on_cancel (task, TRUE);
- *       g_task_run_in_thread_sync (task, bake_cake_thread);
+ *   task = g_task_new (self, cancellable, callback, user_data);
+ *   g_task_set_task_data (task, cake_data, (GDestroyNotify) cake_data_free);
+ *   g_task_set_return_on_cancel (task, TRUE);
+ *   g_task_run_in_thread (task, bake_cake_thread);
+ * }
  *
- *       cake = g_task_propagate_pointer (task, error);
- *       g_object_unref (task);
- *       return cake;
- *     }
- * ]|
+ * Cake *
+ * baker_bake_cake_sync (Baker               *self,
+ *                       guint                radius,
+ *                       CakeFlavor           flavor,
+ *                       CakeFrostingType     frosting,
+ *                       const char          *message,
+ *                       GCancellable        *cancellable,
+ *                       GError             **error)
+ * {
+ *   CakeData *cake_data;
+ *   GTask *task;
+ *   Cake *cake;
  *
- * ## Porting from GSimpleAsyncResult
+ *   cake_data = g_slice_new (CakeData);
+ *
+ *   ...
+ *
+ *   task = g_task_new (self, cancellable, NULL, NULL);
+ *   g_task_set_task_data (task, cake_data, (GDestroyNotify) cake_data_free);
+ *   g_task_set_return_on_cancel (task, TRUE);
+ *   g_task_run_in_thread_sync (task, bake_cake_thread);
+ *
+ *   cake = g_task_propagate_pointer (task, error);
+ *   g_object_unref (task);
+ *   return cake;
+ * }
+ * ```
+ *
+ * ## Porting from [class@Gio.SimpleAsyncResult]
  * 
- * #GTask's API attempts to be simpler than #GSimpleAsyncResult's
+ * `GTask`’s API attempts to be simpler than [class@Gio.SimpleAsyncResult]’s
  * in several ways:
- * - You can save task-specific data with g_task_set_task_data(), and
- *   retrieve it later with g_task_get_task_data(). This replaces the
- *   abuse of g_simple_async_result_set_op_res_gpointer() for the same
- *   purpose with #GSimpleAsyncResult.
- * - In addition to the task data, #GTask also keeps track of the
- *   [priority][io-priority], #GCancellable, and
- *   #GMainContext associated with the task, so tasks that consist of
- *   a chain of simpler asynchronous operations will have easy access
+ *
+ * - You can save task-specific data with [method@Gio.Task.set_task_data], and
+ *   retrieve it later with [method@Gio.Task.get_task_data]. This replaces the
+ *   abuse of [method@Gio.SimpleAsyncResult.set_op_res_gpointer] for the same
+ *   purpose with [class@Gio.SimpleAsyncResult].
+ * - In addition to the task data, `GTask` also keeps track of the
+ *   [priority](iface.AsyncResult.html#io-priority), [class@Gio.Cancellable],
+ *   and [struct@GLib.MainContext] associated with the task, so tasks that
+ *   consist of a chain of simpler asynchronous operations will have easy access
  *   to those values when starting each sub-task.
- * - g_task_return_error_if_cancelled() provides simplified
+ * - [method@Gio.Task.return_error_if_cancelled] provides simplified
  *   handling for cancellation. In addition, cancellation
- *   overrides any other #GTask return value by default, like
- *   #GSimpleAsyncResult does when
- *   g_simple_async_result_set_check_cancellable() is called.
- *   (You can use g_task_set_check_cancellable() to turn off that
- *   behavior.) On the other hand, g_task_run_in_thread()
+ *   overrides any other `GTask` return value by default, like
+ *   [class@Gio.SimpleAsyncResult] does when
+ *   [method@Gio.SimpleAsyncResult.set_check_cancellable] is called.
+ *   (You can use [method@Gio.Task.set_check_cancellable] to turn off that
+ *   behavior.) On the other hand, [method@Gio.Task.run_in_thread]
  *   guarantees that it will always run your
- *   `task_func`, even if the task's #GCancellable
+ *   `task_func`, even if the task’s [class@Gio.Cancellable]
  *   is already cancelled before the task gets a chance to run;
  *   you can start your `task_func` with a
- *   g_task_return_error_if_cancelled() check if you need the
+ *   [method@Gio.Task.return_error_if_cancelled] check if you need the
  *   old behavior.
- * - The "return" methods (eg, g_task_return_pointer())
- *   automatically cause the task to be "completed" as well, and
- *   there is no need to worry about the "complete" vs "complete
- *   in idle" distinction. (#GTask automatically figures out
- *   whether the task's callback can be invoked directly, or
- *   if it needs to be sent to another #GMainContext, or delayed
- *   until the next iteration of the current #GMainContext.)
- * - The "finish" functions for #GTask based operations are generally
- *   much simpler than #GSimpleAsyncResult ones, normally consisting
- *   of only a single call to g_task_propagate_pointer() or the like.
- *   Since g_task_propagate_pointer() "steals" the return value from
- *   the #GTask, it is not necessary to juggle pointers around to
+ * - The ‘return’ methods (eg, [method@Gio.Task.return_pointer])
+ *   automatically cause the task to be ‘completed’ as well, and
+ *   there is no need to worry about the ‘complete’ vs ‘complete in idle’
+ *   distinction. (`GTask` automatically figures out
+ *   whether the task’s callback can be invoked directly, or
+ *   if it needs to be sent to another [struct@GLib.MainContext], or delayed
+ *   until the next iteration of the current [struct@GLib.MainContext].)
+ * - The ‘finish’ functions for `GTask` based operations are generally
+ *   much simpler than [class@Gio.SimpleAsyncResult] ones, normally consisting
+ *   of only a single call to [method@Gio.Task.propagate_pointer] or the like.
+ *   Since [method@Gio.Task.propagate_pointer] ‘steals’ the return value from
+ *   the `GTask`, it is not necessary to juggle pointers around to
  *   prevent it from being freed twice.
- * - With #GSimpleAsyncResult, it was common to call
- *   g_simple_async_result_propagate_error() from the
+ * - With [class@Gio.SimpleAsyncResult], it was common to call
+ *   [method@Gio.SimpleAsyncResult.propagate_error] from the
  *   `_finish()` wrapper function, and have
  *   virtual method implementations only deal with successful
  *   returns. This behavior is deprecated, because it makes it
- *   difficult for a subclass to chain to a parent class's async
+ *   difficult for a subclass to chain to a parent class’s async
  *   methods. Instead, the wrapper function should just be a
  *   simple wrapper, and the virtual method should call an
  *   appropriate `g_task_propagate_` function.
  *   Note that wrapper methods can now use
- *   g_async_result_legacy_propagate_error() to do old-style
- *   #GSimpleAsyncResult error-returning behavior, and
- *   g_async_result_is_tagged() to check if a result is tagged as
+ *   [method@Gio.AsyncResult.legacy_propagate_error] to do old-style
+ *   [class@Gio.SimpleAsyncResult] error-returning behavior, and
+ *   [method@Gio.AsyncResult.is_tagged] to check if a result is tagged as
  *   having come from the `_async()` wrapper
- *   function (for "short-circuit" results, such as when passing
- *   0 to g_input_stream_read_async()).
- */
-
-/**
- * GTask:
+ *   function (for ‘short-circuit’ results, such as when passing
+ *   `0` to [method@Gio.InputStream.read_async]).
  *
- * The opaque object representing a synchronous or asynchronous task
- * and its result.
+ * ## Thread-safety considerations
+ *
+ * Due to some infelicities in the API design, there is a
+ * thread-safety concern that users of `GTask` have to be aware of:
+ *
+ * If the `main` thread drops its last reference to the source object
+ * or the task data before the task is finalized, then the finalizers
+ * of these objects may be called on the worker thread.
+ *
+ * This is a problem if the finalizers use non-threadsafe API, and
+ * can lead to hard-to-debug crashes. Possible workarounds include:
+ *
+ * - Clear task data in a signal handler for `notify::completed`
+ * - Keep iterating a main context in the main thread and defer
+ *   dropping the reference to the source object to that main
+ *   context when the task is finalized
  */
 
 struct _GTask {
@@ -573,21 +585,22 @@ struct _GTask {
   gboolean thread_cancelled;
 
   /* Protected by the lock when task is threaded: */
-  gboolean thread_complete : 1;
-  gboolean return_on_cancel : 1;
-  gboolean : 0;
+  guint thread_complete : 1;
+  guint return_on_cancel : 1;
+  guint : 0;
 
   /* Unprotected, but written to when task runs in thread: */
-  gboolean completed : 1;
-  gboolean had_error : 1;
-  gboolean result_set : 1;
-  gboolean ever_returned : 1;
-  gboolean : 0;
+  guint completed : 1;
+  guint had_error : 1;
+  guint result_set : 1;
+  guint ever_returned : 1;
+  guint : 0;
 
   /* Read-only once task runs in thread: */
-  gboolean check_cancellable : 1;
-  gboolean synchronous : 1;
-  gboolean blocking_other_task : 1;
+  guint check_cancellable : 1;
+  guint synchronous : 1;
+  guint blocking_other_task : 1;
+  guint name_is_static : 1;
 
   GError *error;
   union {
@@ -653,14 +666,95 @@ g_task_init (GTask *task)
   task->check_cancellable = TRUE;
 }
 
+#ifdef G_ENABLE_DEBUG
+G_LOCK_DEFINE_STATIC (task_list);
+static GPtrArray *task_list = NULL;
+
+void
+g_task_print_alive_tasks (void)
+{
+  GString *message_str = g_string_new ("");
+
+  G_LOCK (task_list);
+
+  if (task_list != NULL)
+    {
+      g_string_append_printf (message_str, "%u GTasks still alive:", task_list->len);
+      for (guint i = 0; i < task_list->len; i++)
+        {
+          GTask *task = g_ptr_array_index (task_list, i);
+          const gchar *name = g_task_get_name (task);
+          g_string_append_printf (message_str,
+                                  "\n • GTask %p, %s, ref count: %u, ever_returned: %u, completed: %u",
+                                  task, (name != NULL) ? name : "(no name set)",
+                                  ((GObject *) task)->ref_count,
+                                  task->ever_returned, task->completed);
+        }
+    }
+  else
+    {
+      g_string_append (message_str, "No GTasks still alive");
+    }
+
+  G_UNLOCK (task_list);
+
+  g_message ("%s", message_str->str);
+  g_string_free (message_str, TRUE);
+}
+
+static void
+g_task_constructed (GObject *object)
+{
+  GTask *task = G_TASK (object);
+
+  G_OBJECT_CLASS (g_task_parent_class)->constructed (object);
+
+  /* Track pending tasks for debugging purposes */
+  G_LOCK (task_list);
+  if (G_UNLIKELY (task_list == NULL))
+    task_list = g_ptr_array_new ();
+  g_ptr_array_add (task_list, task);
+  G_UNLOCK (task_list);
+}
+#endif  /* G_ENABLE_DEBUG */
+
 static void
 g_task_finalize (GObject *object)
 {
   GTask *task = G_TASK (object);
 
+  /* Warn if a #GTask is finalised without g_task_return() ever having been
+   * called on it.
+   *
+   * Tasks without a callback or which are run in g_task_run_in_thread{,_sync}()
+   * only trigger a debug message as that’s sometimes used as a pattern for
+   * running work in a worker thread without caring about the result. */
+  if (!task->ever_returned)
+    {
+      gchar *owned_task_name = NULL;
+      const gchar *task_name = g_task_get_name (task);
+
+      if (task_name == NULL)
+        task_name = owned_task_name = g_strdup_printf ("%p", task);
+
+      if (task->callback != NULL && !G_TASK_IS_THREADED (task))
+        g_critical ("GTask %s (source object: %p, source tag: %p) finalized without "
+                    "ever returning (using g_task_return_*()). This potentially "
+                    "indicates a bug in the program.",
+                    task_name, task->source_object, task->source_tag);
+      else
+        g_debug ("GTask %s (source object: %p, source tag: %p) finalized without "
+                 "ever returning (using g_task_return_*()). This potentially "
+                 "indicates a bug in the program.",
+                 task_name, task->source_object, task->source_tag);
+
+      g_free (owned_task_name);
+    }
+
   g_clear_object (&task->source_object);
   g_clear_object (&task->cancellable);
-  g_free (task->name);
+  if (!task->name_is_static)
+    g_free (task->name);
 
   if (task->context)
     g_main_context_unref (task->context);
@@ -680,6 +774,16 @@ g_task_finalize (GObject *object)
       g_cond_clear (&task->cond);
     }
 
+  /* Track pending tasks for debugging purposes */
+#ifdef G_ENABLE_DEBUG
+  G_LOCK (task_list);
+  g_assert (task_list != NULL);
+  g_ptr_array_remove_fast (task_list, task);
+  if (G_UNLIKELY (task_list->len == 0))
+    g_clear_pointer (&task_list, g_ptr_array_unref);
+  G_UNLOCK (task_list);
+#endif  /* G_ENABLE_DEBUG */
+
   G_OBJECT_CLASS (g_task_parent_class)->finalize (object);
 }
 
@@ -689,11 +793,11 @@ g_task_finalize (GObject *object)
  *   this task, or %NULL.
  * @cancellable: (nullable): optional #GCancellable object, %NULL to ignore.
  * @callback: (scope async): a #GAsyncReadyCallback.
- * @callback_data: (closure): user data passed to @callback.
+ * @callback_data: user data passed to @callback.
  *
  * Creates a #GTask acting on @source_object, which will eventually be
- * used to invoke @callback in the current
- * [thread-default main context][g-main-context-push-thread-default].
+ * used to invoke @callback in the current thread-default main context
+ * (see [method@GLib.MainContext.push_thread_default]).
  *
  * Call this in the "start" method of your asynchronous method, and
  * pass the #GTask around throughout the asynchronous operation. You
@@ -742,8 +846,8 @@ g_task_new (gpointer              source_object,
  * g_task_report_error:
  * @source_object: (nullable) (type GObject): the #GObject that owns
  *   this task, or %NULL.
- * @callback: (scope async): a #GAsyncReadyCallback.
- * @callback_data: (closure): user data passed to @callback.
+ * @callback: (scope async) (closure callback_data): a #GAsyncReadyCallback.
+ * @callback_data: user data passed to @callback.
  * @source_tag: an opaque pointer indicating the source of this task
  * @error: (transfer full): error to report
  *
@@ -769,7 +873,7 @@ g_task_report_error (gpointer             source_object,
 
   task = g_task_new (source_object, NULL, callback, callback_data);
   g_task_set_source_tag (task, source_tag);
-  g_task_set_name (task, G_STRFUNC);
+  g_task_set_static_name (task, G_STRFUNC);
   g_task_return_error (task, error);
   g_object_unref (task);
 }
@@ -778,8 +882,8 @@ g_task_report_error (gpointer             source_object,
  * g_task_report_new_error:
  * @source_object: (nullable) (type GObject): the #GObject that owns
  *   this task, or %NULL.
- * @callback: (scope async): a #GAsyncReadyCallback.
- * @callback_data: (closure): user data passed to @callback.
+ * @callback: (scope async) (closure callback_data): a #GAsyncReadyCallback.
+ * @callback_data: user data passed to @callback.
  * @source_tag: an opaque pointer indicating the source of this task
  * @domain: a #GQuark.
  * @code: an error code.
@@ -848,7 +952,7 @@ g_task_set_task_data (GTask          *task,
 /**
  * g_task_set_priority:
  * @task: the #GTask
- * @priority: the [priority][io-priority] of the request
+ * @priority: the [priority](iface.AsyncResult.html#io-priority) of the request
  *
  * Sets @task's priority. If you do not call this, it will default to
  * %G_PRIORITY_DEFAULT.
@@ -1022,22 +1126,49 @@ void
  * name of the #GSource used for idle completion of the task.
  *
  * This function may only be called before the @task is first used in a thread
- * other than the one it was constructed in. It is called automatically by
- * g_task_set_source_tag() if not called already.
+ * other than the one it was constructed in.
  *
  * Since: 2.60
  */
 void
-g_task_set_name (GTask       *task,
-                 const gchar *name)
+(g_task_set_name) (GTask      *task,
+                   const char *name)
 {
-  gchar *new_name;
+  char *new_name;
 
   g_return_if_fail (G_IS_TASK (task));
 
   new_name = g_strdup (name);
-  g_free (task->name);
+  if (!task->name_is_static)
+    g_free (task->name);
   task->name = g_steal_pointer (&new_name);
+  task->name_is_static = FALSE;
+}
+
+/**
+ * g_task_set_static_name:
+ * @task: a #GTask
+ * @name: (nullable): a human readable name for the task. Must be a string literal
+ *
+ * Sets @task’s name, used in debugging and profiling.
+ *
+ * This is a variant of g_task_set_name() that avoids copying @name.
+ *
+ * This function is called automatically by [method@Gio.Task.set_source_tag]
+ * unless a name is set.
+ *
+ * Since: 2.76
+ */
+void
+g_task_set_static_name (GTask      *task,
+                        const char *name)
+{
+  g_return_if_fail (G_IS_TASK (task));
+
+  if (!task->name_is_static)
+    g_free (task->name);
+  task->name = (char *) name;
+  task->name_is_static = TRUE;
 }
 
 /**
@@ -1111,8 +1242,8 @@ g_task_get_priority (GTask *task)
  * @task: a #GTask
  *
  * Gets the #GMainContext that @task will return its result in (that
- * is, the context that was the
- * [thread-default main context][g-main-context-push-thread-default]
+ * is, the context that was the thread-default main context
+ * (see [method@GLib.MainContext.push_thread_default])
  * at the point when @task was created).
  *
  * This will always return a non-%NULL value, even if the task's
@@ -1408,7 +1539,7 @@ g_task_thread_setup (void)
   if (tasks_running == G_TASK_POOL_SIZE)
     task_wait_time = G_TASK_WAIT_TIME_BASE;
   else if (tasks_running > G_TASK_POOL_SIZE && tasks_running < G_TASK_WAIT_TIME_MAX_POOL_SIZE)
-    task_wait_time *= G_TASK_WAIT_TIME_MULTIPLIER;
+    task_wait_time = (guint64) (task_wait_time * G_TASK_WAIT_TIME_MULTIPLIER);
 
   if (tasks_running >= G_TASK_POOL_SIZE)
     g_source_set_ready_time (task_pool_manager, g_get_monotonic_time () + task_wait_time);
@@ -1433,7 +1564,7 @@ g_task_thread_cleanup (void)
     g_source_set_ready_time (task_pool_manager, -1);
 
   if (tasks_running > G_TASK_POOL_SIZE && tasks_running < G_TASK_WAIT_TIME_MAX_POOL_SIZE)
-    task_wait_time /= G_TASK_WAIT_TIME_MULTIPLIER;
+    task_wait_time = (guint64) (task_wait_time / G_TASK_WAIT_TIME_MULTIPLIER);
 
   tasks_running--;
 
@@ -1557,6 +1688,13 @@ g_task_start_task_thread (GTask           *task,
  * tasks), but don't want them to all run at once, you should only queue a
  * limited number of them (around ten) at a time.
  *
+ * Be aware that if your task depends on other tasks to complete, use of this
+ * function could lead to a livelock if the other tasks also use this function
+ * and enough of them (around 10) execute in a dependency chain, as that will
+ * exhaust the thread pool. If this situation is possible, consider using a
+ * separate worker thread or thread pool explicitly, rather than using
+ * g_task_run_in_thread().
+ *
  * Since: 2.36
  */
 void
@@ -1641,11 +1779,13 @@ g_task_run_in_thread_sync (GTask           *task,
  *
  * A utility function for dealing with async operations where you need
  * to wait for a #GSource to trigger. Attaches @source to @task's
- * #GMainContext with @task's [priority][io-priority], and sets @source's
- * callback to @callback, with @task as the callback's `user_data`.
+ * #GMainContext with @task's [priority](iface.AsyncResult.html#io-priority),
+ * and sets @source's callback to @callback, with @task as the callback's
+ * `user_data`.
  *
  * It will set the @source’s name to the task’s name (as set with
- * g_task_set_name()), if one has been set.
+ * g_task_set_name()), if one has been set on the task and the source doesn’t
+ * yet have a name.
  *
  * This takes a reference on @task until @source is destroyed.
  *
@@ -1661,7 +1801,7 @@ g_task_attach_source (GTask       *task,
   g_source_set_callback (source, callback,
                          g_object_ref (task), g_object_unref);
   g_source_set_priority (source, task->priority);
-  if (task->name != NULL)
+  if (task->name != NULL && g_source_get_name (source) == NULL)
     g_source_set_name (source, task->name);
 
   g_source_attach (source, task->context);
@@ -1893,7 +2033,8 @@ g_task_propagate_boolean (GTask   *task,
  * Call g_error_copy() on the error if you need to keep a local copy
  * as well.
  *
- * See also g_task_return_new_error().
+ * See also [method@Gio.Task.return_new_error],
+ * [method@Gio.Task.return_new_error_literal].
  *
  * Since: 2.36
  */
@@ -1906,6 +2047,54 @@ g_task_return_error (GTask  *task,
   g_return_if_fail (error != NULL);
 
   task->error = error;
+
+  g_task_return (task, G_TASK_RETURN_ERROR);
+}
+
+/**
+ * g_task_return_prefixed_error:
+ * @task: a #GTask.
+ * @error: (transfer full): the #GError result of a task function.
+ * @format: a string with format characters.
+ * @...: a list of values to insert into @format.
+ * 
+ * Sets @task's result to @error (which @task assumes ownership of), with
+ * the message prefixed according to @format, and completes the task
+ * (see g_task_return_pointer() for more discussion of exactly what this
+ * means).
+ *
+ * Note that since the task takes ownership of @error, and since the
+ * task may be completed before returning from g_task_return_prefixed_error(),
+ * you cannot assume that @error is still valid after calling this.
+ * Call g_error_copy() on the error if you need to keep a local copy
+ * as well.
+ *
+ * See also g_task_return_error(), g_prefix_error().
+ *
+ * Since: 2.80
+ */
+void
+g_task_return_prefixed_error (GTask      *task,
+                              GError     *error,
+                              const char *format,
+                              ...)
+{
+  char *prefix;
+  va_list ap;
+
+  g_return_if_fail (G_IS_TASK (task));
+  g_return_if_fail (!task->ever_returned);
+  g_return_if_fail (error != NULL);
+
+  task->error = error;
+
+  va_start (ap, format);
+  prefix = g_strdup_vprintf (format, ap);
+  va_end (ap);
+
+  g_prefix_error_literal (&task->error, prefix);
+
+  g_free (prefix);
 
   g_task_return (task, G_TASK_RETURN_ERROR);
 }
@@ -1942,6 +2131,32 @@ g_task_return_new_error (GTask           *task,
   va_end (args);
 
   g_task_return_error (task, error);
+}
+
+/**
+ * g_task_return_new_error_literal:
+ * @task: a #GTask.
+ * @domain: a #GQuark.
+ * @code: an error code.
+ * @message: an error message
+ *
+ * Sets @task’s result to a new [type@GLib.Error] created from @domain, @code,
+ * @message and completes the task.
+ *
+ * See [method@Gio.Task.return_pointer] for more discussion of exactly what
+ * ‘completing the task’ means.
+ *
+ * See also [method@Gio.Task.return_new_error].
+ *
+ * Since: 2.80
+ */
+void
+g_task_return_new_error_literal (GTask      *task,
+                                 GQuark      domain,
+                                 gint        code,
+                                 const char *message)
+{
+  g_task_return_error (task, g_error_new_literal (domain, code, message));
 }
 
 /**
@@ -2231,6 +2446,9 @@ g_task_class_init (GTaskClass *klass)
 {
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
 
+#ifdef G_ENABLE_DEBUG
+  gobject_class->constructed = g_task_constructed;
+#endif
   gobject_class->get_property = g_task_get_property;
   gobject_class->finalize = g_task_finalize;
 
@@ -2238,9 +2456,18 @@ g_task_class_init (GTaskClass *klass)
    * GTask:completed:
    *
    * Whether the task has completed, meaning its callback (if set) has been
-   * invoked. This can only happen after g_task_return_pointer(),
+   * invoked.
+   *
+   * This can only happen after g_task_return_pointer(),
    * g_task_return_error() or one of the other return functions have been called
-   * on the task.
+   * on the task. However, it is not guaranteed to happen immediately after
+   * those functions are called, as the task’s callback may need to be scheduled
+   * to run in a different thread.
+   *
+   * That means it is **not safe** to use this property to track whether a
+   * return function has been called on the #GTask. Callers must do that
+   * tracking themselves, typically by linking the lifetime of the #GTask to the
+   * control flow of their code.
    *
    * This property is guaranteed to change from %FALSE to %TRUE exactly once.
    *
@@ -2250,9 +2477,7 @@ g_task_class_init (GTaskClass *klass)
    * Since: 2.44
    */
   g_object_class_install_property (gobject_class, PROP_COMPLETED,
-    g_param_spec_boolean ("completed",
-                          P_("Task completed"),
-                          P_("Whether the task has completed yet"),
+    g_param_spec_boolean ("completed", NULL, NULL,
                           FALSE, G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
 
   if (G_UNLIKELY (task_pool_max_counter == 0))

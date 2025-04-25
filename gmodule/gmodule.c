@@ -45,93 +45,19 @@
 #include <io.h>		/* For open() and close() prototypes. */
 #endif
 
+#ifndef O_CLOEXEC
+#define O_CLOEXEC 0
+#endif
+
 #include "gmoduleconf.h"
 #include "gstdio.h"
 
-/**
- * SECTION:modules
- * @title: Dynamic Loading of Modules
- * @short_description: portable method for dynamically loading 'plug-ins'
- *
- * These functions provide a portable way to dynamically load object files
- * (commonly known as 'plug-ins'). The current implementation supports all
- * systems that provide an implementation of dlopen() (e.g. Linux/Sun), as
- * well as Windows platforms via DLLs.
- *
- * A program which wants to use these functions must be linked to the
- * libraries output by the command `pkg-config --libs gmodule-2.0`.
- *
- * To use them you must first determine whether dynamic loading
- * is supported on the platform by calling g_module_supported().
- * If it is, you can open a module with g_module_open(),
- * find the module's symbols (e.g. function names) with g_module_symbol(),
- * and later close the module with g_module_close().
- * g_module_name() will return the file name of a currently opened module.
- *
- * If any of the above functions fail, the error status can be found with
- * g_module_error().
- *
- * The #GModule implementation features reference counting for opened modules,
- * and supports hook functions within a module which are called when the
- * module is loaded and unloaded (see #GModuleCheckInit and #GModuleUnload).
- *
- * If your module introduces static data to common subsystems in the running
- * program, e.g. through calling
- * `g_quark_from_static_string ("my-module-stuff")`,
- * it must ensure that it is never unloaded, by calling g_module_make_resident().
- *
- * Example: Calling a function defined in a GModule
- * |[<!-- language="C" --> 
- * // the function signature for 'say_hello'
- * typedef void (* SayHelloFunc) (const char *message);
- *
- * gboolean
- * just_say_hello (const char *filename, GError **error)
- * {
- *   SayHelloFunc  say_hello;
- *   GModule      *module;
- *
- *   module = g_module_open (filename, G_MODULE_BIND_LAZY);
- *   if (!module)
- *     {
- *       g_set_error (error, FOO_ERROR, FOO_ERROR_BLAH,
- *                    "%s", g_module_error ());
- *       return FALSE;
- *     }
- *
- *   if (!g_module_symbol (module, "say_hello", (gpointer *)&say_hello))
- *     {
- *       g_set_error (error, SAY_ERROR, SAY_ERROR_OPEN,
- *                    "%s: %s", filename, g_module_error ());
- *       if (!g_module_close (module))
- *         g_warning ("%s: %s", filename, g_module_error ());
- *       return FALSE;
- *     }
- *
- *   if (say_hello == NULL)
- *     {
- *       g_set_error (error, SAY_ERROR, SAY_ERROR_OPEN,
- *                    "symbol say_hello is NULL");
- *       if (!g_module_close (module))
- *         g_warning ("%s: %s", filename, g_module_error ());
- *       return FALSE;
- *     }
- *
- *   // call our function in the module
- *   say_hello ("Hello world!");
- *
- *   if (!g_module_close (module))
- *     g_warning ("%s: %s", filename, g_module_error ());
- *   return TRUE;
- *  }
- * ]|
- */
 
 /**
  * GModule:
  *
  * The #GModule struct is an opaque data structure to represent a
- * [dynamically-loaded module][glib-Dynamic-Loading-of-Modules].
+ * [dynamically-loaded module](modules.html#dynamic-loading-of-modules).
  * It should only be accessed via the following functions.
  */
 
@@ -161,9 +87,24 @@
 /**
  * G_MODULE_SUFFIX:
  *
- * Expands to the proper shared library suffix for the current platform
- * without the leading dot. For most Unices and Linux this is "so", and
- * for Windows this is "dll".
+ * Expands to a shared library suffix for the current platform without the
+ * leading dot. On Unixes this is "so", and on Windows this is "dll".
+ *
+ * Deprecated: 2.76: Use g_module_open() instead with @module_name as the
+ * basename of the file_name argument. You will get the wrong results using
+ * this macro most of the time:
+ *
+ * 1. The suffix on macOS is usually 'dylib', but it's 'so' when using
+ *    Autotools, so there's no way to get the suffix correct using
+ *    a pre-processor macro.
+ * 2. Prefixes also vary in a platform-specific way. You may or may not have
+ *    a 'lib' prefix for the name on Windows and on Cygwin the prefix is
+ *    'cyg'.
+ * 3. The library name itself can vary per platform. For instance, you may
+ *    want to load foo-1.dll on Windows and libfoo.1.dylib on macOS.
+ *
+ * g_module_open() takes care of all this by searching the filesystem for
+ * combinations of possible suffixes and prefixes.
  */
 
 /**
@@ -178,6 +119,11 @@
  * non-default
  * [visibility flag](https://gcc.gnu.org/onlinedocs/gcc/Code-Gen-Options.html#index-fvisibility-1260)
  * such as `hidden`.
+ *
+ * This macro must only be used when compiling a shared module. Modules that
+ * support both shared and static linking should define their own macro that
+ * expands to %G_MODULE_EXPORT when compiling the shared module, but is empty
+ * when compiling the static module on Windows.
  */
 
 /**
@@ -214,8 +160,14 @@ static void		_g_module_close		(gpointer	 handle);
 static gpointer		_g_module_self		(void);
 static gpointer		_g_module_symbol	(gpointer	 handle,
 						 const gchar	*symbol_name);
+#if (G_MODULE_IMPL != G_MODULE_IMPL_DL) && (G_MODULE_IMPL != G_MODULE_IMPL_AR)
 static gchar*		_g_module_build_path	(const gchar	*directory,
 						 const gchar	*module_name);
+#else
+/* Implementation is in gmodule-deprecated.c */
+gchar*		        _g_module_build_path	(const gchar	*directory,
+						 const gchar	*module_name);
+#endif
 static inline void	g_module_set_error	(const gchar	*error);
 static inline GModule*	g_module_find_by_handle (gpointer	 handle);
 static inline GModule*	g_module_find_by_name	(const gchar	*name);
@@ -362,7 +314,7 @@ parse_libtool_archive (const gchar* libtool_name)
   GTokenType token;
   GScanner *scanner;
   
-  int fd = g_open (libtool_name, O_RDONLY, 0);
+  int fd = g_open (libtool_name, O_RDONLY | O_CLOEXEC, 0);
   if (fd < 0)
     {
       gchar *display_libtool_name = g_filename_display_name (libtool_name);
@@ -476,24 +428,35 @@ static GRecMutex g_module_global_lock;
 
 /**
  * g_module_open_full:
- * @file_name: (nullable): the name of the file containing the module, or %NULL
- *     to obtain a #GModule representing the main program itself
+ * @file_name: (nullable): the name or path to the file containing the module,
+ *     or %NULL to obtain a #GModule representing the main program itself
  * @flags: the flags used for opening the module. This can be the
  *     logical OR of any of the #GModuleFlags
  * @error: #GError.
  *
- * Opens a module. If the module has already been opened,
- * its reference count is incremented.
+ * Opens a module. If the module has already been opened, its reference count
+ * is incremented. If not, the module is searched using @file_name.
  *
- * First of all g_module_open_full() tries to open @file_name as a module.
- * If that fails and @file_name has the ".la"-suffix (and is a libtool
- * archive) it tries to open the corresponding module. If that fails
- * and it doesn't have the proper module suffix for the platform
- * (%G_MODULE_SUFFIX), this suffix will be appended and the corresponding
- * module will be opened. If that fails and @file_name doesn't have the
- * ".la"-suffix, this suffix is appended and g_module_open_full() tries to open
- * the corresponding module. If eventually that fails as well, %NULL is
- * returned.
+ * Since 2.76, the search order/behavior is as follows:
+ *
+ * 1. If @file_name exists as a regular file, it is used as-is; else
+ * 2. If @file_name doesn't have the correct suffix and/or prefix for the
+ *    platform, then possible suffixes and prefixes will be added to the
+ *    basename till a file is found and whatever is found will be used; else
+ * 3. If @file_name doesn't have the ".la"-suffix, ".la" is appended. Either
+ *    way, if a matching .la file exists (and is a libtool archive) the
+ *    libtool archive is parsed to find the actual file name, and that is
+ *    used.
+ *
+ * If, at the end of all this, we have a file path that we can access on disk,
+ * it is opened as a module. If not, @file_name is attempted to be opened as a
+ * module verbatim in the hopes that the system implementation will somehow be
+ * able to access it. If that is not possible, %NULL is returned.
+ *
+ * Note that this behaviour was different prior to 2.76, but there is some
+ * overlap in functionality. If backwards compatibility is an issue, kindly
+ * consult earlier #GModule documentation for the prior search order/behavior
+ * of @file_name.
  *
  * Returns: a #GModule on success, or %NULL on failure
  *
@@ -527,7 +490,7 @@ g_module_open_full (const gchar   *file_name,
 	  handle = _g_module_self ();
 /* On Android 64 bit, RTLD_DEFAULT is (void *)0x0
  * so it always fails to create main_module if file_name is NULL */
-#if !defined(__BIONIC__) || !defined(__LP64__)
+#if !defined(__ANDROID__) || !defined(__LP64__)
 	  if (handle)
 #endif
 	    {
@@ -563,12 +526,58 @@ g_module_open_full (const gchar   *file_name,
   /* try completing file name with standard library suffix */
   if (!name)
     {
-      name = g_strconcat (file_name, "." G_MODULE_SUFFIX, NULL);
-      if (!g_file_test (name, G_FILE_TEST_IS_REGULAR))
-	{
-	  g_free (name);
-	  name = NULL;
-	}
+      char *basename, *dirname;
+      size_t prefix_idx = 0, suffix_idx = 0;
+      const char *prefixes[2] = {0}, *suffixes[2] = {0};
+
+      basename = g_path_get_basename (file_name);
+      dirname = g_path_get_dirname (file_name);
+#ifdef G_OS_WIN32
+      if (!g_str_has_prefix (basename, "lib"))
+        prefixes[prefix_idx++] = "lib";
+      prefixes[prefix_idx++] = "";
+      if (!g_str_has_suffix (basename, ".dll"))
+        suffixes[suffix_idx++] = ".dll";
+#else
+  #ifdef __CYGWIN__
+      if (!g_str_has_prefix (basename, "cyg"))
+        prefixes[prefix_idx++] = "cyg";
+  #else
+      if (!g_str_has_prefix (basename, "lib"))
+        prefixes[prefix_idx++] = "lib";
+      else
+        /* People commonly pass `libfoo` as the file_name and want us to
+         * auto-detect the suffix as .la or .so, etc. We need to also find
+         * .dylib and .dll in those cases. */
+        prefixes[prefix_idx++] = "";
+  #endif
+  #ifdef __APPLE__
+      if (!g_str_has_suffix (basename, ".dylib") &&
+          !g_str_has_suffix (basename, ".so"))
+        {
+          suffixes[suffix_idx++] = ".dylib";
+          suffixes[suffix_idx++] = ".so";
+        }
+  #else
+      if (!g_str_has_suffix (basename, ".so"))
+        suffixes[suffix_idx++] = ".so";
+  #endif
+#endif
+      for (guint i = 0; i < prefix_idx; i++)
+        {
+          for (guint j = 0; j < suffix_idx; j++)
+            {
+              name = g_strconcat (dirname, G_DIR_SEPARATOR_S, prefixes[i],
+                                  basename, suffixes[j], NULL);
+              if (g_file_test (name, G_FILE_TEST_IS_REGULAR))
+                goto name_found;
+              g_free (name);
+              name = NULL;
+            }
+        }
+    name_found:
+      g_free (basename);
+      g_free (dirname);
     }
   /* try completing by appending libtool suffix */
   if (!name)
@@ -587,8 +596,9 @@ g_module_open_full (const gchar   *file_name,
     {
       gchar *dot = strrchr (file_name, '.');
       gchar *slash = strrchr (file_name, G_DIR_SEPARATOR);
-      
-      /* make sure the name has a suffix */
+
+      /* we make sure the name has a suffix using the deprecated
+       * G_MODULE_SUFFIX for backward-compat */
       if (!dot || dot < slash)
 	name = g_strconcat (file_name, "." G_MODULE_SUFFIX, NULL);
       else
@@ -682,8 +692,8 @@ g_module_open_full (const gchar   *file_name,
 
 /**
  * g_module_open:
- * @file_name: (nullable): the name of the file containing the module, or %NULL
- *     to obtain a #GModule representing the main program itself
+ * @file_name: (nullable): the name or path to the file containing the module,
+ *     or %NULL to obtain a #GModule representing the main program itself
  * @flags: the flags used for opening the module. This can be the
  *     logical OR of any of the #GModuleFlags.
  *
@@ -886,6 +896,9 @@ g_module_name (GModule *module)
  *
  * Returns: the complete path of the module, including the standard library
  *     prefix and suffix. This should be freed when no longer needed
+ *
+ * Deprecated: 2.76: Use g_module_open() instead with @module_name as the
+ * basename of the file_name argument. See %G_MODULE_SUFFIX for why.
  */
 gchar *
 g_module_build_path (const gchar *directory,
@@ -901,10 +914,10 @@ g_module_build_path (const gchar *directory,
 
 /* Binary compatibility versions. Not for newly compiled code. */
 
-_GLIB_EXTERN GModule *    g_module_open_utf8 (const gchar  *file_name,
-                                              GModuleFlags  flags);
+_GMODULE_EXTERN GModule *    g_module_open_utf8 (const gchar  *file_name,
+                                                 GModuleFlags  flags);
 
-_GLIB_EXTERN const gchar *g_module_name_utf8 (GModule      *module);
+_GMODULE_EXTERN const gchar *g_module_name_utf8 (GModule      *module);
 
 GModule*
 g_module_open_utf8 (const gchar    *file_name,

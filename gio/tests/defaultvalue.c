@@ -17,8 +17,14 @@
  * along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "config.h"
+
 #include <string.h>
 #include <gio/gio.h>
+
+#ifdef HAVE_COCOA
+#include <gio/gosxappinfo.h>
+#endif
 
 static void
 check_property (const char *output,
@@ -192,6 +198,9 @@ main (int argc, char **argv)
 
   g_setenv ("GIO_USE_VFS", "local", TRUE);
   g_setenv ("GSETTINGS_BACKEND", "memory", TRUE);
+
+  /* Disable deprecation warnings when we poke at deprecated properties */
+  g_setenv ("G_ENABLE_DIAGNOSTIC", "0", TRUE);
 
   g_test_init (&argc, &argv, NULL);
 
