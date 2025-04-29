@@ -1,3 +1,9 @@
+glib2.0 (2.84.1-1+pexip25u1) pexip-trixie; urgency=medium
+
+  * Initial trixie build
+
+ -- Mark Hymers <mark.hymers@pexip.com>  Tue, 29 Apr 2025 22:32:29 +0100
+
 glib2.0 (2.84.1-1) unstable; urgency=medium
 
   * New upstream bugfix release (LP: #2106264)
