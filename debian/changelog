@@ -1,3 +1,9 @@
+glib2.0 (2.84.1-2+pexip25u1) pexip-trixie; urgency=medium
+
+  * New upstream release.
+
+ -- Mark Hymers <mark.hymers@pexip.com>  Tue, 06 May 2025 14:48:37 +0000
+
 glib2.0 (2.84.1-2) unstable; urgency=medium
 
   * Cherry-pick 2 commits from glib-2-84 branch (LP: #2072586)
