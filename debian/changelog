@@ -1,3 +1,59 @@
+glib2.0 (2.84.3-1) unstable; urgency=medium
+
+  * New upstream stable release
+    - Move an ineffective string length overflow check to a location where it
+      will be effective, fixing a possible buffer overflow when working with
+      multi-gigabyte strings (CVE-2025-6052, Closes: #1107797; unlikely to be
+      exploitable in practice)
+  * d/control: Update Homepage (Closes: #1087982)
+
+ -- Simon McVittie <smcv@debian.org>  Sun, 15 Jun 2025 12:12:51 +0100
+
+glib2.0 (2.84.2-1) unstable; urgency=medium
+
+  * New upstream stable release
+    - Avoid potential negative string offsets in g_get_locale_variants()
+      if the input is syntactically invalid; add test and fuzzing coverage
+      (glib#3405 upstream)
+    - Minor improvements in tests (no effect on library)
+    - Don't use faccess() with flags on Android (no effect on Debian)
+    - Windows adjustments in girepository (no effect on Debian packages)
+    - CI updates (no effect on Debian packages)
+    - Other changes were already included in 2.84.1-3
+  * d/p/gclosure-fix-ATOMIC_CHANGE_FIELD-to-read-vint-atomically.patch,
+    d/p/gstring-carefully-handle-gssize-parameters.patch,
+    d/p/gstring-Make-len_unsigned-unsigned.patch,
+    d/p/gdate-Call-tzset-before-localtime_r.patch:
+    Drop patches from 2.84.1-2 and 2.84.1-3 that were included in the
+    upstream release
+
+ -- Simon McVittie <smcv@debian.org>  Thu, 22 May 2025 17:25:42 +0100
+
+glib2.0 (2.84.1-3) unstable; urgency=medium
+
+  [ Jeremy Bícha ]
+  * d/p/gfileutils-Preserve-mode-during-atomic-updates.patch:
+    Add a note that this fix for LP#2072586 was reverted in the upstream
+    2.84.x branch as a behaviour change. It was kept in 2.85.x,
+    and seems reasonable to keep for trixie.
+
+  [ Simon McVittie ]
+  * d/p/gfileutils-Preserve-mode-during-atomic-updates.patch:
+    Add a cross-reference to LP#2072586
+  * d/p/gstring-carefully-handle-gssize-parameters.patch,
+    d/p/gstring-Make-len_unsigned-unsigned.patch:
+    Add patches from upstream to fix a buffer underflow with very large
+    GString instances (Closes: #1104930, CVE-2025-4373)
+  * d/p/gdate-Call-tzset-before-localtime_r.patch:
+    Add patch from upstream to ensure that tzset() is called before
+    localtime_r(); otherwise the behaviour of localtime_r() is unspecified.
+  * These patches bring us up to date with upstream glib-2-84 branch commit
+    2.84.1-15-gb3de15acf9, excluding changes that are not relevant to
+    Debian architectures (macOS CI and Windows) and the revert of the fix
+    for LP#2072586 (discussed above).
+
+ -- Simon McVittie <smcv@debian.org>  Fri, 09 May 2025 15:01:35 +0100
+
 glib2.0 (2.84.1-2+pexip25u1) pexip-trixie; urgency=medium
 
   * New upstream release.
