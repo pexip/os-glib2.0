@@ -9,7 +9,7 @@ Index: glib2.0/gio/tests/meson.build
 -    'live-g-file' : {},
 +    'live-g-file' : {
 +      # FIXME: Fails in Pexip build environment
-+      "can_fail": true,
++      'can_fail': true,
 +    },
      'portal-support-flatpak-none' : {
        'extra_sources': ['../gportalsupport.c', '../gsandbox.c', 'portal-support-utils.c'],
@@ -25,7 +25,7 @@ Index: glib2.0/glib/tests/meson.build
 -  'utils-isolated' : {},
 +  'utils-isolated' : {
 +    # FIXME: Fails in Pexip build environment
-+    "can_fail": true,
++    'can_fail': true,
 +  },
    'unicode' : {},
    'unicode-encoding' : {},
