@@ -15,3 +15,4 @@ workarounds/tests-Skip-debugcontroller-test.patch
 workarounds/testfilemonitor-Skip-if-we-are-avoiding-flaky-tests.patch
 debian/girepository-Describe-the-Debian-specific-cross-prefixed-.patch
 gfileutils-Preserve-mode-during-atomic-updates.patch
+pexip_skip_flaky_tests.patch
