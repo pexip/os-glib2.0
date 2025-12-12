@@ -15,3 +15,9 @@ workarounds/tests-Skip-debugcontroller-test.patch
 workarounds/testfilemonitor-Skip-if-we-are-avoiding-flaky-tests.patch
 debian/girepository-Describe-the-Debian-specific-cross-prefixed-.patch
 gfileutils-Preserve-mode-during-atomic-updates.patch
+gconvert-Error-out-if-g_escape_uri_string-would-overflow.patch
+fuzzing-Add-fuzz-tests-for-g_filename_-to-from-_uri.patch
+gvariant-parser-Fix-potential-integer-overflow-parsing-by.patch
+gvariant-parser-Use-size_t-to-count-numbers-of-child-elem.patch
+gvariant-parser-Convert-error-handling-code-to-use-size_t.patch
+gfileattribute-Fix-integer-overflow-calculating-escaping-.patch

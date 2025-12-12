@@ -23,7 +23,7 @@ Comment: This was actually reverted from the glib-2-84 branch but
  2 files changed, 33 insertions(+), 6 deletions(-)
 
 diff --git a/glib/gfileutils.c b/glib/gfileutils.c
-index bc4bcf1..1768358 100644
+index 9930030..62928fd 100644
 --- a/glib/gfileutils.c
 +++ b/glib/gfileutils.c
 @@ -1318,8 +1318,8 @@ g_file_set_contents (const gchar  *filename,

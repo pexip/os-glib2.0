@@ -1,0 +1,122 @@
+From: Philip Withnall <pwithnall@gnome.org>
+Date: Thu, 13 Nov 2025 18:31:43 +0000
+Subject: fuzzing: Add fuzz tests for g_filename_{to,from}_uri()
+
+These functions could be called on untrusted input data, and since they
+do URI escaping/unescaping, they have non-trivial string handling code.
+
+Signed-off-by: Philip Withnall <pwithnall@gnome.org>
+Origin: upstream, 2.86.3, commit:7e5489cb921d0531ee4ebc9938da30a02084b2fa
+Bug: https://gitlab.gnome.org/GNOME/glib/-/issues/3827
+Bug-Debian: https://bugs.debian.org/1121488
+---
+ ...get_locale_variants.c => fuzz_filename_from_uri.c} | 19 +++++++------------
+ ...z_get_locale_variants.c => fuzz_filename_to_uri.c} | 19 +++++++------------
+ fuzzing/meson.build                                   |  2 ++
+ 3 files changed, 16 insertions(+), 24 deletions(-)
+ copy fuzzing/{fuzz_get_locale_variants.c => fuzz_filename_from_uri.c} (70%)
+ copy fuzzing/{fuzz_get_locale_variants.c => fuzz_filename_to_uri.c} (70%)
+
+diff --git a/fuzzing/fuzz_get_locale_variants.c b/fuzzing/fuzz_filename_from_uri.c
+similarity index 70%
+copy from fuzzing/fuzz_get_locale_variants.c
+copy to fuzzing/fuzz_filename_from_uri.c
+index 248dbbf..9b7a715 100644
+--- a/fuzzing/fuzz_get_locale_variants.c
++++ b/fuzzing/fuzz_filename_from_uri.c
+@@ -15,9 +15,6 @@
+  *
+  * You should have received a copy of the GNU Lesser General Public
+  * License along with this library; if not, see <http://www.gnu.org/licenses/>.
+- *
+- * Authors:
+- *  - Philip Withnall <pwithnall@gnome.org>
+  */
+ 
+ #include "fuzz.h"
+@@ -26,20 +23,18 @@ int
+ LLVMFuzzerTestOneInput (const unsigned char *data, size_t size)
+ {
+   unsigned char *nul_terminated_data = NULL;
+-  char **v;
++  char *filename = NULL;
++  GError *local_error = NULL;
+ 
+   fuzz_set_logging_func ();
+ 
+-  /* ignore @size (g_get_locale_variants() doesn’t support it); ensure @data is nul-terminated */
++  /* ignore @size (g_filename_from_uri() doesn’t support it); ensure @data is nul-terminated */
+   nul_terminated_data = (unsigned char *) g_strndup ((const char *) data, size);
+-
+-  v = g_get_locale_variants ((char *) nul_terminated_data);
+-  g_assert_nonnull (v);
+-  /* g_get_locale_variants() guarantees that the input is always in the output: */
+-  g_assert_true (g_strv_contains ((const char * const *) v, (char *) nul_terminated_data));
+-  g_strfreev (v);
+-
++  filename = g_filename_from_uri ((const char *) nul_terminated_data, NULL, &local_error);
+   g_free (nul_terminated_data);
+ 
++  g_free (filename);
++  g_clear_error (&local_error);
++
+   return 0;
+ }
+diff --git a/fuzzing/fuzz_get_locale_variants.c b/fuzzing/fuzz_filename_to_uri.c
+similarity index 70%
+copy from fuzzing/fuzz_get_locale_variants.c
+copy to fuzzing/fuzz_filename_to_uri.c
+index 248dbbf..acb3192 100644
+--- a/fuzzing/fuzz_get_locale_variants.c
++++ b/fuzzing/fuzz_filename_to_uri.c
+@@ -15,9 +15,6 @@
+  *
+  * You should have received a copy of the GNU Lesser General Public
+  * License along with this library; if not, see <http://www.gnu.org/licenses/>.
+- *
+- * Authors:
+- *  - Philip Withnall <pwithnall@gnome.org>
+  */
+ 
+ #include "fuzz.h"
+@@ -26,20 +23,18 @@ int
+ LLVMFuzzerTestOneInput (const unsigned char *data, size_t size)
+ {
+   unsigned char *nul_terminated_data = NULL;
+-  char **v;
++  char *uri = NULL;
++  GError *local_error = NULL;
+ 
+   fuzz_set_logging_func ();
+ 
+-  /* ignore @size (g_get_locale_variants() doesn’t support it); ensure @data is nul-terminated */
++  /* ignore @size (g_filename_to_uri() doesn’t support it); ensure @data is nul-terminated */
+   nul_terminated_data = (unsigned char *) g_strndup ((const char *) data, size);
+-
+-  v = g_get_locale_variants ((char *) nul_terminated_data);
+-  g_assert_nonnull (v);
+-  /* g_get_locale_variants() guarantees that the input is always in the output: */
+-  g_assert_true (g_strv_contains ((const char * const *) v, (char *) nul_terminated_data));
+-  g_strfreev (v);
+-
++  uri = g_filename_to_uri ((const char *) nul_terminated_data, NULL, &local_error);
+   g_free (nul_terminated_data);
+ 
++  g_free (uri);
++  g_clear_error (&local_error);
++
+   return 0;
+ }
+diff --git a/fuzzing/meson.build b/fuzzing/meson.build
+index d3107a1..accff0a 100644
+--- a/fuzzing/meson.build
++++ b/fuzzing/meson.build
+@@ -25,6 +25,8 @@ fuzz_targets = [
+   'fuzz_date_parse',
+   'fuzz_date_time_new_from_iso8601',
+   'fuzz_dbus_message',
++  'fuzz_filename_from_uri',
++  'fuzz_filename_to_uri',
+   'fuzz_get_locale_variants',
+   'fuzz_inet_address_mask_new_from_string',
+   'fuzz_inet_address_new_from_string',
