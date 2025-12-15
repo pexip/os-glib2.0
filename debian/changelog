@@ -1,3 +1,62 @@
+glib2.0 (2.74.6-2+deb12u8) bookworm; urgency=medium
+
+  * Team upload.
+  * CVE-2025-13601: integer overflow into heap buffer overflow escaping
+    very large strings in g_escape_uri_string (Closes: #1121488).
+  * CVE-2025-14087: buffer overwrite when processing large GVariant strings.
+    (Closes: #1122347).
+  * CVE-2025-14512: interger overflow into buffer overwrite when processing
+    file attributes in GIO's escape_byte_string (Closes: #1122346).
+
+ -- Emilio Pozuelo Monfort <pochu@debian.org>  Mon, 15 Dec 2025 15:29:38 +0100
+
+glib2.0 (2.74.6-2+deb12u7) bookworm; urgency=medium
+
+  * d/p/gstring-carefully-handle-gssize-parameters.patch,
+    d/p/gstring-Make-len_unsigned-unsigned.patch:
+    Add patches from upstream to fix a buffer underflow in GString.
+    This could cause a memory overwrite if a program handles extremely large
+    text strings of an attacker-controlled length. The required string length
+    would be close to 2 GiB on 32-bit and the bug is not believed to be
+    practically feasible to exploit on 64-bit. (CVE-2025-4373)
+    (Closes: #1104930)
+  * d/p/glib-gfileutils.c-use-64-bits-for-value-in-get_tmp_file.patch,
+    d/p/gfileutils-fix-computation-of-temporary-file-name.patch:
+    Add patches from upstream to fix a buffer underflow in get_tmp_file().
+    This is used in g_mkstemp(), g_mkdtemp() and similar functions, and
+    could cause a crash or possibly arbitrary file overwrites (believed to
+    be unlikely to be exploitable in practice) if a long-running program
+    creates more than 2 billion temporary files. (CVE-2025-7039)
+    (Closes: #1110640)
+  * d/libglib2.0-0.postrm.in:
+    Rewrite postrm for safer upgrade behaviour, based on the version
+    in unstable and proposed for inclusion in trixie:
+    - Only remove giomodule.cache during purge, not during remove.
+      This matches the behaviour of gschemas.compiled and avoids a window
+      between old-postrm and new-postinst during which giomodule.cache is
+      missing, breaking applications that need GIO modules.
+    - Don't remove gschemas.compiled or giomodule.cache during purge
+      if there is evidence that they might still be needed
+      (Closes: #1065022, #1110696):
+      + don't remove them if ${libdir}/glib-2.0 still exists, for example
+        provided by libglib2.0-0t64 after upgrading to trixie;
+      + don't remove gschemas.compiled if at least one GSettings schema
+        still exists;
+      + don't remove giomodule.cache if at least one GIO module still exists
+    - Refactoring to support the above
+  * d/tests/1065022-futureproofing:
+    Add a test for #1065022, modified from the version in unstable and
+    proposed for inclusion in trixie
+
+ -- Simon McVittie <smcv@debian.org>  Mon, 18 Aug 2025 09:27:51 +0100
+
+glib2.0 (2.74.6-2+deb12u6) bookworm; urgency=medium
+
+  * Non-maintainer upload.
+  * CVE-2025-3360: Integer overflow in g_date_time_new_from_iso8601()
+
+ -- Adrian Bunk <bunk@debian.org>  Sat, 12 Apr 2025 16:52:16 +0300
+
 glib2.0 (2.74.6-2+deb12u5) bookworm; urgency=medium
 
   * d/p/gsocks4aproxy-Fix-a-single-byte-buffer-overflow-in-connec.patch:

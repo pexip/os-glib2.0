@@ -1,0 +1,35 @@
+From 495713b68813a76e31dd34c3592ddfd269c6def0 Mon Sep 17 00:00:00 2001
+From: Philip Withnall <pwithnall@gnome.org>
+Date: Tue, 18 Feb 2025 16:55:18 +0000
+Subject: gdatetime: Track timezone length as an unsigned size_t
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+It’s guaranteed to be in (0, length] by the calculations above.
+
+This avoids the possibility of integer overflow through `gssize` not
+being as big as `size_t`.
+
+Signed-off-by: Philip Withnall <pwithnall@gnome.org>
+---
+ glib/gdatetime.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/glib/gdatetime.c b/glib/gdatetime.c
+index 5c4ad461d..72b8d04c6 100644
+--- a/glib/gdatetime.c
++++ b/glib/gdatetime.c
+@@ -1351,7 +1351,8 @@ parse_iso8601_date (const gchar *text, gsize length,
+ static GTimeZone *
+ parse_iso8601_timezone (const gchar *text, gsize length, size_t *tz_offset)
+ {
+-  gint i, tz_length, offset_hours, offset_minutes;
++  size_t tz_length;
++  gint i, offset_hours, offset_minutes;
+   gint offset_sign = 1;
+   GTimeZone *tz;
+ 
+-- 
+2.30.2
+

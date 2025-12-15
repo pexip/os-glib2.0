@@ -1,0 +1,42 @@
+From: Michael Catanzaro <mcatanzaro@redhat.com>
+Date: Tue, 1 Jul 2025 10:58:07 -0500
+Subject: gfileutils: fix computation of temporary file name
+
+We need to ensure that the value we use to index into the letters array
+is always positive.
+
+Origin: upstream, 2.84.4, commit:8f4da99bf2f112b8e4329d8c44b6ab5dea467cb1
+Origin: upstream, 2.85.2, commit:61e963284889ddb4544e6f1d5261c16120f6fcc3
+Bug: https://gitlab.gnome.org/GNOME/glib/-/issues/3716
+Bug-CVE: CVE-2025-7039
+Bug-Debian: https://bugs.debian.org/1110640
+---
+ glib/gfileutils.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/glib/gfileutils.c b/glib/gfileutils.c
+index 22c04e1..28b424a 100644
+--- a/glib/gfileutils.c
++++ b/glib/gfileutils.c
+@@ -1483,9 +1483,9 @@ get_tmp_file (gchar            *tmpl,
+   static const char letters[] =
+     "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+   static const int NLETTERS = sizeof (letters) - 1;
+-  gint64 value;
+-  gint64 now_us;
+-  static int counter = 0;
++  guint64 value;
++  guint64 now_us;
++  static guint counter = 0;
+ 
+   g_return_val_if_fail (tmpl != NULL, -1);
+ 
+@@ -1504,7 +1504,7 @@ get_tmp_file (gchar            *tmpl,
+ 
+   for (count = 0; count < 100; value += 7777, ++count)
+     {
+-      gint64 v = value;
++      guint64 v = value;
+ 
+       /* Fill in the random bits.  */
+       XXXXXX[0] = letters[v % NLETTERS];
