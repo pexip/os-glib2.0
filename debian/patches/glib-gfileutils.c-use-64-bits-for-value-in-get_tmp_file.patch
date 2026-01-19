@@ -1,0 +1,40 @@
+From: Alexander Kanavin <alex@linutronix.de>
+Date: Tue, 22 Aug 2023 19:57:48 +0200
+Subject: glib/gfileutils.c: use 64 bits for value in get_tmp_file()
+
+On 32 bit systems 'long' value will overflow in 2038 and become negative.
+As it is used to index into letters array, and % operation preserves signs,
+data corruption will then occur.
+
+[This change makes the patch for CVE-2025-7039 apply cleanly -smcv]
+
+Signed-off-by: Alexander Kanavin <alex@linutronix.de>
+Origin: upstream, 2.77.3, commit:285db475ecaa4d2cc39ce326b4c63aacb87ca6ad
+Origin: upstream, 2.76.5, commit:b4d60ba1367f15843577d4363b32fb16847b9582
+Bug-CVE: CVE-2025-7039
+---
+ glib/gfileutils.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/glib/gfileutils.c b/glib/gfileutils.c
+index 722575e..22c04e1 100644
+--- a/glib/gfileutils.c
++++ b/glib/gfileutils.c
+@@ -1483,7 +1483,7 @@ get_tmp_file (gchar            *tmpl,
+   static const char letters[] =
+     "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+   static const int NLETTERS = sizeof (letters) - 1;
+-  glong value;
++  gint64 value;
+   gint64 now_us;
+   static int counter = 0;
+ 
+@@ -1504,7 +1504,7 @@ get_tmp_file (gchar            *tmpl,
+ 
+   for (count = 0; count < 100; value += 7777, ++count)
+     {
+-      glong v = value;
++      gint64 v = value;
+ 
+       /* Fill in the random bits.  */
+       XXXXXX[0] = letters[v % NLETTERS];

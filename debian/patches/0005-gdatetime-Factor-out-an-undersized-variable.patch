@@ -1,0 +1,56 @@
+From df5cfea3236ec479807353563abe00ddaa7c9dd8 Mon Sep 17 00:00:00 2001
+From: Philip Withnall <pwithnall@gnome.org>
+Date: Tue, 18 Feb 2025 17:28:33 +0000
+Subject: gdatetime: Factor out an undersized variable
+
+For long input strings, it would have been possible for `i` to overflow.
+Avoid that problem by using the `tz_length` instead, so that we count up
+rather than down.
+
+This commit introduces no functional changes (outside of changing
+undefined behaviour), and can be verified using the identity
+`i === length - tz_length`.
+
+Signed-off-by: Philip Withnall <pwithnall@gnome.org>
+---
+ glib/gdatetime.c | 13 ++++++-------
+ 1 file changed, 6 insertions(+), 7 deletions(-)
+
+diff --git a/glib/gdatetime.c b/glib/gdatetime.c
+index 2710e56fd..5f6b9f752 100644
+--- a/glib/gdatetime.c
++++ b/glib/gdatetime.c
+@@ -1352,7 +1352,7 @@ static GTimeZone *
+ parse_iso8601_timezone (const gchar *text, gsize length, size_t *tz_offset)
+ {
+   size_t tz_length;
+-  gint i, offset_hours, offset_minutes;
++  gint offset_hours, offset_minutes;
+   gint offset_sign = 1;
+   GTimeZone *tz;
+   const char *tz_start;
+@@ -1365,16 +1365,15 @@ parse_iso8601_timezone (const gchar *text, gsize length, size_t *tz_offset)
+     }
+ 
+   /* Look for '+' or '-' of offset */
+-  for (i = length - 1; i >= 0; i--)
+-    if (text[i] == '+' || text[i] == '-')
++  for (tz_length = 1; tz_length <= length; tz_length++)
++    if (text[length - tz_length] == '+' || text[length - tz_length] == '-')
+       {
+-        offset_sign = text[i] == '-' ? -1 : 1;
++        offset_sign = text[length - tz_length] == '-' ? -1 : 1;
+         break;
+       }
+-  if (i < 0)
++  if (tz_length > length)
+     return NULL;
+-  tz_start = text + i;
+-  tz_length = length - i;
++  tz_start = text + length - tz_length;
+ 
+   /* +hh:mm or -hh:mm */
+   if (tz_length == 6 && tz_start[3] == ':')
+-- 
+2.30.2
+
