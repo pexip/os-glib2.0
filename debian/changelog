@@ -1,3 +1,25 @@
+glib2.0 (2.84.4-3~deb13u2) trixie; urgency=medium
+
+  * d/patches: Add patches from 2.86.3 upstream to avoid integer overflows
+    - d/p/gconvert-Error-out-if-g_escape_uri_string-would-overflow.patch,
+      d/p/fuzzing-Add-fuzz-tests-for-g_filename_-to-from-_uri.patch:
+      Fix an integer overflow when interpolating hundreds of megabytes of
+      unescaped text into a URI, and add test coverage
+      (CVE-2025-13601, glib#3827 upstream, Closes: #1121488)
+    - d/p/gvariant-parser-Fix-potential-integer-overflow-parsing-by.patch:
+      Fix an integer overflow when parsing very large strings in GVariant
+      text format (CVE-2025-14087, glib#3834 upstream, Closes: #1122347)
+    - d/p/gvariant-parser-Use-size_t-to-count-numbers-of-child-elem.patch,
+      d/p/gvariant-parser-Convert-error-handling-code-to-use-size_t.patch:
+      Fix other potential integer overflows parsing very large container
+      types in GVariant text format, related to CVE-2025-14087
+    - d/p/gfileattribute-Fix-integer-overflow-calculating-escaping-.patch:
+      Fix an integer overflow when escaping invalid characters in very
+      large file attributes
+      (CVE-2025-14512, glib#3845 upstream, Closes: #1122346)
+
+ -- Simon McVittie <smcv@debian.org>  Fri, 12 Dec 2025 18:43:13 +0000
+
 glib2.0 (2.84.4-3~deb13u1+pexip25u2) pexip-trixie; urgency=medium
 
   * Trixie build for product distribution
