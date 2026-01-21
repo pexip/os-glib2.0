@@ -1,3 +1,9 @@
+glib2.0 (2.84.4-3~deb13u2+pexip25u1) pexip-trixie; urgency=medium
+
+  * New upstream release.
+
+ -- Mark Hymers <mark.hymers@pexip.com>  Wed, 21 Jan 2026 12:47:35 +0000
+
 glib2.0 (2.84.4-3~deb13u2) trixie; urgency=medium
 
   * d/patches: Add patches from 2.86.3 upstream to avoid integer overflows
