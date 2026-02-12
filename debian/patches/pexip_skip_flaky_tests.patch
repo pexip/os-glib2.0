@@ -1,3 +1,5 @@
+Skip unittests which are flaky in CI environments.
+
 Index: glib2.0/gio/tests/meson.build
 ===================================================================
 --- glib2.0.orig/gio/tests/meson.build
