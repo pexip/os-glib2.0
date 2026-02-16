@@ -21,3 +21,13 @@ gvariant-parser-Fix-potential-integer-overflow-parsing-by.patch
 gvariant-parser-Use-size_t-to-count-numbers-of-child-elem.patch
 gvariant-parser-Convert-error-handling-code-to-use-size_t.patch
 gfileattribute-Fix-integer-overflow-calculating-escaping-.patch
+gtimezone-Handle-etc-localtime-symlink-pointing-to-anothe.patch
+gtimezone-Use-var-db-timezone-zoneinfo-as-the-default-TZD.patch
+CVE-2026-0988.patch
+CVE-2026-1484-1.patch
+CVE-2026-1484-2.patch
+CVE-2026-1485.patch
+CVE-2026-1489-1.patch
+CVE-2026-1489-2.patch
+CVE-2026-1489-3.patch
+CVE-2026-1489-4.patch
