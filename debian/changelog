@@ -1,3 +1,19 @@
+glib2.0 (2.84.4-3~deb13u3) trixie; urgency=medium
+
+  * Non-maintainer upload by the LTS Security Team.
+  * Add patch to fix timezone handling with Debian & Ubuntu's symlinks
+    (Closes: #1119919) (LP: #2130378)
+  * CVE-2026-0988: Missing input validation in g_buffered_input_stream_peek
+    (Closes: #1125752)
+  * CVE-2026-1484: Integer overflow in base64 encoding can cause memory
+    corruption. (Closes: #1126551)
+  * CVE-2026-1485: Buffer underflow vulnerability in content type parsing
+    caused by (signed) integer wrap for large inputs. (Closes: #1126550)
+  * CVE-2026-1489: Integer overflow in unicode conversion
+    can lead to memory corruption. (Closes: #1126549)
+
+ -- Andreas Henriksson <andreas@fatal.se>  Mon, 16 Feb 2026 09:11:04 +0100
+
 glib2.0 (2.84.4-3~deb13u2+pexip25u1) pexip-trixie; urgency=medium
 
   * New upstream release.
